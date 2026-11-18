@@ -12,7 +12,6 @@ import { SIM_STEP } from './stepper.ts';
 export interface BotProfile {
   name: string;
   clicksPerSecond: number;
-  /** Seconds of holding when firing, or null if this player ignores the cannon. */
   cannon: 'none' | 'normal' | 'perfect';
   /** Chance of catching each hopping kernel. */
   hopperCatch: number;
@@ -94,72 +93,65 @@ function choices(sim: Simulation): Choice[] {
   return list;
 }
 
-/** Plays one full run with a simple greedy player and records when things happened. */
-export function runBot(profile: BotProfile, maxHours = 14, trace?: (seconds: number, sim: Simulation) => void): BotReport {
-  const bus = new EventBus<GameEvents>();
-  const sim = new Simulation(bus);
-  const stageMinutes: number[] = [];
-  let time = 0;
-  bus.on('stage_broken', () => stageMinutes.push(time / 60));
-  let hopperRoll = 0;
-  let seed = 12345;
-  const roll = (): number => {
-    seed = (seed * 16807) % 2147483647;
-    return seed / 2147483647;
-  };
-  bus.on('hopper_spawned', () => {
-    hopperRoll = roll() < profile.hopperCatch ? 2 + roll() * 3 : -1;
-  });
+export interface BotListener {
+  onPurchase?(label: string, unit: number | null): void;
+}
 
-  const firstBought = PRODUCERS.map(() => -1);
-  const lastBought = PRODUCERS.map(() => -1);
-  let lastPurchase = 0;
-  let longestWait = 0;
-  let longestWaitAt = 0;
-  let longestWaitFor = '';
-  let firstPurchase = -1;
-  let firstUnit = -1;
-  let purchases = 0;
-  const early: number[] = [];
-  let clickBudget = 0;
-  let shopTimer = 0;
+/** A simple greedy player. Drives both the balance tool and full playthroughs of the real game. */
+export class BotPlayer {
+  private readonly profile: BotProfile;
+  private readonly sim: Simulation;
+  private readonly click: () => void;
+  private readonly listener: BotListener;
+  private clickBudget = 0;
+  private shopTimer = 0;
+  private hopperDelay = 0;
+  private seed = 12345;
 
-  const notePurchase = (label: string): void => {
-    const gap = time - lastPurchase;
-    if (purchases > 0 && gap > longestWait) {
-      longestWait = gap;
-      longestWaitAt = time;
-      longestWaitFor = label;
+  constructor(profile: BotProfile, sim: Simulation, bus: EventBus<GameEvents>, click: () => void, listener: BotListener = {}) {
+    this.profile = profile;
+    this.sim = sim;
+    this.click = click;
+    this.listener = listener;
+    bus.on('hopper_spawned', () => {
+      this.hopperDelay = this.roll() < profile.hopperCatch ? 2 + this.roll() * 3 : -1;
+    });
+  }
+
+  private roll(): number {
+    this.seed = (this.seed * 16807) % 2147483647;
+    return this.seed / 2147483647;
+  }
+
+  /** Actions taken before the simulation advances by `seconds`. */
+  act(seconds: number): void {
+    const { profile } = this;
+    this.clickBudget += profile.clicksPerSecond * seconds;
+    while (this.clickBudget >= 1) {
+      this.clickBudget -= 1;
+      this.click();
     }
-    if (purchases > 0 && time < 20 * 60) early.push(gap);
-    lastPurchase = time;
-    purchases += 1;
-    if (firstPurchase < 0) firstPurchase = time;
-  };
+  }
 
-  const limit = maxHours * 3600;
-  while (time < limit && !sim.state.ended) {
-    time += SIM_STEP;
-    clickBudget += profile.clicksPerSecond * SIM_STEP;
-    while (clickBudget >= 1) {
-      clickBudget -= 1;
-      sim.click();
-    }
-    sim.step(SIM_STEP);
-    trace?.(time, sim);
-
-    if (hopperRoll > 0) {
-      hopperRoll -= SIM_STEP;
-      if (hopperRoll <= 0) sim.catchHopper();
+  /** Decisions made after the simulation has advanced. */
+  decide(seconds: number): void {
+    const { profile, sim } = this;
+    if (this.hopperDelay > 0) {
+      this.hopperDelay -= seconds;
+      if (this.hopperDelay <= 0) sim.catchHopper();
     }
     if (profile.cannon !== 'none' && sim.cannonReady) {
       const green = cannonGreenRange(sim.derived);
       sim.fireCannon(profile.cannon === 'perfect' ? (green.start + green.end) / 2 : CANNON.chargeSeconds * 0.5);
     }
+    this.shopTimer -= seconds;
+    if (this.shopTimer > 0) return;
+    this.shopTimer = profile.shopInterval;
+    this.shop();
+  }
 
-    shopTimer -= SIM_STEP;
-    if (shopTimer > 0) continue;
-    shopTimer = profile.shopInterval;
+  private shop(): void {
+    const { profile, sim } = this;
     // Spending keeps going while the best item is affordable.
     for (let guard = 0; guard < 25; guard += 1) {
       const income = Math.max(sim.perSecond + profile.clicksPerSecond * sim.clickValue, 0.1);
@@ -175,7 +167,7 @@ export function runBot(profile: BotProfile, maxHours = 14, trace?: (seconds: num
           best = choice;
         }
       }
-      if (!best) break;
+      if (!best) return;
       if (sim.state.popcorn < best.cost) {
         // While saving up, a person still picks up things that barely delay the big purchase,
         // and accepts a larger detour when the big purchase is minutes away.
@@ -185,25 +177,75 @@ export function runBot(profile: BotProfile, maxHours = 14, trace?: (seconds: num
         const filler = list
           .filter((choice) => choice.cost <= sim.state.popcorn && choice.cost <= target * share)
           .sort((a, b) => a.cost / Math.max(a.gain, 1e-9) - b.cost / Math.max(b.gain, 1e-9))[0];
-        if (!filler) break;
+        if (!filler) return;
         best = filler;
       }
       let bought = false;
+      let label = '';
+      let unit: number | null = null;
       if (best.kind === 'unit') {
         bought = sim.buyProducer(best.id);
-        if (bought) {
-          if (firstBought[best.id] === -1) firstBought[best.id] = time;
-          lastBought[best.id] = time;
-          if (firstUnit < 0) firstUnit = time;
-        }
+        label = PRODUCERS[best.id]!.name;
+        unit = best.id;
       } else if (best.kind === 'flavor') {
+        label = `口味 ${sim.state.flavors + 1}`;
         bought = sim.buyFlavor();
       } else {
+        label = best.def.name;
         bought = sim.buyUpgrade(best.def.id);
       }
-      if (!bought) break;
-      notePurchase(best.kind === 'unit' ? PRODUCERS[best.id]!.name : best.kind === 'flavor' ? `口味 ${sim.state.flavors}` : best.def.name);
+      if (!bought) return;
+      this.listener.onPurchase?.(label, unit);
     }
+  }
+}
+
+/** Plays one full run headlessly and records when things happened. */
+export function runBot(profile: BotProfile, maxHours = 14, trace?: (seconds: number, sim: Simulation) => void): BotReport {
+  const bus = new EventBus<GameEvents>();
+  const sim = new Simulation(bus);
+  const stageMinutes: number[] = [];
+  let time = 0;
+  bus.on('stage_broken', () => stageMinutes.push(time / 60));
+
+  const firstBought = PRODUCERS.map(() => -1);
+  const lastBought = PRODUCERS.map(() => -1);
+  let lastPurchase = 0;
+  let longestWait = 0;
+  let longestWaitAt = 0;
+  let longestWaitFor = '';
+  let firstPurchase = -1;
+  let firstUnit = -1;
+  let purchases = 0;
+  const early: number[] = [];
+
+  const bot = new BotPlayer(profile, sim, bus, () => sim.click(), {
+    onPurchase(label, unit) {
+      if (unit !== null) {
+        if (firstBought[unit] === -1) firstBought[unit] = time;
+        lastBought[unit] = time;
+        if (firstUnit < 0) firstUnit = time;
+      }
+      const gap = time - lastPurchase;
+      if (purchases > 0 && gap > longestWait) {
+        longestWait = gap;
+        longestWaitAt = time;
+        longestWaitFor = label;
+      }
+      if (purchases > 0 && time < 20 * 60) early.push(gap);
+      lastPurchase = time;
+      purchases += 1;
+      if (firstPurchase < 0) firstPurchase = time;
+    },
+  });
+
+  const limit = maxHours * 3600;
+  while (time < limit && !sim.state.ended) {
+    time += SIM_STEP;
+    bot.act(SIM_STEP);
+    sim.step(SIM_STEP);
+    trace?.(time, sim);
+    bot.decide(SIM_STEP);
   }
 
   while (stageMinutes.length < STAGES.length) stageMinutes.push(Number.NaN);

@@ -13,6 +13,8 @@
     "test": "vitest run",
     "check": "npm run typecheck && npm run test",
     "balance": "node tools/simulate.ts",
+    "audio": "node tools/audio-check.ts",
+    "playthrough": "node tools/playthrough.ts",
     "shots": "node tools/shots.ts",
     "e2e": "playwright test",
     "fonts": "node tools/fonts.ts",

@@ -52,6 +52,55 @@ export const filmScenarios: Record<string, FilmScenario> = {
     },
     step: (page) => advance(page, FRAME * 2),
   },
+  /** The first breakout, from the rattling lid to the kitchen settling into place. */
+  breakout: {
+    clip: { x: 0, y: 0, width: 1280, height: 720 },
+    frames: 30,
+    columns: 6,
+    setup: async (page) => {
+      await qa(
+        page,
+        (api) => {
+          api.earn(960);
+          api.buy(0, 3);
+          api.advance(2.5);
+          api.earn(200);
+        },
+        null,
+      );
+    },
+    step: (page) => advance(page, FRAME * 6),
+  },
+  /** Cannon charge and a perfect shot, in the kitchen. */
+  cannon: {
+    clip: { x: 0, y: 0, width: 1280, height: 720 },
+    frames: 24,
+    columns: 6,
+    setup: async (page) => {
+      await qa(
+        page,
+        (api) => {
+          api.set({ stage: 1, totalEarned: 12000, popcorn: 12000 });
+          api.advance(2.5);
+        },
+        null,
+      );
+    },
+    beforeFrame: async (page, frame) => {
+      await qa(
+        page,
+        (api, f: number) => {
+          if (f < 10) api.setCharge((f + 1) / 11);
+          if (f === 10) {
+            api.setCharge(0);
+            api.fireCannon(1.02);
+          }
+        },
+        frame,
+      );
+    },
+    step: (page) => advance(page, FRAME * 4),
+  },
   /** The shovel taking payment out of the heap. */
   shovel: {
     clip: { x: 180, y: 120, width: 640, height: 480 },

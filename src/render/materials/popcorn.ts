@@ -21,13 +21,26 @@ export const popcornUniforms = {
   uEffect: { value: new THREE.Vector2(0, 0) },
 };
 
-export const pileUniforms = {
-  uPileTex: { value: null as THREE.Texture | null },
-  uPileMin: { value: new THREE.Vector2() },
-  uPileSize: { value: 1 },
-  uPileTexel: { value: 1 / 180 },
-  uLumpScale: { value: 7 },
-};
+/** Each heap owns one of these, so two scenes can show their heaps at once during a transition. */
+export function createPileUniforms(): PileUniforms {
+  return {
+    uPileTex: { value: null },
+    uPileMin: { value: new THREE.Vector2() },
+    uPileSize: { value: 1 },
+    uPileTexel: { value: 1 / 180 },
+    uLumpScale: { value: 7 },
+    uPieceK: { value: 1 },
+  };
+}
+
+export interface PileUniforms {
+  uPileTex: { value: THREE.Texture | null };
+  uPileMin: { value: THREE.Vector2 };
+  uPileSize: { value: number };
+  uPileTexel: { value: number };
+  uLumpScale: { value: number };
+  uPieceK: { value: number };
+}
 
 const shading = /* glsl */ `
 uniform vec3 uPopCream, uPopShade, uPopDeep, uPopHull, uPopCool, uKernel;
@@ -197,9 +210,10 @@ vec2 pileUv(vec2 xz) { return (xz - uPileMin) / uPileSize; }
 
 const surfaceVertex = /* glsl */ `
 ${pilePars}
+uniform float uPieceK;
 attribute vec3 aShade;
 attribute vec4 iPlace, iQuat;
-varying vec3 vWorld, vNormal, vShade, vPileNormal;
+varying vec3 vWorld, vLocal, vNormal, vShade, vPileNormal;
 varying float vBury, vDepth, vTone;
 vec3 rotateQ(vec4 q, vec3 v) { return v + 2.0 * cross(q.xyz, cross(q.xyz, v) + q.w * v); }
 void main() {
@@ -212,14 +226,16 @@ void main() {
   float depth = h.r - h.b;
   vDepth = depth;
   vTone = fract(iPlace.x * 13.7 + iPlace.y * 7.3);
-  float reveal = smoothstep(0.0, 0.1, depth);
+  float reveal = smoothstep(0.0, 0.1 * uPieceK, depth);
   float jiggle = h.g;
   float scale = iPlace.w * reveal * h.a * (1.0 + jiggle * 0.5);
   vec4 q = normalize(iQuat + vec4(jiggle * sin(iPlace.x * 31.0 + uTime * 26.0) * 0.7, 0.0, jiggle * cos(iPlace.y * 29.0 + uTime * 23.0) * 0.7, 0.0));
   vec3 p = rotateQ(q, position * scale);
-  vec3 wp = vec3(iPlace.x, h.r + iPlace.z + jiggle * 0.05, iPlace.y) + p;
+  vec3 wp = vec3(iPlace.x, h.r + iPlace.z + jiggle * 0.05 * uPieceK, iPlace.y) + p;
+  vLocal = wp;
   vWorld = (modelMatrix * vec4(wp, 1.0)).xyz;
   vNormal = normalize(mat3(modelMatrix) * rotateQ(q, normal));
+  vPileNormal = normalize(mat3(modelMatrix) * vPileNormal);
   vShade = aShade;
   vBury = iPlace.z;
   gl_Position = projectionMatrix * viewMatrix * vec4(vWorld, 1.0);
@@ -227,23 +243,24 @@ void main() {
 `;
 
 const surfaceFragment = /* glsl */ `
-varying vec3 vWorld, vNormal, vShade, vPileNormal;
+uniform float uPieceK;
+varying vec3 vWorld, vLocal, vNormal, vShade, vPileNormal;
 varying float vBury, vDepth, vTone;
 void main() {
   vec3 N = normalize(vNormal);
   vec3 toCam = cameraPosition - vWorld;
   float dist = length(toCam);
   vec3 V = toCam / dist;
-  if (dist < 24.0) {
-    vec3 g = puffGradient(vWorld * 42.0);
+  if (dist < 24.0 * uPieceK) {
+    vec3 g = puffGradient(vLocal * 42.0 / uPieceK);
     N = normalize(N - normalize(g + 1e-5) * min(length(g), 3.0) * 0.07 * (1.0 - vShade.y));
   }
   // Leaning every flake toward the heap normal makes the whole mound read as one lit form.
   vec3 lightN = normalize(N * 0.7 + normalize(vPileNormal) * 0.62);
-  float shadow = sunShadow(vWorld + vPileNormal * 0.1, vPileNormal);
+  float shadow = sunShadow(vWorld + vPileNormal * 0.1 * uPieceK, vPileNormal);
   // Flakes seated deeper in the heap sit in each other's shade.
-  float ao = smoothstep(-0.11, 0.02, vBury) * (1.0 - vShade.x * 0.3);
-  ao *= mix(0.62, 1.0, smoothstep(0.0, 0.42, vDepth));
+  float ao = smoothstep(-0.11, 0.02, vBury / uPieceK) * (1.0 - vShade.x * 0.3);
+  ao *= mix(0.62, 1.0, smoothstep(0.0, 0.42, vDepth / uPieceK));
   vec3 col = popcornShade(lightN, V, vWorld, vShade.x, vShade.y, 1.0, 0.0, shadow, ao);
   col *= mix(vec3(1.0, 0.91, 0.78), vec3(1.05, 1.03, 1.0), vTone);
   gl_FragColor = vec4(applyFog(col, dist), 1.0);
@@ -252,28 +269,29 @@ void main() {
 
 const heapVertex = /* glsl */ `
 ${pilePars}
+uniform float uPieceK;
 varying vec3 vWorld;
 varying vec2 vXZ;
 void main() {
-  vec2 xz = (modelMatrix * vec4(position, 1.0)).xz;
+  vec2 xz = position.xz;
   vec4 h = textureLod(uPileTex, pileUv(xz), 0.0);
-  vec3 wp = vec3(xz.x, h.r - 0.03, xz.y);
-  vWorld = wp;
+  vec4 wp = modelMatrix * vec4(xz.x, h.r - 0.03 * uPieceK, xz.y, 1.0);
+  vWorld = wp.xyz;
   vXZ = xz;
-  gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.0);
+  gl_Position = projectionMatrix * viewMatrix * wp;
 }
 `;
 
 const heapFragment = /* glsl */ `
 ${pilePars}
-uniform float uLumpScale;
+uniform float uLumpScale, uPieceK;
 varying vec3 vWorld;
 varying vec2 vXZ;
 float pileHeight(vec2 uv) { return texture2D(uPileTex, uv).r; }
 void main() {
   vec2 uv = pileUv(vXZ);
   vec4 h = texture2D(uPileTex, uv);
-  if (h.r - h.b < 0.015) discard;
+  if (h.r - h.b < 0.015 * uPieceK) discard;
   float e = uPileTexel;
   float world = uPileSize * e * 2.0;
   vec3 N = normalize(vec3(pileHeight(uv - vec2(e, 0.0)) - pileHeight(uv + vec2(e, 0.0)), world, pileHeight(uv - vec2(0.0, e)) - pileHeight(uv + vec2(0.0, e))));
@@ -281,8 +299,8 @@ void main() {
   // Far away the heap is only this pattern, so it must still read as separate puffs.
   // Sliding the pattern outward with height keeps it from stretching down steep slopes.
   vec2 fromCenter = vXZ - (uPileMin + uPileSize * 0.5);
-  vec2 unrolled = vXZ + normalize(fromCenter + 1e-4) * (h.r - h.b) * 0.9;
-  vec2 p = unrolled * uLumpScale + 0.35 * vec2(vnoise(vXZ * 3.1), vnoise(vXZ * 3.1 + 9.0));
+  vec2 unrolled = vXZ - normalize(fromCenter + 1e-4) * (h.r - h.b) * 0.9;
+  vec2 p = unrolled * uLumpScale / uPieceK + 0.35 * vec2(vnoise(vXZ * 3.1 / uPieceK), vnoise(vXZ * 3.1 / uPieceK + 9.0));
   vec2 w = worley(p);
   float puff = sat(1.0 - w.x * 1.1);
   float gap = smoothstep(0.0, 0.34, w.y - w.x);
@@ -292,7 +310,7 @@ void main() {
   vec3 toCam = cameraPosition - vWorld;
   float dist = length(toCam);
   vec3 V = toCam / dist;
-  float shadow = sunShadow(vWorld + vec3(0.0, 0.06, 0.0), N);
+  float shadow = sunShadow(vWorld + vec3(0.0, 0.06 * uPieceK, 0.0), N);
   // The heap under the flakes stays toasted and dark, so gaps read as depth.
   float crease = 0.55 + (1.0 - gap) * 0.25 + (1.0 - puff) * 0.25;
   vec3 col = popcornShade(N, V, vWorld, sat(crease), 0.0, 1.0, 0.0, shadow, mix(0.08, 0.5, puff));
@@ -304,47 +322,50 @@ const heapDepthVertex = /* glsl */ `
 ${pilePars}
 varying vec2 vXZ;
 void main() {
-  vec2 xz = (modelMatrix * vec4(position, 1.0)).xz;
+  vec2 xz = position.xz;
   vXZ = xz;
-  gl_Position = projectionMatrix * viewMatrix * vec4(xz.x, textureLod(uPileTex, pileUv(xz), 0.0).r, xz.y, 1.0);
+  gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4(xz.x, textureLod(uPileTex, pileUv(xz), 0.0).r, xz.y, 1.0);
 }
 `;
 
 // Bare ground must cast nothing, or the grid would throw a jagged skirt around every wall.
 const heapDepthFragment = /* glsl */ `
 ${pilePars}
+uniform float uPieceK;
 varying vec2 vXZ;
 void main() {
   vec4 h = texture2D(uPileTex, pileUv(vXZ));
-  if (h.r - h.b < 0.015) discard;
+  if (h.r - h.b < 0.015 * uPieceK) discard;
   gl_FragColor = vec4(1.0);
 }
 `;
 
-const allUniforms = { ...globals, ...popcornUniforms, ...pileUniforms };
+const sharedUniforms = { ...globals, ...popcornUniforms };
 const hash31 = 'float hash31(vec3 p) { p = fract(p * 0.1031); p += dot(p, p.zyx + 31.32); return fract((p.x + p.y) * p.z); }\n';
 const fragmentHead = `${GLSL_UTIL}\n${hash31}${GLSL_LIGHT_PARS}\n${shading}\n`;
 const depthFragment = 'void main() { gl_FragColor = vec4(1.0); }';
 const satDefine = '#define sat(x) clamp(x, 0.0, 1.0)\n';
 
-export interface PopcornMaterials {
+export interface PieceMaterials {
   piece: THREE.ShaderMaterial;
   pieceDepth: THREE.ShaderMaterial;
+}
+
+export interface PileMaterials {
   surface: THREE.ShaderMaterial;
   heap: THREE.ShaderMaterial;
   heapDepth: THREE.ShaderMaterial;
 }
 
-let shared: PopcornMaterials | null = null;
+let shared: PieceMaterials | null = null;
 
-export function popcornMaterials(): PopcornMaterials {
-  if (shared) return shared;
-  shared = {
+export function pieceMaterials(): PieceMaterials {
+  shared ??= {
     piece: new THREE.ShaderMaterial({
       name: 'popcorn-piece',
       vertexShader: satDefine + pieceVertex,
       fragmentShader: fragmentHead + pieceFragment,
-      uniforms: allUniforms,
+      uniforms: sharedUniforms,
     }),
     pieceDepth: new THREE.ShaderMaterial({
       name: 'popcorn-piece-depth',
@@ -352,25 +373,31 @@ export function popcornMaterials(): PopcornMaterials {
       fragmentShader: depthFragment,
       colorWrite: false,
     }),
+  };
+  return shared;
+}
+
+export function createPileMaterials(own: PileUniforms): PileMaterials {
+  const uniforms = { ...sharedUniforms, ...own };
+  return {
     surface: new THREE.ShaderMaterial({
       name: 'popcorn-surface',
       vertexShader: `uniform float uTime;\n${surfaceVertex}`,
       fragmentShader: fragmentHead + surfaceFragment,
-      uniforms: allUniforms,
+      uniforms,
     }),
     heap: new THREE.ShaderMaterial({
       name: 'popcorn-heap',
       vertexShader: heapVertex,
       fragmentShader: fragmentHead + heapFragment,
-      uniforms: allUniforms,
+      uniforms,
     }),
     heapDepth: new THREE.ShaderMaterial({
       name: 'popcorn-heap-depth',
       vertexShader: heapDepthVertex,
       fragmentShader: heapDepthFragment,
-      uniforms: allUniforms,
+      uniforms,
       colorWrite: false,
     }),
   };
-  return shared;
 }

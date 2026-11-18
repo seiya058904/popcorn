@@ -1,71 +1,114 @@
 import * as THREE from 'three';
+import { STAGES } from '../content/stages.ts';
 import type { EventBus } from '../events/bus.ts';
 import type { GameEvents } from '../events/game-events.ts';
-import { clamp01, easeOutCubic, Spring } from '../motion/ease.ts';
+import { clamp01, easeInOutCubic, lerp } from '../motion/ease.ts';
 import type { ImpactDirector } from '../motion/impact.ts';
 import { Rng } from '../motion/rng.ts';
+import { tuning } from '../motion/tuning.ts';
 import type { Simulation } from '../sim/simulation.ts';
-import { applyLightRig, globals } from './core/globals.ts';
+import { applyLightRig, globals, type LightRig } from './core/globals.ts';
 import type { Stage } from './core/stage.ts';
-import { Flames } from './fx/flames.ts';
-import { Shovel } from './fx/shovel.ts';
-import { SpriteKind, Sprites } from './fx/sprites.ts';
-import { PieceBatches } from './popcorn/batches.ts';
-import { PopDirector } from './popcorn/director.ts';
-import { FlavorShow } from './popcorn/flavor.ts';
-import { Pile } from './popcorn/pile.ts';
-import {
-  BURNERS,
-  buildStoveScene,
-  PAN_SLOTS,
-  POT,
-  stoveCamera,
-  stoveLight,
-  stovePile,
-  type StoveScene,
-} from './scenes/stove.ts';
+import { SceneRuntime, type RuntimeHooks } from './scene-runtime.ts';
+import { kitchenSpec } from './scenes/kitchen.ts';
+import { stoveSpec } from './scenes/stove.ts';
+import type { Grade, SceneSpec } from './scenes/types.ts';
+
+export type BreakBeat = 'strain' | 'silence' | 'blast' | 'arrive';
 
 export interface WorldHooks {
   onBurst(screenX: number, screenY: number, combo: number, gain: number, manual: boolean): void;
   onLand(gain: number): void;
+  onMachineCannon(): void;
+  onBreakBeat(beat: BreakBeat, stage: number): void;
 }
 
-interface PanState {
-  age: number;
-  timer: number;
-  hop: Spring;
-  lidHop: number;
-  lidSpin: number;
-  shake: number;
-}
+/** Scenes in play order; later milestones extend this list. */
+export const SCENES: SceneSpec[] = [stoveSpec, kitchenSpec];
 
-const STAGE_ONE_GOAL = 1000;
-/** A new pan waits for the shovel's dig before it drops in. */
-const PAN_DROP_DELAY = 0.24;
+const STRAIN_END = 0.5;
+const ZOOM_START = 0.86;
+const ZOOM_END = 2.55;
+const TRANSITION_END = 2.7;
+const HOPPER_HIT_RADIUS_REM = 5.2;
 
-const steam = new THREE.Color(0.9, 0.88, 0.86);
-const m = new THREE.Matrix4();
-const q = new THREE.Quaternion();
-const e = new THREE.Euler();
-const v = new THREE.Vector3();
-const s = new THREE.Vector3(1, 1, 1);
 const ndc = new THREE.Vector2();
-const focus = new THREE.Vector3();
+const v = new THREE.Vector3();
+const v2 = new THREE.Vector3();
 const right = new THREE.Vector3();
 const up = new THREE.Vector3();
-const potCenter = new THREE.Vector3(0, 1, 0);
+const colorA = new THREE.Color();
+const colorB = new THREE.Color();
+
 const smoothstep = (x: number, a: number, b: number): number => {
   const t = clamp01((x - a) / (b - a));
   return t * t * (3 - 2 * t);
 };
 
+interface Pose {
+  position: THREE.Vector3;
+  target: THREE.Vector3;
+  fov: number;
+  focusDistance: number;
+  focusRange: number;
+  aoRadius: number;
+  shadowCenter: THREE.Vector3;
+  shadowRadius: number;
+  rig: LightRig;
+  grade: Grade;
+}
+
+interface Transition {
+  from: SceneRuntime;
+  to: SceneRuntime;
+  stage: number;
+  t: number;
+  blasted: boolean;
+  startPose: Pose | null;
+  silenced: boolean;
+  arrived: boolean;
+}
+
+const logLerp = (a: number, b: number, t: number): number => Math.exp(lerp(Math.log(a), Math.log(b), t));
+
+function mixRig(a: LightRig, b: LightRig, t: number): LightRig {
+  const color = (x: THREE.ColorRepresentation, y: THREE.ColorRepresentation): THREE.Color => colorA.set(x).lerp(colorB.set(y), t).clone();
+  const tuple3 = (x: [number, number, number], y: [number, number, number]): [number, number, number] => [lerp(x[0], y[0], t), lerp(x[1], y[1], t), lerp(x[2], y[2], t)];
+  return {
+    sunDir: tuple3(a.sunDir, b.sunDir),
+    sunColor: color(a.sunColor, b.sunColor),
+    sunIntensity: lerp(a.sunIntensity, b.sunIntensity, t),
+    shadeTint: color(a.shadeTint, b.shadeTint),
+    sky: color(a.sky, b.sky),
+    skyIntensity: lerp(a.skyIntensity, b.skyIntensity, t),
+    ground: color(a.ground, b.ground),
+    groundIntensity: lerp(a.groundIntensity, b.groundIntensity, t),
+    rim: color(a.rim, b.rim),
+    rimIntensity: lerp(a.rimIntensity, b.rimIntensity, t),
+    rimDir: tuple3(a.rimDir, b.rimDir),
+    fog: color(a.fog, b.fog),
+    fogRange: [logLerp(a.fogRange[0], b.fogRange[0], t), logLerp(a.fogRange[1], b.fogRange[1], t)],
+    pool: [lerp(a.pool[0], b.pool[0], t), lerp(a.pool[1], b.pool[1], t), lerp(a.pool[2], b.pool[2], t), logLerp(a.pool[3], b.pool[3], t)],
+    poolFloor: lerp(a.poolFloor, b.poolFloor, t),
+  };
+}
+
+function mixGrade(a: Grade, b: Grade, t: number): Grade {
+  const color = (x: THREE.ColorRepresentation, y: THREE.ColorRepresentation): THREE.Color => colorA.set(x).lerp(colorB.set(y), t).clone();
+  return {
+    exposure: lerp(a.exposure, b.exposure, t),
+    contrast: lerp(a.contrast, b.contrast, t),
+    saturation: lerp(a.saturation, b.saturation, t),
+    vignette: lerp(a.vignette, b.vignette, t),
+    bloom: lerp(a.bloom, b.bloom, t),
+    shadowTint: color(a.shadowTint, b.shadowTint),
+    highlightTint: color(a.highlightTint, b.highlightTint),
+    aoTint: color(a.aoTint, b.aoTint),
+  };
+}
+
 export class World {
   readonly root = new THREE.Group();
-  readonly pile: Pile;
-  readonly director: PopDirector;
-  readonly scene: StoveScene;
-  readonly sprites: Sprites;
-  readonly flavor: FlavorShow;
   /** Manual gains still in the air; the counter catches up as they land. */
   pendingGain = 0;
   /** Fraction of the window taken by the shop, used to center the action. */
@@ -74,17 +117,16 @@ export class World {
   private readonly sim: Simulation;
   private readonly hooks: WorldHooks;
   private readonly impact: ImpactDirector;
-  private readonly flames: Flames;
-  private readonly shovel: Shovel;
   private readonly rng = new Rng(77);
   private readonly raycaster = new THREE.Raycaster();
-  private readonly pans: PanState[] = [];
-  private readonly potKick = new Spring(0, 420, 15);
-  private readonly lidRattle = new Spring(0, 620, 17);
+  private readonly runtimes: SceneRuntime[] = [];
+  private readonly runtimeHooks: RuntimeHooks;
+  private currentIndex = -1;
+  private transition: Transition | null = null;
   private level = 0;
   private time = 0;
-  private steamTimer = 0;
   private cameraLocked = false;
+  private intensity = 0;
 
   constructor(stage: Stage, sim: Simulation, bus: EventBus<GameEvents>, impact: ImpactDirector, hooks: WorldHooks) {
     this.stage = stage;
@@ -92,262 +134,440 @@ export class World {
     this.hooks = hooks;
     this.impact = impact;
     stage.scene.add(this.root);
-    applyLightRig(stoveLight);
-    stage.shadow.setFrustum({ x: 0, y: 0.8, z: -0.3 }, 8.2);
-    this.applyCamera();
-
-    this.scene = buildStoveScene(stage, this.root);
-    this.pile = new Pile(stage, this.root, stovePile);
-    this.pile.setLevel(0);
-    this.pile.update(0);
-    this.sprites = new Sprites(this.root);
-    this.flames = new Flames(this.root, BURNERS);
-    this.flames.setLit(1);
-    this.shovel = new Shovel(stage, this.root, this.sprites, this.rng);
-    this.flavor = new FlavorShow(stage, this.root, this.sprites, this.rng, 7.5);
-    const batches = new PieceBatches(stage, this.root);
-
-    this.director = new PopDirector(
-      this.pile,
-      batches,
-      this.sprites,
-      this.rng,
-      {
-        onSquash: () => this.potKick.kick(-0.16),
-        onBurst: (position, combo, gain, manual) => {
-          if (manual) {
-            this.potKick.kick(-0.3);
-            this.lidRattle.kick(1.6);
-          }
-          v.copy(position).project(this.stage.camera);
-          this.hooks.onBurst(
-            (v.x * 0.5 + 0.5) * this.stage.renderer.domElement.clientWidth,
-            (0.5 - v.y * 0.5) * this.stage.renderer.domElement.clientHeight,
-            combo,
-            gain,
-            manual,
-          );
-        },
-        onLand: (_position, gain) => {
-          this.pendingGain = Math.max(0, this.pendingGain - gain);
-          this.hooks.onLand(gain);
-        },
+    this.runtimeHooks = {
+      onSquash: () => undefined,
+      onBurst: (position, combo, gain, manual) => {
+        v.copy(position);
+        this.current?.root.localToWorld(v);
+        v.project(this.stage.camera);
+        const canvas = this.stage.renderer.domElement;
+        this.hooks.onBurst((v.x * 0.5 + 0.5) * canvas.clientWidth, (0.5 - v.y * 0.5) * canvas.clientHeight, combo, gain, manual);
       },
-      POT.innerR * 0.72,
-    );
+      onLand: (gain) => {
+        this.pendingGain = Math.max(0, this.pendingGain - gain);
+        this.hooks.onLand(gain);
+      },
+      onMachineCannon: () => this.hooks.onMachineCannon(),
+    };
 
-    bus.on('producer_purchased', ({ producer, owned, quantity, spent }) => {
-      if (producer === 0) this.syncPans(owned, true);
+    bus.on('producer_purchased', ({ spent }) => {
+      this.current?.syncUnits(this.sim.state.owned, true);
       this.scoopPayment(spent);
-      void quantity;
     });
     bus.on('upgrade_purchased', ({ spent }) => this.scoopPayment(spent));
     bus.on('flavor_unlocked', ({ flavor, spent }) => {
       this.scoopPayment(spent);
-      this.flavor.play(flavor);
+      this.current?.flavor?.play(flavor);
       this.impact.hit('medium');
     });
-    bus.on('cannon_fired', ({ result }) => this.impact.hit(result === 'overpressure' ? 'medium' : 'large'));
-    bus.on('stage_broken', () => this.impact.hit('epic'));
+    bus.on('cannon_fired', ({ result }) => {
+      this.current?.fireCannon(result);
+      this.impact.hit(result === 'overpressure' ? 'medium' : 'large');
+      if (result !== 'overpressure') this.shockAtCannon();
+    });
+    bus.on('stage_broken', ({ stage: broken }) => this.beginBreak(broken));
+    bus.on('hopper_spawned', () => this.current?.director?.showHopper());
+    bus.on('hopper_caught', () => {
+      this.current?.director?.hideHopper(true);
+      this.impact.hit('medium');
+    });
+    bus.on('hopper_escaped', () => this.current?.director?.hideHopper(false));
+  }
+
+  get current(): SceneRuntime | null {
+    return this.runtimes[this.currentIndex] ?? null;
+  }
+
+  get inTransition(): boolean {
+    return this.transition !== null;
+  }
+
+  private sceneIndexForStage(stage: number): number {
+    return Math.min(stage, SCENES.length - 1);
+  }
+
+  private runtime(index: number, live: boolean): SceneRuntime {
+    let runtime = this.runtimes[index];
+    if (!runtime) {
+      runtime = new SceneRuntime(this.stage, SCENES[index]!, this.rng, this.runtimeHooks, live);
+      this.runtimes[index] = runtime;
+    }
+    return runtime;
+  }
+
+  /** Puts `inner` where it belongs inside `outer`, as a small prop. */
+  private nest(inner: SceneRuntime, outer: SceneRuntime): void {
+    const nest = inner.spec.nest!;
+    outer.root.add(inner.root);
+    inner.root.position.copy(nest.position);
+    inner.root.scale.setScalar(nest.scale);
+  }
+
+  /** Jumps straight to the scene matching the save, without any animation. */
+  private showScene(index: number): void {
+    const runtime = this.runtime(index, true);
+    this.root.add(runtime.root);
+    runtime.root.position.set(0, 0, 0);
+    runtime.root.scale.setScalar(1);
+    runtime.root.visible = true;
+    this.currentIndex = index;
+    if (index > 0) {
+      const previous = this.runtime(index - 1, false);
+      if (previous.isLive) previous.retire();
+      this.nest(previous, runtime);
+    }
+    runtime.syncUnits(this.sim.state.owned, false);
+    runtime.flavor?.sync(this.sim.state.flavors);
+    this.applyRest(1);
   }
 
   /** Matches presentation to a freshly loaded save without replaying any animation. */
   syncToSave(): void {
-    this.pans.length = 0;
-    this.syncPans(this.sim.state.owned[0]!, false);
-    this.flavor.sync(this.sim.state.flavors);
+    this.transition = null;
     this.pendingGain = 0;
+    this.showScene(this.sceneIndexForStage(this.sim.state.stage));
     this.level = this.targetLevel();
-    this.pile.setLevel(this.level);
+    this.current!.pile.setLevel(this.level);
+    this.current!.pile.update(0);
+    if (this.sim.hopperActive) this.current!.director?.showHopper();
   }
 
   private targetLevel(): number {
     const shown = Math.max(0, this.sim.state.totalEarned - this.pendingGain);
-    return clamp01(Math.log1p(shown) / Math.log1p(STAGE_ONE_GOAL));
+    const stage = this.currentIndex;
+    const from = stage > 0 ? STAGES[stage - 1]!.threshold : 0;
+    const to = STAGES[stage]!.threshold;
+    return clamp01((Math.log1p(shown) - Math.log1p(from)) / (Math.log1p(to) - Math.log1p(from)));
   }
 
-  private scoopPayment(spent: number): void {
-    const budget = Math.max(this.sim.state.popcorn + spent, 1);
-    const strength = 0.45 + 0.55 * clamp01(spent / budget);
-    const a = this.rng.range(0.4, 1.3);
-    const radius = Math.max(0.3, this.pile.shape.landingRadius(this.level) * 0.72);
-    const x = Math.cos(a) * radius;
-    const z = Math.sin(a) * radius;
-    this.shovel.scoop(x, this.pile.heightAt(x, z), z, strength, (digX, digZ, power) => {
-      this.pile.impact(digX, digZ, 2.6 * power, 0.75);
-      this.lidRattle.kick(1.2);
-    });
-  }
-
-  private applyCamera(): void {
-    if (this.cameraLocked) return;
-    const { camera, post } = this.stage;
-    const t = smoothstep(this.level, 0.3, 0.92);
-    const near = 1 - (1 - stoveCamera.closeDistance) * (1 - t);
-    focus.lerpVectors(stoveCamera.closeTarget, stoveCamera.target, t);
-    camera.position.copy(stoveCamera.position).sub(stoveCamera.target).multiplyScalar(near).add(focus);
-    camera.fov = stoveCamera.fov;
-    camera.up.set(0, 1, 0);
-    camera.lookAt(focus);
-
-    const { shakeX, shakeY, shakeRoll } = this.impact;
-    if (shakeX !== 0 || shakeY !== 0) {
-      right.setFromMatrixColumn(camera.matrixWorld, 0);
-      up.setFromMatrixColumn(camera.matrixWorld, 1);
-      camera.position.addScaledVector(right, shakeX).addScaledVector(up, shakeY);
-      camera.rotateZ(shakeRoll);
-    }
-
-    this.stage.viewShiftX = this.uiInset * 0.46;
-    camera.updateProjectionMatrix();
-    post.params.focusDistance = camera.position.distanceTo(potCenter);
-    post.params.focusRange = stoveCamera.focusRange * near;
-    post.params.aoRadius = 0.42;
-  }
+  // Input ------------------------------------------------------------------------
 
   /** Called directly from the input handler, so the response is in the very next frame. */
   click(clientX: number, clientY: number): void {
+    const runtime = this.current;
+    const director = runtime?.director;
+    if (!runtime || !director) return;
+    if (director.hopperVisible && this.sim.hopperActive) {
+      v.copy(director.hopperPosition);
+      runtime.root.localToWorld(v);
+      v.project(this.stage.camera);
+      const canvas = this.stage.renderer.domElement;
+      const dx = (v.x * 0.5 + 0.5) * canvas.clientWidth - clientX;
+      const dy = (0.5 - v.y * 0.5) * canvas.clientHeight - clientY;
+      const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
+      if (Math.hypot(dx, dy) < HOPPER_HIT_RADIUS_REM * rem) {
+        this.sim.catchHopper();
+        return;
+      }
+    }
     const { count, gainEach } = this.sim.click();
     const canvas = this.stage.renderer.domElement;
     ndc.set((clientX / canvas.clientWidth) * 2 - 1, 1 - (clientY / canvas.clientHeight) * 2);
     this.raycaster.setFromCamera(ndc, this.stage.camera);
     this.pendingGain += count * gainEach;
-    this.director.click(this.raycaster.ray, count, gainEach);
+    director.click(this.raycaster.ray, count, gainEach);
   }
 
-  private syncPans(owned: number, animate: boolean): void {
-    const visible = Math.min(owned, PAN_SLOTS.length);
-    while (this.pans.length < visible) {
-      this.pans.push({
-        age: animate ? -PAN_DROP_DELAY : 10,
-        timer: this.rng.range(0.4, 2),
-        hop: new Spring(0, 260, 11),
-        lidHop: 0,
-        lidSpin: 0,
-        shake: 0,
-      });
-    }
-    this.flames.setLit(1 + Math.min(this.pans.length, BURNERS.length - 1));
+  setCannonCharge(charge: number, charging: boolean): void {
+    this.current?.heroCannon?.setCharge(charge, charging);
   }
+
+  private scoopPayment(spent: number): void {
+    const runtime = this.current;
+    if (!runtime?.shovel) return;
+    const pile = runtime.pile;
+    const k = pile.shape.k;
+    const budget = Math.max(this.sim.state.popcorn + spent, 1);
+    const strength = 0.45 + 0.55 * clamp01(spent / budget);
+    const a = this.rng.range(0.4, 1.3);
+    const radius = Math.max(0.3 * k, pile.shape.landingRadius(this.level) * 0.72);
+    const x = Math.cos(a) * radius;
+    const z = Math.sin(a) * radius;
+    runtime.shovel.scoop(x, pile.heightAt(x, z), z, strength, (digX, digZ, power) => {
+      pile.impact(digX, digZ, 2.6 * power, 0.75 * k);
+      runtime.parts.kick?.(0.6);
+    });
+  }
+
+  private shockAtCannon(): void {
+    const cannon = this.current?.heroCannon;
+    if (!cannon) return;
+    cannon.muzzle(v).project(this.stage.camera);
+    this.shock.set(v.x * 0.5 + 0.5, v.y * 0.5 + 0.5);
+    this.shockT = 0;
+  }
+
+  private readonly shock = new THREE.Vector2();
+  private shockT = -1;
+
+  // Breakthrough --------------------------------------------------------------------
+
+  private beginBreak(broken: number): void {
+    const nextIndex = broken + 1;
+    if (nextIndex >= SCENES.length || !this.current) return;
+    if (this.transition) this.finishTransition();
+    if (this.currentIndex !== broken) return;
+    const from = this.current;
+    this.transition = {
+      from,
+      to: this.runtime(nextIndex, true),
+      stage: broken,
+      t: 0,
+      blasted: false,
+      startPose: null,
+      silenced: false,
+      arrived: false,
+    };
+    this.transition.to.root.visible = false;
+    this.hooks.onBreakBeat('strain', broken);
+  }
+
+  /** Long shows can always be skipped. */
+  skipTransition(): void {
+    if (this.transition) this.finishTransition();
+  }
+
+  private startBlast(tr: Transition): void {
+    tr.blasted = true;
+    const from = tr.from;
+    const ctx = from.context(this.time, 1, this.intensity);
+    if (ctx) from.parts.blast?.(ctx);
+    this.impact.hit('epic');
+    this.hooks.onBreakBeat('blast', tr.stage);
+
+    // From here on the old scene lives inside the new one, so the camera can simply pull away.
+    tr.startPose = this.poseInNextScene(from.spec);
+    this.root.add(tr.to.root);
+    tr.to.root.visible = true;
+    tr.to.root.position.set(0, 0, 0);
+    tr.to.root.scale.setScalar(1);
+    this.nest(from, tr.to);
+    this.currentIndex = SCENES.indexOf(tr.to.spec);
+    tr.to.syncUnits(this.sim.state.owned, false);
+    tr.to.flavor?.sync(this.sim.state.flavors);
+    this.level = 0;
+  }
+
+  /** The camera and light of a scene, re-expressed in the coordinates of the scene that swallows it. */
+  private poseInNextScene(spec: SceneSpec): Pose {
+    const nest = spec.nest!;
+    const m = nest.scale;
+    const toParent = (p: THREE.Vector3): THREE.Vector3 => p.clone().multiplyScalar(m).add(nest.position);
+    const camera = this.stage.camera;
+    const rig = spec.light;
+    const c = toParent(new THREE.Vector3(...(rig.pool.slice(0, 3) as [number, number, number])));
+    return {
+      position: toParent(camera.position),
+      target: toParent(this.cameraTarget),
+      fov: camera.fov,
+      focusDistance: this.stage.post.params.focusDistance * m,
+      focusRange: this.stage.post.params.focusRange * m,
+      aoRadius: spec.aoRadius * m,
+      shadowCenter: toParent(spec.shadow.center),
+      shadowRadius: spec.shadow.radius * m,
+      rig: { ...rig, pool: [c.x, c.y, c.z, rig.pool[3] * m], fogRange: [rig.fogRange[0] * m, rig.fogRange[1] * m] },
+      grade: spec.grade,
+    };
+  }
+
+  private finishTransition(): void {
+    const tr = this.transition;
+    if (!tr) return;
+    if (!tr.blasted) this.startBlast(tr);
+    tr.from.retire();
+    this.transition = null;
+    if (!tr.arrived) this.hooks.onBreakBeat('arrive', tr.stage);
+    this.stage.post.params.shock.w = 0;
+  }
+
+  private updateTransition(dt: number): void {
+    const tr = this.transition!;
+    tr.t += dt;
+    const t = tr.t;
+    if (!tr.silenced && t >= STRAIN_END) {
+      tr.silenced = true;
+      this.hooks.onBreakBeat('silence', tr.stage);
+    }
+    if (!tr.blasted && t >= STRAIN_END + tuning.breakSilenceMs / 1000) this.startBlast(tr);
+    if (!tr.arrived && t >= ZOOM_END - 0.35) {
+      tr.arrived = true;
+      this.hooks.onBreakBeat('arrive', tr.stage);
+    }
+    if (t >= TRANSITION_END) this.finishTransition();
+  }
+
+  // Frame ---------------------------------------------------------------------------
 
   update(deltaSeconds: number): void {
     const dt = deltaSeconds;
     this.time += dt;
-    this.level += (this.targetLevel() - this.level) * (1 - Math.exp(-dt * 7));
-    this.pile.setLevel(this.level);
-    this.applyCamera();
+    this.intensity = Math.log10(1 + this.sim.perSecond);
 
-    this.syncPans(this.sim.state.owned[0]!, false);
-    this.director.update(dt);
-    this.shovel.update(dt);
-    this.flavor.update(dt, 0, this.pile.heightAt(0, 0), 0);
-    this.updatePot(dt);
-    this.updatePans(dt);
-    this.updateMoon();
-    this.updateSteam(dt);
-    this.pile.update(dt);
-    this.sprites.flush();
+    const wanted = this.sceneIndexForStage(this.sim.state.stage);
+    if (!this.transition && wanted !== this.currentIndex) this.showScene(wanted);
 
-    const { post } = this.stage;
-    post.params.flash = this.impact.flash;
-    post.params.chroma = this.impact.chroma;
-  }
+    const tr = this.transition;
+    if (tr) this.updateTransition(dt);
+    const active = this.transition;
 
-  private updatePot(dt: number): void {
-    const kick = this.potKick.update(dt);
-    const pot = this.scene.pot;
-    pot.scale.set(1 - kick * 0.018, 1 + kick * 0.03, 1 - kick * 0.018);
+    // During the silent beat the old scene hangs in slow motion.
+    let sceneDt = dt;
+    if (active && !active.blasted && active.t > STRAIN_END) sceneDt = dt * 0.12;
 
-    const rattle = this.lidRattle.update(dt);
-    const lid = this.scene.lid;
-    const rest = this.scene.lidRest;
-    e.set(0, 0, rattle * 0.016);
-    q.setFromEuler(e);
-    lid.quaternion.copy(rest.quaternion).multiply(q);
-    lid.position.copy(rest.position);
-    lid.position.y += Math.abs(rattle) * 0.008;
-  }
+    if (!active || active.blasted) {
+      this.level += (this.targetLevel() - this.level) * (1 - Math.exp(-dt * 7));
+    }
 
-  private updatePans(dt: number): void {
-    const { body, lid } = this.scene.pans;
-    let shown = 0;
-    this.pans.forEach((pan, index) => {
-      pan.age += dt;
-      if (pan.age < 0) return;
-      pan.timer -= dt;
-      const slot = PAN_SLOTS[index]!;
-      if (pan.timer <= 0 && pan.age > 0.7) {
-        pan.timer = this.rng.range(2.2, 4.2);
-        pan.shake = 1;
-        pan.hop.kick(1.9);
-        const gag = this.rng.next() < 0.3;
-        pan.lidHop = gag ? 1 : 0.36;
-        pan.lidSpin = gag ? this.rng.range(4, 7) * this.rng.sign() : 0;
-        this.director.launch(slot[0], slot[1] + 0.72, slot[2], 0);
+    const current = this.current!;
+    const cooling = this.sim.state.cannonCooldown > 0;
+    const shared = { time: this.time, level: this.level, intensity: this.intensity };
+    if (active && !active.blasted) {
+      const u = clamp01(active.t / STRAIN_END);
+      const ctx = active.from.context(this.time, 1, this.intensity);
+      if (ctx) active.from.parts.strain?.(u, ctx);
+      active.from.pile.setLevel(1 + u * 0.05);
+      active.from.update(sceneDt, { ...shared, level: 1 + u * 0.05 }, cooling);
+    } else {
+      current.update(dt, shared, cooling);
+      if (active) {
+        const ctx = active.from.context(this.time, 1, this.intensity);
+        if (ctx) {
+          active.from.parts.afterBlast?.(dt, ctx);
+          active.from.update(dt, { ...shared, level: 1 }, cooling);
+        }
       }
-      pan.shake = Math.max(0, pan.shake - dt * 3.2);
-      const hop = pan.hop.update(dt);
-      const drop = 1 - easeOutCubic(pan.age / 0.42);
-      const landing = pan.age < 0.75 ? Math.exp(-(pan.age - 0.42) * 12) * Math.sin(Math.max(0, pan.age - 0.42) * 38) * 0.2 : 0;
-      const jitter = pan.shake * 0.018;
-      v.set(
-        slot[0] + Math.sin(this.time * 61 + index) * jitter,
-        slot[1] + drop * drop * 4.5 + Math.max(0, hop) * 0.06,
-        slot[2] + Math.cos(this.time * 53 + index) * jitter,
-      );
-      const squash = 1 + landing - hop * 0.05;
-      s.set(1 + (1 - squash) * 0.5, squash, 1 + (1 - squash) * 0.5);
-      e.set(0, index * 1.7 + 0.5, 0);
-      q.setFromEuler(e);
-      m.compose(v, q, s);
-      body.setMatrixAt(shown, m);
+    }
 
-      pan.lidHop = Math.max(0, pan.lidHop - dt * 1.55);
-      const arc = 4 * pan.lidHop * (1 - pan.lidHop);
-      v.y += 0.64 * squash + arc * (pan.lidSpin !== 0 ? 1.15 : 0.16);
-      e.set(arc * 0.32, this.time * 0.1 + index, pan.lidSpin * arc * 0.3);
-      q.setFromEuler(e);
-      m.compose(v, q, s.set(1, 1, 1));
-      lid.setMatrixAt(shown, m);
-      shown += 1;
-    });
-    body.commit(shown);
-    lid.commit(shown);
+    this.applyView(dt);
   }
 
-  private updateMoon(): void {
-    const { moon, moonHome } = this.scene;
-    const t = this.time % 11;
-    const tremble = t > 9.8 ? Math.sin(((t - 9.8) * Math.PI) / 1.2) : 0;
-    moon.position.copy(moonHome);
-    moon.position.x += Math.sin(this.time * 47) * 0.012 * tremble;
-    moon.position.y += Math.cos(this.time * 41) * 0.009 * tremble;
+  private readonly cameraTarget = new THREE.Vector3();
+
+  private restPose(spec: SceneSpec, level: number): Pose {
+    const t = smoothstep(level, 0.3, 0.92);
+    const near = 1 - (1 - spec.close.distance) * (1 - t);
+    const target = spec.close.target.clone().lerp(spec.camera.target, t);
+    const position = spec.camera.position.clone().sub(spec.camera.target).multiplyScalar(near).add(target);
+    position.y += spec.close.lift * (1 - t);
+    // A tight opening shot gets a tight shadow map, so close-ups stay crisp.
+    const shadowTight = lerp(0.62, 1, t);
+    return {
+      position,
+      target,
+      fov: spec.camera.fov,
+      focusDistance: position.distanceTo(spec.focusPoint),
+      focusRange: spec.focusRange * near,
+      aoRadius: spec.aoRadius,
+      shadowCenter: spec.close.target.clone().lerp(spec.shadow.center, t),
+      shadowRadius: spec.shadow.radius * shadowTight,
+      rig: spec.light,
+      grade: spec.grade,
+    };
   }
 
-  private updateSteam(dt: number): void {
-    this.steamTimer -= dt;
-    if (this.steamTimer > 0) return;
-    this.steamTimer = 0.2;
-    const r = this.rng;
-    const a = r.range(0, 6.28);
-    const radius = r.range(0.2, 0.9);
-    this.sprites.spawn({
-      x: Math.cos(a) * radius,
-      y: Math.max(this.pile.heightAt(0, 0), POT.rimY - 0.15),
-      z: Math.sin(a) * radius,
-      vx: r.range(-0.08, 0.08),
-      vy: r.range(0.42, 0.7),
-      vz: r.range(-0.05, 0.05),
-      drag: 0.25,
-      sizeStart: r.range(0.16, 0.24),
-      sizeEnd: r.range(0.55, 0.85),
-      life: r.range(1.7, 2.5),
-      color: steam,
-      alpha: 0.07,
-      kind: SpriteKind.Puff,
-      spin: r.range(-0.4, 0.4),
-    });
+  private applyRest(level: number): void {
+    this.applyPose(this.restPose(this.current!.spec, level));
   }
+
+  private applyView(dt: number): void {
+    if (this.cameraLocked) return;
+    const tr = this.transition;
+    const rest = this.restPose(this.current!.spec, this.level);
+    let pose = rest;
+    if (tr) {
+      if (!tr.blasted) {
+        // The camera leans in while the pressure builds.
+        const push = easeInOutCubic(clamp01(tr.t / (STRAIN_END + 0.3)));
+        pose = { ...rest, position: rest.position.clone().lerp(rest.target, push * 0.08) };
+      } else {
+        const u = easeInOutCubic(clamp01((tr.t - ZOOM_START) / (ZOOM_END - ZOOM_START)));
+        pose = this.blendPose(tr.startPose!, rest, u);
+      }
+    }
+    this.applyPose(pose);
+
+    const post = this.stage.post.params;
+    post.flash = this.impact.flash;
+    post.chroma = this.impact.chroma;
+    if (this.shockT >= 0) {
+      this.shockT += dt;
+      const u = this.shockT / 0.55;
+      if (u >= 1 || this.impact.prefs.reduceMotion) {
+        this.shockT = -1;
+        post.shock.w = 0;
+      } else {
+        post.shock.set(this.shock.x, this.shock.y, u * 0.9, 0.035 * (1 - u) * (1 - u));
+      }
+    }
+  }
+
+  private blendPose(a: Pose, b: Pose, t: number): Pose {
+    const toCamA = v.copy(a.position).sub(a.target);
+    const toCamB = v2.copy(b.position).sub(b.target);
+    const distance = logLerp(toCamA.length(), toCamB.length(), t);
+    const dir = toCamA.clone().normalize().lerp(toCamB.clone().normalize(), t).normalize();
+    // The target travels on the same logarithmic schedule, keeping the shrinking scene in frame.
+    const w = (Math.pow(toCamB.length() / toCamA.length(), t) - 1) / (toCamB.length() / toCamA.length() - 1);
+    const target = a.target.clone().lerp(b.target, w);
+    const position = target.clone().addScaledVector(dir, distance);
+    // A gentle rise carries the camera up and over the furniture on its way out.
+    position.y += Math.sin(t * Math.PI) * distance * 0.1;
+    return {
+      position,
+      target,
+      fov: lerp(a.fov, b.fov, t),
+      focusDistance: logLerp(a.focusDistance, b.focusDistance, t),
+      focusRange: logLerp(a.focusRange, b.focusRange, t),
+      aoRadius: logLerp(a.aoRadius, b.aoRadius, t),
+      shadowCenter: a.shadowCenter.clone().lerp(b.shadowCenter, w),
+      shadowRadius: logLerp(a.shadowRadius, b.shadowRadius, t),
+      rig: mixRig(a.rig, b.rig, t),
+      grade: mixGrade(a.grade, b.grade, t),
+    };
+  }
+
+  private applyPose(pose: Pose): void {
+    const { camera, post, shadow } = this.stage;
+    camera.position.copy(pose.position);
+    this.cameraTarget.copy(pose.target);
+    camera.fov = pose.fov;
+    camera.up.set(0, 1, 0);
+    camera.lookAt(pose.target);
+    camera.updateMatrixWorld();
+
+    const { shakeX, shakeY, shakeRoll } = this.impact;
+    const distance = pose.position.distanceTo(pose.target);
+    if (shakeX !== 0 || shakeY !== 0) {
+      right.setFromMatrixColumn(camera.matrixWorld, 0);
+      up.setFromMatrixColumn(camera.matrixWorld, 1);
+      const scale = distance * 0.075;
+      camera.position.addScaledVector(right, shakeX * scale).addScaledVector(up, shakeY * scale);
+      camera.rotateZ(shakeRoll);
+    }
+    camera.near = Math.max(0.05, distance * 0.03);
+    camera.far = Math.max(160, distance * 8);
+    this.stage.viewShiftX = this.uiInset * 0.46;
+    camera.updateProjectionMatrix();
+
+    applyLightRig(pose.rig);
+    shadow.setFrustum(pose.shadowCenter, pose.shadowRadius);
+    globals.uOutlineRefDist.value = distance * 0.72;
+
+    const p = post.params;
+    p.focusDistance = pose.focusDistance;
+    p.focusRange = pose.focusRange;
+    p.aoRadius = pose.aoRadius;
+    p.exposure = pose.grade.exposure;
+    p.contrast = pose.grade.contrast;
+    p.saturation = pose.grade.saturation;
+    p.vignette = pose.grade.vignette;
+    p.bloom = pose.grade.bloom;
+    p.shadowTint.set(pose.grade.shadowTint);
+    p.highlightTint.set(pose.grade.highlightTint);
+    p.aoTint.set(pose.grade.aoTint);
+  }
+
+  // QA --------------------------------------------------------------------------------
 
   /** QA camera override for close inspection. */
   viewFrom(position: THREE.Vector3Tuple, target: THREE.Vector3Tuple, fov: number): void {
@@ -364,22 +584,17 @@ export class World {
 
   /** QA view for judging a single flake at hero size. */
   showcase(): void {
-    this.cameraLocked = true;
-    const camera = this.stage.camera;
-    const center = new THREE.Vector3(0, 3.1, 0.5);
+    const director = this.current?.director;
+    if (!director) return;
+    const q = new THREE.Quaternion();
+    const e = new THREE.Euler();
     for (let i = 0; i < 6; i += 1) {
       const x = -1.04 + (i % 3) * 1.04;
-      const y = center.y + (i < 3 ? 0.5 : -0.5);
+      const y = 3.1 + (i < 3 ? 0.5 : -0.5);
       q.setFromEuler(e.set(i * 1.3 + 0.4, i * 2.1 + 0.8, i * 0.7));
-      this.director.display(i, x, y, center.z, 0.46, 1, q);
+      director.display(i, x, y, 0.5, 0.46, 1, q);
     }
-    camera.position.set(0, 3.3, 5.5);
-    camera.fov = 26;
-    camera.lookAt(center);
-    this.stage.viewShiftX = 0;
-    camera.updateProjectionMatrix();
-    this.stage.post.params.focusDistance = 5;
+    this.viewFrom([0, 3.3, 5.5], [0, 3.1, 0.5], 26);
     this.stage.post.params.focusRange = 2;
-    globals.uOutlineRefDist.value = 10;
   }
 }

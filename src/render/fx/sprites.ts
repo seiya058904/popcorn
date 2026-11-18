@@ -50,8 +50,8 @@ void main() {
   float a = iStyle.z * t + iPos.w * 37.0;
   vec2 c = vec2(cos(a), sin(a));
   vec2 q = mat2(c.x, c.y, -c.y, c.x) * position.xy * size;
-  vec4 view = viewMatrix * vec4(p, 1.0);
-  view.xy += q;
+  vec4 view = viewMatrix * modelMatrix * vec4(p, 1.0);
+  view.xy += q * length(modelMatrix[0].xyz);
   gl_Position = projectionMatrix * view;
 }
 `;

@@ -34,7 +34,7 @@ uniform vec3 uSunDir, uSunColor, uShadeTint, uSkyColor, uGroundColor, uRimColor,
 uniform vec2 uFogRange;
 uniform highp sampler2DShadow uShadowMap;
 uniform mat4 uShadowMatrix;
-uniform float uShadowTexel, uShadowSoftness, uPoolFloor;
+uniform float uShadowTexel, uShadowSoftness, uPoolFloor, uShadowOffset;
 uniform vec4 uPool;
 
 // The key light falls off like a stage spot, which keeps the eye on the popcorn.
@@ -45,21 +45,26 @@ float lightPool(vec3 P) {
 
 float sunShadow(vec3 worldPos, vec3 N) {
   float slope = 1.0 - sat(dot(N, uSunDir));
-  vec4 c = uShadowMatrix * vec4(worldPos + N * (0.012 + 0.03 * slope), 1.0);
+  vec4 c = uShadowMatrix * vec4(worldPos + N * uShadowOffset * (2.3 + 5.5 * slope), 1.0);
   vec3 p = c.xyz / c.w;
   if (p.x < 0.0 || p.x > 1.0 || p.y < 0.0 || p.y > 1.0 || p.z > 1.0) return 1.0;
-  float r = uShadowTexel * uShadowSoftness;
   float z = p.z - 0.0006;
-  float s = texture(uShadowMap, vec3(p.xy, z)) * 2.0;
-  s += texture(uShadowMap, vec3(p.xy + vec2( 0.92,  0.38) * r, z));
-  s += texture(uShadowMap, vec3(p.xy + vec2(-0.38,  0.92) * r, z));
-  s += texture(uShadowMap, vec3(p.xy + vec2(-0.92, -0.38) * r, z));
-  s += texture(uShadowMap, vec3(p.xy + vec2( 0.38, -0.92) * r, z));
-  s += texture(uShadowMap, vec3(p.xy + vec2( 0.48,  0.14) * r, z));
-  s += texture(uShadowMap, vec3(p.xy + vec2(-0.14,  0.48) * r, z));
-  s += texture(uShadowMap, vec3(p.xy + vec2(-0.48, -0.14) * r, z));
-  s += texture(uShadowMap, vec3(p.xy + vec2( 0.14, -0.48) * r, z));
-  return s / 10.0;
+  // A per-pixel turn of the sample ring trades visible stair steps for fine grain.
+  float a = 6.2831853 * fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+  float ca = cos(a), sa = sin(a);
+  mat2 turn = mat2(ca, sa, -sa, ca) * (uShadowTexel * uShadowSoftness);
+  float s = texture(uShadowMap, vec3(p.xy, z));
+  s += texture(uShadowMap, vec3(p.xy + turn * vec2( 0.92,  0.38), z));
+  s += texture(uShadowMap, vec3(p.xy + turn * vec2(-0.38,  0.92), z));
+  s += texture(uShadowMap, vec3(p.xy + turn * vec2(-0.92, -0.38), z));
+  s += texture(uShadowMap, vec3(p.xy + turn * vec2( 0.38, -0.92), z));
+  s += texture(uShadowMap, vec3(p.xy + turn * vec2( 0.55,  0.2), z));
+  s += texture(uShadowMap, vec3(p.xy + turn * vec2(-0.2,  0.55), z));
+  s += texture(uShadowMap, vec3(p.xy + turn * vec2(-0.55, -0.2), z));
+  s += texture(uShadowMap, vec3(p.xy + turn * vec2( 0.2, -0.55), z));
+  s += texture(uShadowMap, vec3(p.xy + turn * vec2( 0.68, -0.68), z));
+  s += texture(uShadowMap, vec3(p.xy + turn * vec2(-0.68,  0.68), z));
+  return s / 11.0;
 }
 
 vec3 applyFog(vec3 color, float dist) {

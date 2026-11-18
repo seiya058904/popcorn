@@ -21,7 +21,7 @@ export const QUALITY: Record<QualityTier, QualitySettings> = {
     ambientOcclusion: false,
     depthOfField: false,
     bloomLevels: 3,
-    pileInstances: 900,
+    pileInstances: 1200,
     pileGrid: 100,
   },
   medium: {
@@ -32,7 +32,7 @@ export const QUALITY: Record<QualityTier, QualitySettings> = {
     ambientOcclusion: false,
     depthOfField: true,
     bloomLevels: 4,
-    pileInstances: 1800,
+    pileInstances: 2600,
     pileGrid: 140,
   },
   high: {
@@ -43,7 +43,7 @@ export const QUALITY: Record<QualityTier, QualitySettings> = {
     ambientOcclusion: true,
     depthOfField: true,
     bloomLevels: 5,
-    pileInstances: 2400,
+    pileInstances: 4000,
     pileGrid: 160,
   },
   ultra: {
@@ -54,7 +54,7 @@ export const QUALITY: Record<QualityTier, QualitySettings> = {
     ambientOcclusion: true,
     depthOfField: true,
     bloomLevels: 5,
-    pileInstances: 3000,
+    pileInstances: 5200,
     pileGrid: 180,
   },
 };

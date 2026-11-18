@@ -21,6 +21,66 @@ export class OnePole {
   }
 }
 
+export type BiquadKind = 'low' | 'high' | 'band';
+
+/** RBJ biquad, used where a one-pole slope is too gentle. */
+export class Biquad {
+  private x1 = 0;
+  private x2 = 0;
+  private y1 = 0;
+  private y2 = 0;
+  private b0 = 1;
+  private b1 = 0;
+  private b2 = 0;
+  private a1 = 0;
+  private a2 = 0;
+  private readonly kind: BiquadKind;
+  private readonly q: number;
+
+  constructor(kind: BiquadKind, frequency: number, q = 0.707) {
+    this.kind = kind;
+    this.q = q;
+    this.set(frequency);
+  }
+
+  set(frequency: number): void {
+    const w = (2 * Math.PI * Math.min(frequency, SAMPLE_RATE * 0.45)) / SAMPLE_RATE;
+    const alpha = Math.sin(w) / (2 * this.q);
+    const c = Math.cos(w);
+    const a0 = 1 + alpha;
+    let b0: number;
+    let b1: number;
+    let b2: number;
+    if (this.kind === 'low') {
+      b0 = (1 - c) / 2;
+      b1 = 1 - c;
+      b2 = b0;
+    } else if (this.kind === 'high') {
+      b0 = (1 + c) / 2;
+      b1 = -(1 + c);
+      b2 = b0;
+    } else {
+      b0 = alpha;
+      b1 = 0;
+      b2 = -alpha;
+    }
+    this.b0 = b0 / a0;
+    this.b1 = b1 / a0;
+    this.b2 = b2 / a0;
+    this.a1 = (-2 * c) / a0;
+    this.a2 = (1 - alpha) / a0;
+  }
+
+  run(x: number): number {
+    const y = this.b0 * x + this.b1 * this.x1 + this.b2 * this.x2 - this.a1 * this.y1 - this.a2 * this.y2;
+    this.x2 = this.x1;
+    this.x1 = x;
+    this.y2 = this.y1;
+    this.y1 = y;
+    return y;
+  }
+}
+
 export function normalizePeak(samples: Float32Array, peak: number): Float32Array {
   let max = 0;
   for (const sample of samples) max = Math.max(max, Math.abs(sample));
@@ -30,6 +90,43 @@ export function normalizePeak(samples: Float32Array, peak: number): Float32Array
   }
   return samples;
 }
+
+/** Scales to a target RMS, then soft-limits so peaks stay safe. */
+export function normalizeRms(samples: Float32Array, rms: number, ceiling = 0.92): Float32Array {
+  let energy = 0;
+  for (const sample of samples) energy += sample * sample;
+  const current = Math.sqrt(energy / Math.max(1, samples.length));
+  const gain = current > 0 ? rms / current : 1;
+  for (let i = 0; i < samples.length; i += 1) {
+    const x = samples[i]! * gain;
+    samples[i] = Math.abs(x) < ceiling * 0.7 ? x : Math.sign(x) * (ceiling * 0.7 + ceiling * 0.3 * Math.tanh((Math.abs(x) - ceiling * 0.7) / (ceiling * 0.3)));
+  }
+  return samples;
+}
+
+export function fadeEdges(samples: Float32Array, inSeconds: number, outSeconds: number): Float32Array {
+  const fadeIn = Math.floor(inSeconds * SAMPLE_RATE);
+  const fadeOut = Math.floor(outSeconds * SAMPLE_RATE);
+  for (let i = 0; i < fadeIn && i < samples.length; i += 1) samples[i]! *= i / fadeIn;
+  for (let i = 0; i < fadeOut && i < samples.length; i += 1) samples[samples.length - 1 - i]! *= i / fadeOut;
+  return samples;
+}
+
+/** Folds the end of a buffer over its start, so it loops without a click. */
+export function makeLoop(samples: Float32Array, crossfadeSeconds: number): Float32Array {
+  const overlap = Math.floor(crossfadeSeconds * SAMPLE_RATE);
+  const length = samples.length - overlap;
+  const out = samples.slice(0, length);
+  for (let i = 0; i < overlap; i += 1) {
+    const t = i / overlap;
+    const fadeIn = Math.sin((t * Math.PI) / 2);
+    const fadeOut = Math.cos((t * Math.PI) / 2);
+    out[i] = out[i]! * fadeIn + samples[length + i]! * fadeOut;
+  }
+  return out;
+}
+
+export const seconds = (s: number): Float32Array => new Float32Array(Math.floor(s * SAMPLE_RATE));
 
 /**
  * The manual "pop": a tight transient, a falling pitched body and a breath of air.
@@ -55,8 +152,7 @@ export function synthPop(variation: number, sampleRate = SAMPLE_RATE): Float32Ar
     const noise = rng.next() * 2 - 1;
     const click = clickHigh.high(noise) * Math.exp(-t / 0.0016) * attack;
     const air = airLow.low(airHigh.high(noise)) * Math.exp(-t / 0.024) * attack;
-    const mixed = body * 0.85 + click * 0.55 + air * 0.5;
-    out[i] = Math.tanh(mixed * 1.5);
+    out[i] = Math.tanh((body * 0.85 + click * 0.55 + air * 0.5) * 1.5);
   }
   const tail = Math.floor(0.012 * sampleRate);
   for (let i = 0; i < tail; i += 1) out[out.length - 1 - i]! *= i / tail;

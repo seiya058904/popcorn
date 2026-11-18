@@ -1,4 +1,5 @@
 import type { Game } from '../game.ts';
+import { BOT_PROFILES, BotPlayer } from '../sim/bots.ts';
 import type { GameState } from '../sim/state.ts';
 import { TuningPanel } from './panel.ts';
 import { PerfOverlay } from './perf.ts';
@@ -17,12 +18,32 @@ export interface QaApi {
   showcase(): void;
   viewFrom(position: [number, number, number], target: [number, number, number], fov: number): void;
   pieces(): { airborne: number };
+  skipTransition(): void;
+  fireCannon(heldSeconds: number): void;
+  setCharge(charge: number): void;
+  showHopper(): void;
+  /** Attaches a simulated player, for full playthroughs of the real game. */
+  startBot(profile: number): void;
+  runBot(seconds: number): BotStatus;
   /** RGBA bytes of a canvas rectangle given in top-left pixel coordinates. */
   readRegion(x: number, y: number, width: number, height: number): number[];
   /** Makes every frame wait for the GPU, so uncapped timing cannot hide queued work. */
   setGpuSync(enabled: boolean): void;
   /** Collects frame intervals from requestAnimationFrame for the given duration. */
   sampleFrames(seconds: number): Promise<number[]>;
+}
+
+export interface BotStatus {
+  stage: number;
+  ended: boolean;
+  total: number;
+  perSecond: number;
+  flavors: number;
+  owned: number[];
+  achievements: number;
+  maxDrawCalls: number;
+  maxTriangles: number;
+  heapMb: number;
 }
 
 declare global {
@@ -34,6 +55,10 @@ declare global {
 export function installDebug(game: Game): void {
   const panel = new TuningPanel();
   const perf = new PerfOverlay(game);
+  const BOT_STEP = 0.1;
+  let bot: BotPlayer | null = null;
+  let maxDrawCalls = 0;
+  let maxTriangles = 0;
   let syncGpu = false;
   const probe = new Uint8Array(4);
   game.onFrame((delta) => {
@@ -90,7 +115,50 @@ export function installDebug(game: Game): void {
       game.world.viewFrom(position, target, fov);
     },
     pieces() {
-      return { airborne: game.world.director.airborne };
+      return { airborne: 0 };
+    },
+    skipTransition() {
+      game.world.skipTransition();
+    },
+    fireCannon(held) {
+      game.sim.state.cannonCooldown = 0;
+      game.sim.fireCannon(held);
+    },
+    setCharge(charge) {
+      game.world.setCannonCharge(charge, charge > 0);
+    },
+    showHopper() {
+      game.sim.state.hopperTimer = 0.01;
+    },
+    startBot(profile) {
+      const canvas = game.stage.renderer.domElement;
+      bot = new BotPlayer(BOT_PROFILES[profile]!, game.sim, game.bus, () =>
+        game.world.click(canvas.clientWidth * 0.4, canvas.clientHeight * 0.5),
+      );
+    },
+    runBot(seconds) {
+      const steps = Math.round(seconds / BOT_STEP);
+      for (let index = 0; index < steps && !game.sim.state.ended; index += 1) {
+        bot!.act(BOT_STEP);
+        game.frame(BOT_STEP);
+        bot!.decide(BOT_STEP);
+        maxDrawCalls = Math.max(maxDrawCalls, game.stage.stats.drawCalls);
+        maxTriangles = Math.max(maxTriangles, game.stage.stats.triangles);
+      }
+      const s = game.sim.state;
+      const memory = (performance as unknown as { memory?: { usedJSHeapSize: number } }).memory;
+      return {
+        stage: s.stage,
+        ended: s.ended,
+        total: s.totalEarned,
+        perSecond: game.sim.perSecond,
+        flavors: s.flavors,
+        owned: [...s.owned],
+        achievements: s.legacy.achievements.length,
+        maxDrawCalls,
+        maxTriangles,
+        heapMb: Math.round((memory?.usedJSHeapSize ?? 0) / 1048576),
+      };
     },
     readRegion(x, y, width, height) {
       const gl = game.stage.renderer.getContext();

@@ -38,7 +38,28 @@ const earned = (name: string, amount: number, pans = 0): ShotPreset => ({
   },
 });
 
+const kitchen = (name: string, total: number, units: [number, number, number]): ShotPreset => ({
+  name,
+  size: { width: 1920, height: 1080 },
+  async run(page) {
+    await qa(
+      page,
+      (api, value: { total: number; units: [number, number, number] }) => {
+        api.set({ stage: 1, totalEarned: value.total, popcorn: 1e9 });
+        api.advance(0.2);
+        value.units.forEach((count, unit) => api.buy(unit, count));
+        api.set({ popcorn: value.total });
+        api.advance(3);
+      },
+      { total, units },
+    );
+  },
+});
+
 export const shotPresets: ShotPreset[] = [
+  kitchen('m4-kitchen-start', 1200, [0, 0, 0]),
+  kitchen('m4-kitchen-mid', 7000, [6, 3, 1]),
+  kitchen('m4-kitchen-full', 46000, [8, 6, 4]),
   earned('m1-start', 0),
   earned('m1-early', 12),
   earned('m1-mid', 120, 2),

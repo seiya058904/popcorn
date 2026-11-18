@@ -41,6 +41,10 @@ export class Hud {
   private readonly hint: HTMLElement;
   private readonly floats: HTMLElement[] = [];
   private readonly toasts: HTMLElement;
+  private readonly slate: HTMLElement;
+  private readonly skip: HTMLElement;
+  /** Set by the game: jumps past the current breakout show. */
+  onSkip: (() => void) | null = null;
   private readonly veil: HTMLElement;
   private readonly dialog: HTMLElement;
   private floatCursor = 0;
@@ -83,6 +87,13 @@ export class Hud {
     trophy.innerHTML = ICONS.trophy;
     trophy.setAttribute('aria-label', '成就');
     trophy.addEventListener('pointerdown', () => this.showAchievements());
+
+    this.slate = el('div', 'slate', root);
+    this.skip = el('button', 'skip', root, '跳过 ▶');
+    this.skip.addEventListener('pointerdown', (event) => {
+      event.stopPropagation();
+      this.onSkip?.();
+    });
 
     this.veil = el('div', 'dialog-veil', root);
     this.dialog = el('div', 'dialog', this.veil);
@@ -151,6 +162,27 @@ export class Hud {
       const out = toast.animate([{ opacity: 1 }, { opacity: 0, transform: 'translateX(-4rem)' }], { duration: 220 });
       out.onfinish = () => toast.remove();
     }, TOAST_MS);
+  }
+
+  /** The scene title that lands as a breakout settles. */
+  showSlate(stage: number): void {
+    const def = STAGES[stage];
+    if (!def) return;
+    this.slate.textContent = def.name;
+    this.slate.getAnimations().forEach((animation) => animation.cancel());
+    this.slate.animate(
+      [
+        { opacity: 0, transform: 'translate(-50%, -50%) scale(1.5)', letterSpacing: '1.4em' },
+        { opacity: 1, transform: 'translate(-50%, -50%) scale(1)', letterSpacing: '0.3em', offset: 0.14 },
+        { opacity: 1, transform: 'translate(-50%, -50%) scale(0.98)', letterSpacing: '0.34em', offset: 0.78 },
+        { opacity: 0, transform: 'translate(-50%, -62%) scale(0.98)', letterSpacing: '0.36em' },
+      ],
+      { duration: 1900, easing: 'cubic-bezier(.2,.8,.3,1)' },
+    );
+  }
+
+  setSkipVisible(visible: boolean): void {
+    setClass(this.skip, 'is-on', visible);
   }
 
   private openDialog(narrow: boolean): HTMLElement {

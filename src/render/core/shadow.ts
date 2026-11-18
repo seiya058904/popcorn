@@ -53,13 +53,14 @@ export class ShadowPass {
     cam.right = r;
     cam.top = r;
     cam.bottom = -r;
-    cam.near = 0.5;
+    cam.near = r * 0.05;
     cam.far = r * 4;
     cam.position.copy(this.center).addScaledVector(globals.uSunDir.value, r * 2);
     cam.lookAt(this.center);
     cam.updateProjectionMatrix();
     cam.updateMatrixWorld();
     cam.layers.set(SHADOW_LAYER);
+    globals.uShadowOffset.value = (2 * r) / this.target.width;
 
     globals.uShadowMatrix.value
       .copy(BIAS)

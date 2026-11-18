@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { Stage } from '../core/stage.ts';
-import { createFlakeGeometry, FLAKE_DETAIL_HIGH, FLAKE_SHAPES } from '../geometry/popcorn.ts';
-import { popcornMaterials } from '../materials/popcorn.ts';
+import { createFlakeGeometry, FLAKE_DETAIL_HIGH, FLAKE_DETAIL_LOW, FLAKE_SHAPES } from '../geometry/popcorn.ts';
+import { pieceMaterials } from '../materials/popcorn.ts';
 
 interface Batch {
   mesh: THREE.InstancedMesh;
@@ -9,16 +9,36 @@ interface Batch {
   count: number;
 }
 
+const heroCache: THREE.BufferGeometry[] = [];
+const lowCache: THREE.BufferGeometry[] = [];
+
+/** Flake meshes are expensive to generate and identical everywhere, so each is built once. */
+export function heroFlake(shape: number): THREE.BufferGeometry {
+  return (heroCache[shape] ??= createFlakeGeometry(shape, FLAKE_DETAIL_HIGH));
+}
+
+export function lowFlake(shape: number): THREE.BufferGeometry {
+  return (lowCache[shape] ??= createFlakeGeometry(shape, FLAKE_DETAIL_LOW));
+}
+
 /** Near-camera popcorn. Refilled every frame from whatever the director has alive. */
 export class PieceBatches {
   readonly capacityPerShape: number;
+  readonly group = new THREE.Group();
   private readonly batches: Batch[] = [];
 
   constructor(stage: Stage, parent: THREE.Object3D, capacityPerShape = 48) {
     this.capacityPerShape = capacityPerShape;
-    const materials = popcornMaterials();
+    parent.add(this.group);
+    const materials = pieceMaterials();
     for (let shape = 0; shape < FLAKE_SHAPES; shape += 1) {
-      const geometry = createFlakeGeometry(shape, FLAKE_DETAIL_HIGH);
+      const source = heroFlake(shape);
+      const geometry = new THREE.BufferGeometry();
+      geometry.index = source.index;
+      for (const name of ['position', 'normal', 'aKernelPos', 'aKernelNormal', 'aShade']) {
+        geometry.setAttribute(name, source.getAttribute(name));
+      }
+      geometry.boundingSphere = source.boundingSphere;
       const state = new THREE.InstancedBufferAttribute(new Float32Array(capacityPerShape * 4), 4);
       state.setUsage(THREE.DynamicDrawUsage);
       geometry.setAttribute('iState', state);
@@ -26,7 +46,7 @@ export class PieceBatches {
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       mesh.frustumCulled = false;
       mesh.count = 0;
-      parent.add(mesh);
+      this.group.add(mesh);
       stage.shadow.add(mesh, materials.pieceDepth);
       this.batches.push({ mesh, state, count: 0 });
     }
@@ -50,9 +70,5 @@ export class PieceBatches {
       batch.mesh.instanceMatrix.needsUpdate = true;
       batch.state.needsUpdate = true;
     }
-  }
-
-  get liveCount(): number {
-    return this.batches.reduce((sum, batch) => sum + batch.count, 0);
   }
 }

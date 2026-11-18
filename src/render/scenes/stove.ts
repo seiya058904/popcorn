@@ -1,10 +1,12 @@
 import * as THREE from 'three';
-import { lerp } from '../../motion/ease.ts';
-import type { LightRig } from '../core/globals.ts';
+import { lerp, Spring } from '../../motion/ease.ts';
 import type { Stage } from '../core/stage.ts';
-import { addToy, addToyInstances, at, Kit, P, type ToyInstances } from '../geometry/kit.ts';
+import { Flames } from '../fx/flames.ts';
+import { SpriteKind } from '../fx/sprites.ts';
+import { addToy, at, Kit, P } from '../geometry/kit.ts';
 import { toyMaterials } from '../materials/toy.ts';
-import type { PileShape } from '../popcorn/pile.ts';
+import type { SceneContext, SceneParts, SceneSpec, UnitSlot } from './types.ts';
+import { vesselPile } from './vessel.ts';
 
 export const POT = { floorY: 0.42, rimY: 1.46, innerR: 1.12, outerR: 1.24 };
 
@@ -26,104 +28,34 @@ const C = {
   moon: '#fff1c4',
 };
 
-export const stoveLight: LightRig = {
-  sunDir: [0.42, 0.95, 0.56],
-  sunColor: '#fff0d6',
-  sunIntensity: 1.3,
-  shadeTint: '#4d4580',
-  sky: '#7f9bd6',
-  skyIntensity: 0.26,
-  ground: '#c9825a',
-  groundIntensity: 0.14,
-  rim: '#a6dcff',
-  rimIntensity: 0.6,
-  rimDir: [-0.72, 0.34, -0.6],
-  fog: '#0a2a33',
-  fogRange: [16, 36],
-  pool: [0, 0.6, 0.1, 4.3],
-  poolFloor: 0.34,
-};
-
-export const stoveCamera = {
-  position: new THREE.Vector3(0.2, 5.05, 13.5),
-  target: new THREE.Vector3(0.0, 1.5, -0.4),
-  /** Opening framing: close on the pot, easing back as the heap needs room. */
-  closeTarget: new THREE.Vector3(0.0, 1.12, 0.0),
-  closeDistance: 0.6,
-  fov: 27,
-  focusRange: 3.8,
-  shiftX: 0.075,
-};
-
 const smooth = (a: number, b: number, x: number): number => {
   const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
   return t * t * (3 - 2 * t);
 };
 
-const moundPeak = (level: number): number => lerp(POT.floorY + 0.1, 2.75, Math.pow(level, 0.85));
-const moundSlope = (level: number): number => lerp(1.15, 0.44, level);
-const moundAt = (r: number, level: number): number => moundPeak(level) - moundSlope(level) * Math.pow(r, 1.35);
+const PAN_Y_BURNER = 0.26;
+const PAN_Y_TOP = 0.01;
 
-export const stovePile: PileShape = {
-  centerX: 0,
-  centerZ: 0,
-  size: 10,
-  flakeScale: 0.2,
-  floor(x, z) {
-    const r = Math.hypot(x, z);
-    if (r < POT.innerR) return POT.floorY;
-    if (r < POT.outerR + 0.05) return POT.rimY;
-    return 0.01;
-  },
-  mound(x, z, level, wobble) {
-    const r = Math.hypot(x, z);
-    if (r < POT.outerR + 0.05) return moundAt(r, level);
-    // Outside the pot there is nothing until the heap crests the rim, then it spills in tongues.
-    const crest = moundAt(POT.innerR, level) - POT.rimY;
-    if (crest <= 0) return -1;
-    const reach = POT.outerR + crest * 3.1 * (1 + wobble * 0.5);
-    const edge = smooth(reach, reach - Math.max(0.9, (reach - POT.outerR) * 0.7), r);
-    return edge <= 0 ? -1 : lerp(-0.12, moundAt(r * (1 + wobble * 0.08), level), edge);
-  },
-  landingRadius(level) {
-    const reach = Math.pow(Math.max(0, moundPeak(level) - POT.floorY) / moundSlope(level), 1 / 1.35);
-    const crest = moundAt(POT.innerR, level) - POT.rimY;
-    const limit = crest > 0 ? POT.innerR + crest * 1.1 : POT.innerR * 0.92;
-    return Math.max(0.22, Math.min(reach * 0.85, limit));
-  },
-  density(x, z) {
-    const r = Math.hypot(x, z);
-    return r < 1.2 ? 0.75 : lerp(1, 0.05, smooth(2.3, 3.9, r));
-  },
-  wallHeight: POT.rimY,
-  clearance(x, z) {
-    const r = Math.hypot(x, z);
-    if (r < POT.innerR) return smooth(POT.innerR - 0.05, POT.innerR - 0.24, r);
-    return smooth(POT.outerR + 0.1, POT.outerR + 0.3, r);
-  },
-};
-
-/** The first four pans get a burner; later ones wait on wooden trivets. */
-export const PAN_SLOTS: ReadonlyArray<THREE.Vector3Tuple> = [
-  [-3.3, 0.26, 0.8],
-  [3.45, 0.26, 0.95],
-  [-3.15, 0.26, -1.5],
-  [5.05, 0.26, -1.2],
-  [-5.75, 0.01, -0.35],
-  [5.95, 0.01, 0.6],
-  [-1.55, 0.01, -2.25],
-  [-5.2, 0.01, -2.1],
+/** The first four pans get a burner; later ones stand on the enamel. */
+const PAN_SLOTS: UnitSlot[] = [
+  { x: -3.3, y: PAN_Y_BURNER, z: 0.8, rotation: 0.5 },
+  { x: 3.45, y: PAN_Y_BURNER, z: 0.95, rotation: 2.2 },
+  { x: -3.15, y: PAN_Y_BURNER, z: -1.5, rotation: 3.9 },
+  { x: 5.05, y: PAN_Y_BURNER, z: -1.2, rotation: 5.6 },
+  { x: -5.75, y: PAN_Y_TOP, z: -0.35, rotation: 7.3 },
+  { x: 5.95, y: PAN_Y_TOP, z: 0.6, rotation: 9 },
+  { x: -1.55, y: PAN_Y_TOP, z: -2.25, rotation: 10.7 },
+  { x: -5.2, y: PAN_Y_TOP, z: -2.1, rotation: 12.4 },
 ];
-
 const BURNER_PANS = 4;
 
-export const BURNERS: ReadonlyArray<THREE.Vector3Tuple> = [
+const BURNERS: THREE.Vector3Tuple[] = [
   [0, 0.03, 0],
-  ...PAN_SLOTS.slice(0, BURNER_PANS).map(([x, , z]): THREE.Vector3Tuple => [x, 0.03, z]),
+  ...PAN_SLOTS.slice(0, BURNER_PANS).map((slot): THREE.Vector3Tuple => [slot.x, 0.03, slot.z]),
 ];
 
 function addWall(kit: Kit): void {
-  kit.add(P.box(34, 16, 0.3, 0.02, 1), { color: C.grout, gloss: 0, outline: 0, matrix: at(0, 6, -3.75) });
+  kit.add(P.box(21.8, 8.95, 0.3, 0.02, 1), { color: C.grout, gloss: 0, outline: 0, matrix: at(0, 4.4, -3.75) });
   const tile = 0.74;
   const gap = 0.055;
   let seed = 7;
@@ -350,7 +282,7 @@ function lidGeometry(): THREE.BufferGeometry {
     P.lathe(
       [
         [1.24, 0.02],
-        [1.325, 0.0],
+        [1.325, 0],
         [1.33, 0.04],
         [1.25, 0.09],
       ],
@@ -365,71 +297,16 @@ function lidGeometry(): THREE.BufferGeometry {
   return kit.build();
 }
 
-function panBodyGeometry(): THREE.BufferGeometry {
-  const kit = new Kit();
-  kit.add(
-    P.lathe(
-      [
-        [0, 0],
-        [0.62, 0],
-        [0.68, 0.1],
-        [0.7, 0.56],
-        [0.76, 0.62],
-        [0.72, 0.65],
-        [0.64, 0.6],
-        [0.62, 0.14],
-        [0, 0.12],
-      ],
-      40,
-      0.04,
-      3,
-    ),
-    { color: '#ffffff', gloss: 0.9, ao: (p) => lerp(0.68, 1, smooth(0, 0.3, p.y)) },
-  );
-  kit.add(P.capsule(0.07, 0.95, 4, 10), { color: '#6d3d20', gloss: 0.4, matrix: at(1.28, 0.5, 0.26, [0, 0.19, Math.PI / 2 - 0.16]) });
-  return kit.build();
-}
+const steamColor = new THREE.Color(0.9, 0.88, 0.86);
+const q = new THREE.Quaternion();
+const e = new THREE.Euler();
 
-function panLidGeometry(): THREE.BufferGeometry {
-  const kit = new Kit();
-  kit.add(
-    P.lathe(
-      [
-        [0, -0.01],
-        [0.72, -0.01],
-        [0.7, 0.05],
-        [0.36, 0.17],
-        [0, 0.2],
-      ],
-      36,
-      0.05,
-      3,
-    ),
-    { color: '#ffffff', gloss: 0.9 },
-  );
-  kit.add(P.sphere(0.09, 14, 10), { color: '#2a2933', gloss: 0.8, matrix: at(0, 0.26, 0) });
-  return kit.build();
-}
-
-export interface StoveScene {
-  root: THREE.Group;
-  pot: THREE.Group;
-  lid: THREE.Group;
-  lidRest: { position: THREE.Vector3; quaternion: THREE.Quaternion };
-  moon: THREE.Mesh;
-  moonHome: THREE.Vector3;
-  pans: { body: ToyInstances; lid: ToyInstances };
-}
-
-export function buildStoveScene(stage: Stage, parent: THREE.Object3D): StoveScene {
-  const root = new THREE.Group();
-  parent.add(root);
-
+function buildStove(stage: Stage, root: THREE.Group): SceneParts {
   const set = new Kit();
   addWall(set);
   addStoveBody(set);
   addBurner(set, 0, 0);
-  for (const [x, , z] of PAN_SLOTS.slice(0, BURNER_PANS)) addBurner(set, x, z);
+  for (const slot of PAN_SLOTS.slice(0, BURNER_PANS)) addBurner(set, slot.x, slot.z);
   addWindow(set);
   addForeground(set);
   addToy(stage, root, set.build());
@@ -438,12 +315,10 @@ export function buildStoveScene(stage: Stage, parent: THREE.Object3D): StoveScen
 
   // The lid leans on the back guard until the popcorn sends it flying.
   const lid = addToy(stage, root, lidGeometry());
-  const lidRest = {
-    position: new THREE.Vector3(3.05, 1.12, -2.62),
-    quaternion: new THREE.Quaternion().setFromEuler(new THREE.Euler(1.3, -0.2, 0, 'YXZ')),
-  };
-  lid.position.copy(lidRest.position);
-  lid.quaternion.copy(lidRest.quaternion);
+  const lidHome = new THREE.Vector3(3.05, 1.12, -2.62);
+  const lidRest = new THREE.Quaternion().setFromEuler(new THREE.Euler(1.3, -0.2, 0, 'YXZ'));
+  lid.position.copy(lidHome);
+  lid.quaternion.copy(lidRest);
   lid.scale.setScalar(0.84);
 
   const moonKit = new Kit();
@@ -465,18 +340,170 @@ export function buildStoveScene(stage: Stage, parent: THREE.Object3D): StoveScen
   moon.scale.z = 0.12;
   root.add(moon);
 
-  const pans = {
-    body: addToyInstances(stage, root, panBodyGeometry(), PAN_SLOTS.length),
-    lid: addToyInstances(stage, root, panLidGeometry(), PAN_SLOTS.length),
-  };
-  const tints = ['#fff0d2', '#ffc94f', '#8fe0c8', '#8cc4ff', '#ffa9a0', '#fff0d2', '#ffc94f', '#8fe0c8'];
-  const color = new THREE.Color();
-  tints.forEach((tint, index) => {
-    color.set(tint);
-    pans.body.body.setColorAt(index, color);
-    pans.lid.body.setColorAt(index, color);
-  });
-  for (const mesh of [pans.body, pans.lid]) mesh.ink.instanceColor = mesh.body.instanceColor;
+  const flames = new Flames(root, BURNERS);
+  flames.setLit(1);
 
-  return { root, pot, lid, lidRest, moon, moonHome, pans };
+  const potKick = new Spring(0, 420, 15);
+  const lidRattle = new Spring(0, 620, 17);
+  let steamTimer = 0;
+  let time = 0;
+  let strainAmount = 0;
+  let lidFlying = false;
+  let lidGone = false;
+  const lidVelocity = new THREE.Vector3();
+  const lidSpin = new THREE.Vector3();
+
+  return {
+    kick(strength) {
+      potKick.kick(-0.16 - 0.14 * strength);
+      if (strength > 0) lidRattle.kick(1.6 * strength);
+    },
+    unitsChanged(kind, count) {
+      if (kind === 'pan') flames.setLit(1 + Math.min(count, BURNER_PANS));
+    },
+    strain(u) {
+      strainAmount = u;
+    },
+    blast(ctx) {
+      lidFlying = true;
+      lidVelocity.set(-3.5, 15, 3.2);
+      lidSpin.set(5, 2.4, 7);
+      strainAmount = 0;
+      for (let i = 0; i < 34; i += 1) {
+        ctx.director.launch(ctx.rng.range(-0.8, 0.8), POT.rimY + 0.25, ctx.rng.range(-0.8, 0.8), {
+          flight: ctx.rng.range(0.7, 1.25),
+          scale: ctx.rng.range(0.34, 0.54),
+          reach: 1.5,
+          quiet: i > 6,
+        });
+      }
+    },
+    afterBlast(dt) {
+      if (!lidFlying) return;
+      lidVelocity.y -= 22 * dt;
+      lid.position.addScaledVector(lidVelocity, dt);
+      e.set(lidSpin.x * dt, lidSpin.y * dt, lidSpin.z * dt);
+      lid.quaternion.multiply(q.setFromEuler(e));
+      if (lid.position.y < -14) {
+        lidFlying = false;
+        lidGone = true;
+        lid.visible = false;
+      }
+    },
+    settleAsMiniature() {
+      lidFlying = false;
+      lidGone = true;
+      lid.visible = false;
+      flames.setLit(0);
+    },
+    update(dt, ctx: SceneContext) {
+      time += dt;
+      const kick = potKick.update(dt);
+      const shake = strainAmount * strainAmount;
+      pot.scale.set(1 - kick * 0.018, 1 + kick * 0.03 + shake * 0.03 * Math.sin(time * 52), 1 - kick * 0.018);
+      pot.position.x = Math.sin(time * 67) * shake * 0.05;
+      pot.position.z = Math.cos(time * 59) * shake * 0.04;
+
+      const rattle = lidRattle.update(dt) + Math.sin(time * 73) * shake * 2.4;
+      if (!lidFlying && !lidGone) {
+        e.set(0, 0, rattle * 0.016);
+        lid.quaternion.copy(lidRest).multiply(q.setFromEuler(e));
+        lid.position.copy(lidHome);
+        lid.position.y += Math.abs(rattle) * 0.008;
+      }
+
+      const cycle = time % 11;
+      const tremble = cycle > 9.8 ? Math.sin(((cycle - 9.8) * Math.PI) / 1.2) : 0;
+      moon.position.copy(moonHome);
+      moon.position.x += Math.sin(time * 47) * 0.012 * tremble;
+      moon.position.y += Math.cos(time * 41) * 0.009 * tremble;
+
+      steamTimer -= dt * (1 + shake * 6);
+      if (steamTimer <= 0) {
+        steamTimer = 0.2;
+        const r = ctx.rng;
+        const a = r.range(0, 6.28);
+        const radius = r.range(0.2, 0.9);
+        ctx.sprites.spawn({
+          x: Math.cos(a) * radius,
+          y: POT.rimY + (ctx.level > 0.7 ? 0.9 : -0.15),
+          z: Math.sin(a) * radius,
+          vx: r.range(-0.08, 0.08),
+          vy: r.range(0.42, 0.7),
+          vz: r.range(-0.05, 0.05),
+          drag: 0.25,
+          sizeStart: r.range(0.16, 0.24),
+          sizeEnd: r.range(0.55, 0.85),
+          life: r.range(1.7, 2.5),
+          color: steamColor,
+          alpha: 0.07,
+          kind: SpriteKind.Puff,
+          spin: r.range(-0.4, 0.4),
+        });
+      }
+    },
+  };
 }
+
+export const stoveSpec: SceneSpec = {
+  id: 0,
+  light: {
+    sunDir: [0.42, 0.95, 0.56],
+    sunColor: '#fff0d6',
+    sunIntensity: 1.3,
+    shadeTint: '#4d4580',
+    sky: '#7f9bd6',
+    skyIntensity: 0.26,
+    ground: '#c9825a',
+    groundIntensity: 0.14,
+    rim: '#a6dcff',
+    rimIntensity: 0.6,
+    rimDir: [-0.72, 0.34, -0.6],
+    fog: '#0a2a33',
+    fogRange: [16, 36],
+    pool: [0, 0.6, 0.1, 4.3],
+    poolFloor: 0.34,
+  },
+  grade: {
+    exposure: 1,
+    contrast: 1.04,
+    saturation: 1.08,
+    vignette: 0.32,
+    bloom: 0.55,
+    shadowTint: '#ffffff',
+    highlightTint: '#ffffff',
+    aoTint: '#1c0f22',
+  },
+  camera: {
+    position: new THREE.Vector3(0.2, 5.05, 13.5),
+    target: new THREE.Vector3(0, 1.5, -0.4),
+    fov: 27,
+  },
+  close: { target: new THREE.Vector3(0, 1.12, 0), distance: 0.6, lift: 0 },
+  focusPoint: new THREE.Vector3(0, 1, 0),
+  focusRange: 3.8,
+  aoRadius: 0.42,
+  shadow: { center: new THREE.Vector3(0, 0.8, -0.3), radius: 8.2 },
+  pile: vesselPile({
+    k: 1,
+    floorY: POT.floorY,
+    rimY: POT.rimY,
+    innerR: POT.innerR,
+    outerR: POT.outerR,
+    groundY: 0.01,
+    size: 10,
+    peak: 2.75,
+    endSlope: 0.44,
+    coreDensityRadius: 2.3,
+    outerDensityRadius: 3.9,
+    flakeScale: 0.2,
+  }),
+  homeRadius: POT.innerR * 0.72,
+  steamY: POT.rimY,
+  spreadRadius: 7.5,
+  nest: { position: new THREE.Vector3(-8.2, -3.3, -15.2), scale: 0.42 },
+  slots: { pan: PAN_SLOTS },
+  cannon: null,
+  perches: [],
+  build: buildStove,
+};

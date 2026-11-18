@@ -6,7 +6,7 @@ import { SaveManager, type LoadOutcome } from './platform/saves.ts';
 import { memoryStore, openStore } from './platform/storage.ts';
 import type { QualityTier } from './render/core/quality.ts';
 import { Stage } from './render/core/stage.ts';
-import { World } from './render/world.ts';
+import { World, type BreakBeat } from './render/world.ts';
 import { Simulation } from './sim/simulation.ts';
 import { FixedStepper } from './sim/stepper.ts';
 import { Hud } from './ui/hud.ts';
@@ -17,6 +17,9 @@ export interface GameOptions {
   capture: boolean;
   quality?: QualityTier;
 }
+
+/** From the cinema onward the music takes on a grander color. */
+const WORLD_MUSIC_STAGE = 2;
 
 /** Longest frame the visuals will integrate, so a stall never causes a visual jump. */
 const MAX_FRAME_SECONDS = 0.1;
@@ -40,13 +43,18 @@ export class Game {
   private readonly frameListeners: Array<(deltaSeconds: number) => void> = [];
   private lastTimestamp = 0;
   private running = false;
+  private clickActivity = 0;
 
   constructor(options: GameOptions) {
     this.capture = options.capture;
     this.stage = new Stage({ canvas: options.canvas, capture: options.capture, quality: options.quality });
     this.hud = new Hud(options.uiRoot, this.sim, this.bus, {
-      onChargeChange: () => undefined,
+      onChargeChange: (charge, charging) => {
+        this.world.setCannonCharge(charge, charging);
+        this.audio.setCharge(charge, charging);
+      },
     });
+    this.hud.onSkip = () => this.world.skipTransition();
     this.world = new World(this.stage, this.sim, this.bus, this.impact, {
       onBurst: (x, y, combo, gain, manual) => {
         if (manual) {
@@ -59,9 +67,13 @@ export class Game {
       onLand: (gain) => {
         if (gain > 0) this.hud.popCounter();
       },
+      onMachineCannon: () => {
+        this.audio.effect('cannon-fire', 'tap', 1.5);
+        this.audio.effect('pigeons');
+      },
+      onBreakBeat: (beat, stage) => this.onBreakBeat(beat, stage),
     });
-    // Compiling up front keeps the first click from stalling on shader work.
-    this.stage.renderer.compile(this.stage.scene, this.stage.camera);
+    this.wireSounds();
     options.canvas.addEventListener('pointerdown', (event) => {
       if (event.button !== 0) return;
       event.preventDefault();
@@ -80,12 +92,66 @@ export class Game {
     window.addEventListener('pagehide', () => void this.saves?.save());
   }
 
+  private onBreakBeat(beat: BreakBeat, stage: number): void {
+    const audio = this.audio;
+    if (beat === 'strain') {
+      audio.effect('break-strain', 'large');
+      this.hud.setSkipVisible(true);
+    } else if (beat === 'silence') {
+      audio.duck(true);
+    } else if (beat === 'blast') {
+      audio.duck(false);
+      audio.effect('break-blast', 'epic');
+      audio.effect('break-whoosh', 'large');
+    } else {
+      audio.effect('break-arrive', 'large');
+      audio.setTrack(stage + 1 >= WORLD_MUSIC_STAGE ? 'world' : 'home');
+      this.hud.showSlate(stage + 1);
+      this.hud.setSkipVisible(false);
+    }
+  }
+
+  private wireSounds(): void {
+    const { bus, audio } = this;
+    bus.on('producer_purchased', ({ milestone }) => {
+      audio.effect('buy', 'small', milestone ? 1.25 : 1);
+      audio.effect('shovel');
+    });
+    bus.on('upgrade_purchased', () => {
+      audio.effect('buy', 'small', 1.12);
+      audio.effect('shovel');
+    });
+    bus.on('flavor_unlocked', () => {
+      audio.effect('shake', 'medium');
+      audio.effect('chime', 'medium');
+    });
+    bus.on('achievement_unlocked', () => audio.effect('achievement'));
+    bus.on('hopper_spawned', () => audio.effect('boing'));
+    bus.on('hopper_caught', () => audio.effect('catch', 'medium'));
+    bus.on('cannon_fired', ({ result }) => {
+      audio.setCharge(0, false);
+      if (result === 'overpressure') {
+        audio.effect('cannon-oops', 'medium');
+        return;
+      }
+      audio.effect('cannon-fire', 'large');
+      audio.effect('pigeons');
+      if (result === 'perfect') audio.effect('cannon-perfect', 'large');
+    });
+    bus.on('kernel_popped', () => {
+      this.clickActivity = Math.min(1, this.clickActivity + 0.1);
+    });
+  }
+
   /** Loads the save, if any, before the first frame. */
   async init(): Promise<LoadOutcome> {
     const store = this.capture ? memoryStore() : await openStore();
     this.saves = new SaveManager(this.sim, store);
     const outcome = await this.saves.load();
     this.world.syncToSave();
+    this.audio.setTrack(this.sim.state.stage >= WORLD_MUSIC_STAGE ? 'world' : 'home');
+    // Compiling up front keeps the first click from stalling on shader work.
+    this.stage.renderer.compile(this.stage.scene, this.stage.camera);
     if (outcome.offline) this.hud.showOffline(outcome.offline.seconds, outcome.offline.gained);
     else if (outcome.recovered) {
       this.hud.showNotice(
@@ -139,6 +205,8 @@ export class Game {
     this.world.uiInset = this.hud.shopInset;
     this.world.update(visualDelta);
     this.hud.update(delta, this.world.pendingGain);
+    this.clickActivity = Math.max(0, this.clickActivity - delta * 0.12);
+    this.audio.update(Math.log10(1 + this.sim.perSecond), this.clickActivity);
     this.stage.render(this.visualTime);
     this.lastFrameCpuMs = performance.now() - startedAt;
     for (const listener of this.frameListeners) listener(delta);

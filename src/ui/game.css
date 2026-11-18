@@ -763,3 +763,34 @@
 .achievement.is-locked small {
   color: #b39d86;
 }
+
+/* Breakout staging --------------------------------------------------------- */
+
+.slate {
+  position: absolute;
+  top: 42%;
+  left: calc((100% - var(--shop-width) - 1.6rem) / 2);
+  font-size: 11rem;
+  white-space: nowrap;
+  color: #fff6e0;
+  text-shadow: 0 0.5rem 0 #6a1020, 0 0 3rem rgb(255 190 90 / 75%);
+  opacity: 0;
+}
+
+.skip {
+  position: absolute;
+  right: calc(var(--shop-width) + 4rem);
+  bottom: 3rem;
+  padding: 0.7rem 1.8rem;
+  border-radius: 99rem;
+  background: var(--panel);
+  color: #ffe9c4;
+  font-size: 2rem;
+  box-shadow: 0 0 0 0.2rem rgb(255 223 156 / 32%);
+  pointer-events: auto;
+  display: none;
+}
+
+.skip.is-on {
+  display: block;
+}

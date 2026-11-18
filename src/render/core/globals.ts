@@ -16,6 +16,8 @@ export const globals = {
   uShadowMatrix: { value: new THREE.Matrix4() },
   uShadowTexel: { value: 1 / 2048 },
   uShadowSoftness: { value: 5 },
+  /** World size of one shadow texel, so bias follows the scale of the current scene. */
+  uShadowOffset: { value: 0.005 },
   /** Pool of key light: xyz center, radius in w. */
   uPool: { value: new THREE.Vector4(0, 0, 0, 100) },
   uPoolFloor: { value: 0.5 },

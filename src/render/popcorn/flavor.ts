@@ -67,13 +67,16 @@ export class FlavorShow {
   private spreadT = -1;
   private sprinkleTimer = 0;
   private center = new THREE.Vector2();
+  private readonly k: number;
 
-  constructor(stage: Stage, parent: THREE.Object3D, sprites: Sprites, rng: Rng, spreadRadius: number) {
+  constructor(stage: Stage, parent: THREE.Object3D, sprites: Sprites, rng: Rng, spreadRadius: number, k: number) {
+    this.k = k;
     this.sprites = sprites;
     this.rng = rng;
     this.spreadRadius = spreadRadius;
     this.bottle = addToy(stage, parent, bottleGeometry());
     this.bottle.visible = false;
+    this.bottle.scale.setScalar(k);
     this.tint = this.bottle.children as THREE.Mesh[];
   }
 
@@ -143,16 +146,17 @@ export class FlavorShow {
     this.t += dt;
     const t = this.t;
     // Off to the side and low enough to stay clear of the counter at the top of the screen.
-    const hover = this.home.set(x + 1.25, y + 0.85, z + 0.5);
+    const k = this.k;
+    const hover = this.home.set(x + 1.25 * k, y + 0.85 * k, z + 0.5 * k);
     const b = this.bottle;
     if (t < ENTER) {
       const u = easeOutCubic(t / ENTER);
-      b.position.set(lerp(hover.x + 3.4, hover.x, u), lerp(hover.y + 2.6, hover.y, u), hover.z);
+      b.position.set(lerp(hover.x + 3.4 * k, hover.x, u), lerp(hover.y + 2.6 * k, hover.y, u), hover.z);
       b.rotation.set(0, 0, lerp(-1.2, Math.PI * 0.82, u));
     } else if (t < ENTER + SHAKE) {
       const phase = (t - ENTER) / SHAKE;
       b.position.copy(hover);
-      b.position.y += Math.sin(phase * Math.PI * 7) * 0.12;
+      b.position.y += Math.sin(phase * Math.PI * 7) * 0.12 * k;
       b.rotation.set(0, 0, Math.PI * 0.82 + Math.sin(phase * Math.PI * 7) * 0.14);
       this.sprinkle(dt, hover);
       if (this.spreadT < 0 && phase > 0.12) {
@@ -162,7 +166,7 @@ export class FlavorShow {
     } else if (t < ENTER + SHAKE + LEAVE) {
       const u = (t - ENTER - SHAKE) / LEAVE;
       const e = u * u;
-      b.position.set(lerp(hover.x, hover.x - 3.6, e), lerp(hover.y, hover.y + 3, e), hover.z);
+      b.position.set(lerp(hover.x, hover.x - 3.6 * k, e), lerp(hover.y, hover.y + 3 * k, e), hover.z);
       b.rotation.set(0, 0, lerp(Math.PI * 0.82, Math.PI * 1.5, e));
     } else {
       b.visible = false;
@@ -176,16 +180,17 @@ export class FlavorShow {
     while (this.sprinkleTimer <= 0) {
       this.sprinkleTimer += 0.012;
       const r = this.rng;
+      const k = this.k;
       this.sprites.spawn({
-        x: from.x + r.range(-0.12, 0.12) - 0.3,
-        y: from.y - 0.42,
-        z: from.z + r.range(-0.12, 0.12),
-        vx: r.range(-0.7, 0.7),
-        vy: r.range(-2.2, -1),
-        vz: r.range(-0.7, 0.7),
-        gravity: 9,
-        sizeStart: r.range(0.018, 0.034),
-        sizeEnd: 0.012,
+        x: from.x + (r.range(-0.12, 0.12) - 0.3) * k,
+        y: from.y - 0.42 * k,
+        z: from.z + r.range(-0.12, 0.12) * k,
+        vx: r.range(-0.7, 0.7) * k,
+        vy: r.range(-2.2, -1) * k,
+        vz: r.range(-0.7, 0.7) * k,
+        gravity: 9 * k,
+        sizeStart: r.range(0.018, 0.034) * k,
+        sizeEnd: 0.012 * k,
         life: r.range(0.26, 0.42),
         color: this.dust,
         alpha: 1,

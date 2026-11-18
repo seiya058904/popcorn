@@ -57,13 +57,15 @@ export class Shovel {
   private strength = 1;
   private readonly spot = new THREE.Vector3();
   private onDig: ((x: number, z: number, strength: number) => void) | null = null;
+  private readonly k: number;
 
-  constructor(stage: Stage, parent: THREE.Object3D, sprites: Sprites, rng: Rng) {
+  constructor(stage: Stage, parent: THREE.Object3D, sprites: Sprites, rng: Rng, k: number) {
+    this.k = k;
     this.group = addToy(stage, parent, scoopGeometry());
     this.load = addToy(stage, this.group, loadGeometry());
     this.load.visible = false;
     this.group.visible = false;
-    this.group.scale.setScalar(0.92);
+    this.group.scale.setScalar(0.92 * k);
     this.sprites = sprites;
     this.rng = rng;
   }
@@ -93,13 +95,14 @@ export class Shovel {
     const u = this.t / DURATION;
     const { x, y, z } = this.spot;
     const g = this.group;
+    const k = this.k;
     if (u < DIP_AT) {
       const e = easeInCubic(u / DIP_AT);
-      g.position.set(lerp(x + 3.4, x, e), lerp(y + 3.6, y + 0.06, e), lerp(z + 2.6, z, e));
+      g.position.set(lerp(x + 3.4 * k, x, e), lerp(y + 3.6 * k, y + 0.06 * k, e), lerp(z + 2.6 * k, z, e));
       g.rotation.set(lerp(-0.2, 0.5, e), 2.5, lerp(0.5, -0.1, e));
     } else if (u < LIFT_AT) {
       const e = (u - DIP_AT) / (LIFT_AT - DIP_AT);
-      g.position.set(x, y + 0.06 - Math.sin(e * Math.PI) * 0.12, z);
+      g.position.set(x, y + (0.06 - Math.sin(e * Math.PI) * 0.12) * k, z);
       g.rotation.set(lerp(0.5, -0.1, e), 2.5, -0.1);
       if (!this.dug) {
         this.dug = true;
@@ -109,7 +112,7 @@ export class Shovel {
       }
     } else {
       const e = easeOutCubic(clamp01((u - LIFT_AT) / (1 - LIFT_AT)));
-      g.position.set(lerp(x, x + 3.2, e * e), lerp(y + 0.06, y + 4.2, e), lerp(z, z + 2.2, e * e));
+      g.position.set(lerp(x, x + 3.2 * k, e * e), lerp(y + 0.06 * k, y + 4.2 * k, e), lerp(z, z + 2.2 * k, e * e));
       g.rotation.set(lerp(-0.1, -0.45, e), 2.5, lerp(-0.1, 0.4, e));
     }
     if (u >= 1) {
@@ -120,19 +123,20 @@ export class Shovel {
 
   private burst(): void {
     const r = this.rng;
+    const k = this.k;
     for (let i = 0; i < 12; i += 1) {
       const a = r.range(0, 6.28);
-      const s = r.range(0.8, 2.3);
+      const s = r.range(0.8, 2.3) * k;
       this.sprites.spawn({
         x: this.spot.x,
-        y: this.spot.y + 0.12,
+        y: this.spot.y + 0.12 * k,
         z: this.spot.z,
         vx: Math.cos(a) * s,
-        vy: r.range(1.8, 3.8),
+        vy: r.range(1.8, 3.8) * k,
         vz: Math.sin(a) * s,
-        gravity: 14,
-        sizeStart: r.range(0.05, 0.1),
-        sizeEnd: 0.03,
+        gravity: 14 * k,
+        sizeStart: r.range(0.05, 0.1) * k,
+        sizeEnd: 0.03 * k,
         life: r.range(0.3, 0.5),
         color: this.crumb,
         alpha: 1,
