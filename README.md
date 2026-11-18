@@ -76,8 +76,11 @@ docs                               Design, plan, balance report and credits
 - Edge has not been tested, because it was not installed on the development machine. Chromium and Chrome pass, and Edge shares their engine.
 - Performance was measured on one desktop with a Radeon RX 7900 XT. Integrated graphics and laptops have not been tested on real hardware.
 - The game is designed for desktop screens with a mouse. Phones and tablets are not a supported target.
-- A breakout can take one long frame, about 70 to 210 ms on the development machine, while the next scene is prepared. It is placed inside the blast's white flash and hit-stop.
+- A breakout can take one long frame, up to about 220 ms on the development machine, while the next scene is prepared. It is placed inside the blast's white flash and hit-stop.
 - Game feel, sound quality and art direction have been checked with frame captures and loudness analysis, not yet by human players.
+- A simulated active player finishes in about 2.3 hours, a little short of the 2.5 to 4 hours the design aims for. Time for human players has not been measured.
+- Simplified Chinese is the only language. The settings menu has a language option, but interface text still lives in `src/ui` and has to be extracted before another language can be added.
+- `npm audit` reports 5 high-severity advisories in development tools (the Vite and Vitest chain). The shipped game's dependencies have none.
 
 ## Credits
 

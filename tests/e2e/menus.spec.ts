@@ -73,6 +73,47 @@ test('a save exported here can be imported into a fresh browser profile', async 
   await other.close();
 });
 
+test('a save travels from Chromium to Firefox and back', async ({ page, browser, playwright, baseURL }, testInfo) => {
+  test.skip(testInfo.project.name !== 'chromium', 'One run covers both engines.');
+  const importInto = async (target: Page, text: string): Promise<void> => {
+    await target.goto(`${baseURL}/?play=1`);
+    await ready(target);
+    await target.keyboard.press('Escape');
+    await target.locator('.menu-list .btn', { hasText: '存档管理' }).dispatchEvent('pointerdown');
+    await target.locator('.menu-text').fill(text);
+    await Promise.all([target.waitForNavigation(), press(target, '[data-action="import"]')]);
+    await ready(target);
+  };
+
+  await page.goto('/?play=1');
+  await ready(page);
+  await qa(page, (api) => {
+    api.earn(900);
+    api.buy(0, 7);
+  });
+  const fromChromium = await qa(page, (api) => api.game.saves.exportText());
+
+  const firefox = await playwright.firefox.launch({ firefoxUserPrefs: { 'webgl.force-enabled': true, 'webgl.disabled': false } });
+  try {
+    const inFirefox = await firefox.newPage({ viewport: { width: 1280, height: 720 } });
+    await importInto(inFirefox, fromChromium);
+    expect(await qa(inFirefox, (api) => api.game.sim.state.owned[0])).toBe(7);
+    await qa(inFirefox, (api) => {
+      api.earn(5000);
+      api.buy(0, 1);
+    });
+    const fromFirefox = await qa(inFirefox, (api) => api.game.saves.exportText());
+
+    const other = await browser.newContext();
+    const back = await other.newPage();
+    await importInto(back, fromFirefox);
+    expect(await qa(back, (api) => api.game.sim.state.owned[0])).toBe(8);
+    await other.close();
+  } finally {
+    await firefox.close();
+  }
+});
+
 test('wiping needs confirmation and really clears the save', async ({ page }) => {
   await page.goto('/?play=1');
   await ready(page);
