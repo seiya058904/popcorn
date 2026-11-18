@@ -11,6 +11,14 @@ export const popcornUniforms = {
   uPopCool: { value: new THREE.Color('#bfae9f') },
   uKernel: { value: new THREE.Color('#f7a51c') },
   uPopSheen: { value: 0.3 },
+  // The incoming flavor, revealed by an expanding ring around uWave.xy.
+  uCreamB: { value: new THREE.Color('#fffaf0') },
+  uShadeB: { value: new THREE.Color('#fbd596') },
+  uDeepB: { value: new THREE.Color('#d0822f') },
+  uHullB: { value: new THREE.Color('#8a4a1e') },
+  uSheenB: { value: 0.3 },
+  uWave: { value: new THREE.Vector3(0, 0, -1) },
+  uEffect: { value: new THREE.Vector2(0, 0) },
 };
 
 export const pileUniforms = {
@@ -23,7 +31,37 @@ export const pileUniforms = {
 
 const shading = /* glsl */ `
 uniform vec3 uPopCream, uPopShade, uPopDeep, uPopHull, uPopCool, uKernel;
-uniform float uPopSheen;
+uniform float uPopSheen, uSheenB;
+uniform vec3 uCreamB, uShadeB, uDeepB, uHullB, uWave;
+uniform vec2 uEffect;
+
+vec3 hsv(float h, float s, float v) {
+  vec3 k = abs(fract(vec3(h) + vec3(1.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0);
+  return v * mix(vec3(1.0), sat(k - 1.0), s);
+}
+
+// Special flavors change the surface itself, not only its color.
+void flavorEffect(float kind, inout vec3 base, vec3 N, vec3 V, vec3 P, float band, float shadow) {
+  if (kind < 0.5) return;
+  float seed = hash31(floor(P * 34.0));
+  if (kind < 1.5) {
+    // Salt: tiny crystals that catch the light as the view moves.
+    vec3 facet = normalize(N + (vec3(seed, fract(seed * 7.3), fract(seed * 13.7)) - 0.5) * 1.3);
+    base += vec3(1.1, 1.2, 1.3) * step(0.9, seed) * pow(sat(dot(facet, normalize(uSunDir + V))), 40.0) * 3.0 * shadow;
+  } else if (kind < 2.5) {
+    float hue = fract(dot(P, vec3(0.23, 0.17, 0.19)) + uTime * 0.03);
+    base = mix(base, hsv(hue, 0.6, 1.0) * (0.55 + 0.55 * band), 0.72);
+  } else if (kind < 3.5) {
+    float twinkle = 0.5 + 0.5 * sin(uTime * 3.0 + seed * 40.0);
+    base += vec3(0.14, 0.06, 0.3) * (0.5 + 0.5 * sin(P.x * 3.0 + P.z * 2.0));
+    base += vec3(0.95, 1.0, 1.4) * step(0.95, seed) * twinkle * 2.6;
+  } else if (kind < 4.5) {
+    base += vec3(1.0, 0.72, 0.3) * studioReflection(reflect(-V, N)) * mix(0.45, 1.0, shadow) * 0.95;
+  } else {
+    float hue = fract(sat(dot(N, V)) * 1.2 + uTime * 0.06 + P.y * 0.12);
+    base = mix(base, hsv(hue, 0.55, 1.0) * (0.6 + 0.5 * band), 0.55);
+  }
+}
 
 float noise3(vec3 p) {
   vec3 i = floor(p), f = fract(p);
@@ -51,21 +89,32 @@ vec3 popcornShade(vec3 N, vec3 V, vec3 P, float crease, float core, float pop, f
   float band = mix(lit, stepped, 0.55);
   float pool = lightPool(P);
 
-  vec3 base = mix(uPopShade, uPopCream, band);
+  float wave = smoothstep(uWave.z + 0.4, uWave.z - 0.4, length(P.xz - uWave.xy));
+  vec3 cream = mix(uPopCream, uCreamB, wave);
+  vec3 shade = mix(uPopShade, uShadeB, wave);
+  vec3 deep = mix(uPopDeep, uDeepB, wave);
+  vec3 hull = mix(uPopHull, uHullB, wave);
+  float sheenAmount = mix(uPopSheen, uSheenB, wave);
+
+  vec3 base = mix(shade, cream, band);
   base = mix(base * mix(uPopCool, vec3(1.0), sat(N.y * 0.6 + 0.66)), base, band);
   float crevice = sat(crease * (1.0 - band * 0.45));
-  base = mix(base, uPopDeep, crevice * 0.9);
-  base = mix(base, uPopHull, smoothstep(0.3, 0.85, core));
+  base = mix(base, deep, crevice * 0.9);
+  base = mix(base, hull, smoothstep(0.3, 0.85, core));
+  flavorEffect(wave > 0.5 ? uEffect.y : uEffect.x, base, N, V, P, band, shadow);
+  // A bright band rides the leading edge of a new flavor as it spreads.
+  float front = smoothstep(0.42, 0.0, abs(length(P.xz - uWave.xy) - uWave.z)) * step(0.0, uWave.z);
+  base += cream * front * 0.3;
   base *= mix(vec3(0.74, 0.54, 0.32), vec3(1.0), ao);
 
   // Light bleeding through thin puffs keeps the white from going chalky.
   float through = pow(sat(dot(V, -uSunDir + N * 0.45) * 0.5 + 0.5), 3.0);
-  base += uPopShade * through * 0.32 * (1.0 - core) * mix(0.5, 1.0, shadow);
+  base += shade * through * 0.32 * (1.0 - core) * mix(0.5, 1.0, shadow);
 
   float ndv = sat(dot(N, V));
   vec3 H = normalize(uSunDir + V);
   float sheen = pow(sat(dot(N, H)), 22.0);
-  base += uPopCream * smoothstep(0.3, 0.8, sheen) * uPopSheen * shadow * (1.0 - crevice);
+  base += cream * smoothstep(0.3, 0.8, sheen) * sheenAmount * shadow * (1.0 - crevice);
   float rim = pow(1.0 - ndv, 3.0) * sat(dot(N, uRimDir) * 0.8 + 0.4);
   base += uRimColor * rim * 0.6 * ao;
   base *= (uSunColor * 0.5 + 0.38) * mix(0.66, 1.0, pool);

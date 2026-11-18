@@ -15,16 +15,20 @@
     "balance": "node tools/simulate.ts",
     "shots": "node tools/shots.ts",
     "e2e": "playwright test",
-    "build": "vite build",
+    "fonts": "node tools/fonts.ts",
+    "build": "node tools/fonts.ts && vite build",
     "preview": "vite preview"
   },
   "dependencies": {
     "three": "0.187.0"
   },
   "devDependencies": {
+    "@fontsource/fredoka": "5.3.0",
+    "@fontsource/zcool-kuaile": "5.3.0",
     "@playwright/test": "1.65.1",
     "@types/node": "24.19.2",
     "@types/three": "0.187.0",
+    "subset-font": "2.9.0",
     "typescript": "7.0.2",
     "vite": "8.3.8",
     "vitest": "5.1.1"

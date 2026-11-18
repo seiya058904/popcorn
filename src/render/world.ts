@@ -2,14 +2,17 @@ import * as THREE from 'three';
 import type { EventBus } from '../events/bus.ts';
 import type { GameEvents } from '../events/game-events.ts';
 import { clamp01, easeOutCubic, Spring } from '../motion/ease.ts';
+import type { ImpactDirector } from '../motion/impact.ts';
 import { Rng } from '../motion/rng.ts';
 import type { Simulation } from '../sim/simulation.ts';
 import { applyLightRig, globals } from './core/globals.ts';
 import type { Stage } from './core/stage.ts';
 import { Flames } from './fx/flames.ts';
+import { Shovel } from './fx/shovel.ts';
 import { SpriteKind, Sprites } from './fx/sprites.ts';
 import { PieceBatches } from './popcorn/batches.ts';
 import { PopDirector } from './popcorn/director.ts';
+import { FlavorShow } from './popcorn/flavor.ts';
 import { Pile } from './popcorn/pile.ts';
 import {
   BURNERS,
@@ -37,6 +40,9 @@ interface PanState {
 }
 
 const STAGE_ONE_GOAL = 1000;
+/** A new pan waits for the shovel's dig before it drops in. */
+const PAN_DROP_DELAY = 0.24;
+
 const steam = new THREE.Color(0.9, 0.88, 0.86);
 const m = new THREE.Matrix4();
 const q = new THREE.Quaternion();
@@ -45,6 +51,8 @@ const v = new THREE.Vector3();
 const s = new THREE.Vector3(1, 1, 1);
 const ndc = new THREE.Vector2();
 const focus = new THREE.Vector3();
+const right = new THREE.Vector3();
+const up = new THREE.Vector3();
 const potCenter = new THREE.Vector3(0, 1, 0);
 const smoothstep = (x: number, a: number, b: number): number => {
   const t = clamp01((x - a) / (b - a));
@@ -57,12 +65,17 @@ export class World {
   readonly director: PopDirector;
   readonly scene: StoveScene;
   readonly sprites: Sprites;
+  readonly flavor: FlavorShow;
   /** Manual gains still in the air; the counter catches up as they land. */
   pendingGain = 0;
+  /** Fraction of the window taken by the shop, used to center the action. */
+  uiInset = 0.2;
   private readonly stage: Stage;
   private readonly sim: Simulation;
   private readonly hooks: WorldHooks;
+  private readonly impact: ImpactDirector;
   private readonly flames: Flames;
+  private readonly shovel: Shovel;
   private readonly rng = new Rng(77);
   private readonly raycaster = new THREE.Raycaster();
   private readonly pans: PanState[] = [];
@@ -73,10 +86,11 @@ export class World {
   private steamTimer = 0;
   private cameraLocked = false;
 
-  constructor(stage: Stage, sim: Simulation, bus: EventBus<GameEvents>, hooks: WorldHooks) {
+  constructor(stage: Stage, sim: Simulation, bus: EventBus<GameEvents>, impact: ImpactDirector, hooks: WorldHooks) {
     this.stage = stage;
     this.sim = sim;
     this.hooks = hooks;
+    this.impact = impact;
     stage.scene.add(this.root);
     applyLightRig(stoveLight);
     stage.shadow.setFrustum({ x: 0, y: 0.8, z: -0.3 }, 8.2);
@@ -89,6 +103,8 @@ export class World {
     this.sprites = new Sprites(this.root);
     this.flames = new Flames(this.root, BURNERS);
     this.flames.setLit(1);
+    this.shovel = new Shovel(stage, this.root, this.sprites, this.rng);
+    this.flavor = new FlavorShow(stage, this.root, this.sprites, this.rng, 7.5);
     const batches = new PieceBatches(stage, this.root);
 
     this.director = new PopDirector(
@@ -120,8 +136,46 @@ export class World {
       POT.innerR * 0.72,
     );
 
-    bus.on('producer_purchased', ({ producer, owned }) => {
+    bus.on('producer_purchased', ({ producer, owned, quantity, spent }) => {
       if (producer === 0) this.syncPans(owned, true);
+      this.scoopPayment(spent);
+      void quantity;
+    });
+    bus.on('upgrade_purchased', ({ spent }) => this.scoopPayment(spent));
+    bus.on('flavor_unlocked', ({ flavor, spent }) => {
+      this.scoopPayment(spent);
+      this.flavor.play(flavor);
+      this.impact.hit('medium');
+    });
+    bus.on('cannon_fired', ({ result }) => this.impact.hit(result === 'overpressure' ? 'medium' : 'large'));
+    bus.on('stage_broken', () => this.impact.hit('epic'));
+  }
+
+  /** Matches presentation to a freshly loaded save without replaying any animation. */
+  syncToSave(): void {
+    this.pans.length = 0;
+    this.syncPans(this.sim.state.owned[0]!, false);
+    this.flavor.sync(this.sim.state.flavors);
+    this.pendingGain = 0;
+    this.level = this.targetLevel();
+    this.pile.setLevel(this.level);
+  }
+
+  private targetLevel(): number {
+    const shown = Math.max(0, this.sim.state.totalEarned - this.pendingGain);
+    return clamp01(Math.log1p(shown) / Math.log1p(STAGE_ONE_GOAL));
+  }
+
+  private scoopPayment(spent: number): void {
+    const budget = Math.max(this.sim.state.popcorn + spent, 1);
+    const strength = 0.45 + 0.55 * clamp01(spent / budget);
+    const a = this.rng.range(0.4, 1.3);
+    const radius = Math.max(0.3, this.pile.shape.landingRadius(this.level) * 0.72);
+    const x = Math.cos(a) * radius;
+    const z = Math.sin(a) * radius;
+    this.shovel.scoop(x, this.pile.heightAt(x, z), z, strength, (digX, digZ, power) => {
+      this.pile.impact(digX, digZ, 2.6 * power, 0.75);
+      this.lidRattle.kick(1.2);
     });
   }
 
@@ -133,8 +187,18 @@ export class World {
     focus.lerpVectors(stoveCamera.closeTarget, stoveCamera.target, t);
     camera.position.copy(stoveCamera.position).sub(stoveCamera.target).multiplyScalar(near).add(focus);
     camera.fov = stoveCamera.fov;
+    camera.up.set(0, 1, 0);
     camera.lookAt(focus);
-    this.stage.viewShiftX = stoveCamera.shiftX;
+
+    const { shakeX, shakeY, shakeRoll } = this.impact;
+    if (shakeX !== 0 || shakeY !== 0) {
+      right.setFromMatrixColumn(camera.matrixWorld, 0);
+      up.setFromMatrixColumn(camera.matrixWorld, 1);
+      camera.position.addScaledVector(right, shakeX).addScaledVector(up, shakeY);
+      camera.rotateZ(shakeRoll);
+    }
+
+    this.stage.viewShiftX = this.uiInset * 0.46;
     camera.updateProjectionMatrix();
     post.params.focusDistance = camera.position.distanceTo(potCenter);
     post.params.focusRange = stoveCamera.focusRange * near;
@@ -155,7 +219,7 @@ export class World {
     const visible = Math.min(owned, PAN_SLOTS.length);
     while (this.pans.length < visible) {
       this.pans.push({
-        age: animate ? 0 : 10,
+        age: animate ? -PAN_DROP_DELAY : 10,
         timer: this.rng.range(0.4, 2),
         hop: new Spring(0, 260, 11),
         lidHop: 0,
@@ -163,26 +227,30 @@ export class World {
         shake: 0,
       });
     }
-    this.flames.setLit(1 + this.pans.length);
+    this.flames.setLit(1 + Math.min(this.pans.length, BURNERS.length - 1));
   }
 
   update(deltaSeconds: number): void {
     const dt = deltaSeconds;
     this.time += dt;
-    const shown = Math.max(0, this.sim.state.totalEarned - this.pendingGain);
-    const target = clamp01(Math.log1p(shown) / Math.log1p(STAGE_ONE_GOAL));
-    this.level += (target - this.level) * (1 - Math.exp(-dt * 7));
+    this.level += (this.targetLevel() - this.level) * (1 - Math.exp(-dt * 7));
     this.pile.setLevel(this.level);
     this.applyCamera();
 
     this.syncPans(this.sim.state.owned[0]!, false);
     this.director.update(dt);
+    this.shovel.update(dt);
+    this.flavor.update(dt, 0, this.pile.heightAt(0, 0), 0);
     this.updatePot(dt);
     this.updatePans(dt);
     this.updateMoon();
     this.updateSteam(dt);
     this.pile.update(dt);
     this.sprites.flush();
+
+    const { post } = this.stage;
+    post.params.flash = this.impact.flash;
+    post.params.chroma = this.impact.chroma;
   }
 
   private updatePot(dt: number): void {
@@ -202,8 +270,10 @@ export class World {
 
   private updatePans(dt: number): void {
     const { body, lid } = this.scene.pans;
+    let shown = 0;
     this.pans.forEach((pan, index) => {
       pan.age += dt;
+      if (pan.age < 0) return;
       pan.timer -= dt;
       const slot = PAN_SLOTS[index]!;
       if (pan.timer <= 0 && pan.age > 0.7) {
@@ -230,7 +300,7 @@ export class World {
       e.set(0, index * 1.7 + 0.5, 0);
       q.setFromEuler(e);
       m.compose(v, q, s);
-      body.setMatrixAt(index, m);
+      body.setMatrixAt(shown, m);
 
       pan.lidHop = Math.max(0, pan.lidHop - dt * 1.55);
       const arc = 4 * pan.lidHop * (1 - pan.lidHop);
@@ -238,16 +308,17 @@ export class World {
       e.set(arc * 0.32, this.time * 0.1 + index, pan.lidSpin * arc * 0.3);
       q.setFromEuler(e);
       m.compose(v, q, s.set(1, 1, 1));
-      lid.setMatrixAt(index, m);
+      lid.setMatrixAt(shown, m);
+      shown += 1;
     });
-    body.commit(this.pans.length);
-    lid.commit(this.pans.length);
+    body.commit(shown);
+    lid.commit(shown);
   }
 
   private updateMoon(): void {
     const { moon, moonHome } = this.scene;
     const t = this.time % 11;
-    const tremble = t > 9.8 ? Math.sin((t - 9.8) * Math.PI / 1.2) : 0;
+    const tremble = t > 9.8 ? Math.sin(((t - 9.8) * Math.PI) / 1.2) : 0;
     moon.position.copy(moonHome);
     moon.position.x += Math.sin(this.time * 47) * 0.012 * tremble;
     moon.position.y += Math.cos(this.time * 41) * 0.009 * tremble;

@@ -10,6 +10,7 @@ async function boot(): Promise<void> {
   const quality = __QA__ ? ((params.get('quality') as QualityTier | null) ?? undefined) : undefined;
   const game = new Game({ canvas, uiRoot, capture, quality });
   window.addEventListener('resize', () => game.stage.resize());
+  await game.init();
   if (__QA__) {
     const { installDebug } = await import('./debug/index.ts');
     installDebug(game);

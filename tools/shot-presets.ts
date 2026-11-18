@@ -89,4 +89,72 @@ export const shotPresets: ShotPreset[] = [
       );
     },
   },
+  {
+    name: 'm3-shop',
+    size: { width: 1920, height: 1080 },
+    async run(page) {
+      await qa(
+        page,
+        (api) => {
+          api.set({ stage: 2 });
+          api.earn(900000);
+          api.buy(0, 22);
+          api.buy(1, 9);
+          api.buy(2, 3);
+          api.advance(1.5);
+        },
+        null,
+      );
+    },
+  },
+  {
+    name: 'm3-720p',
+    size: { width: 1280, height: 720 },
+    async run(page) {
+      await qa(
+        page,
+        (api) => {
+          api.set({ stage: 1 });
+          api.earn(30000);
+          api.buy(0, 12);
+          api.buy(1, 3);
+          api.advance(1.5);
+        },
+        null,
+      );
+    },
+  },
+  {
+    name: 'm3-flavor-spread',
+    async run(page) {
+      await qa(
+        page,
+        (api) => {
+          api.earn(700);
+          api.advance(2.5);
+          api.game.sim.buyFlavor();
+          api.advance(0.95);
+        },
+        null,
+      );
+    },
+  },
+  {
+    name: 'm3-strawberry',
+    async run(page) {
+      await qa(
+        page,
+        (api) => {
+          api.earn(30000);
+          api.advance(1.5);
+          for (let i = 0; i < 4; i += 1) {
+            api.game.sim.buyFlavor();
+            api.advance(1.9);
+          }
+          api.advance(1);
+        },
+        null,
+      );
+    },
+  },
 ];

@@ -1,7 +1,32 @@
+@font-face {
+  font-family: 'Kuaile';
+  src: url('./fonts/kuaile.woff2') format('woff2');
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Fredoka';
+  font-weight: 500;
+  src: url('./fonts/fredoka-500.woff2') format('woff2');
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Fredoka';
+  font-weight: 700;
+  src: url('./fonts/fredoka-700.woff2') format('woff2');
+  font-display: swap;
+}
+
 *,
 *::before,
 *::after {
   box-sizing: border-box;
+}
+
+html {
+  /* One unit scales the whole interface: 1rem is 10px at 1920×1080. */
+  font-size: min(calc(100vw / 192), calc(100vh / 108));
 }
 
 html,
@@ -9,8 +34,9 @@ body {
   margin: 0;
   height: 100%;
   overflow: hidden;
-  background: #2a1420;
+  background: #16090f;
   color: #fff6e3;
+  font-family: 'Kuaile', 'Microsoft YaHei', 'PingFang SC', sans-serif;
   -webkit-font-smoothing: antialiased;
   user-select: none;
   -webkit-user-select: none;
@@ -24,10 +50,25 @@ body {
   display: block;
   touch-action: none;
   outline: none;
+  cursor: pointer;
 }
 
 #ui {
   position: fixed;
   inset: 0;
   pointer-events: none;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  border: 0;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+button:focus-visible {
+  outline: 0.3rem solid #8fe0c8;
+  outline-offset: 0.2rem;
 }

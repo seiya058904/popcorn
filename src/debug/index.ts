@@ -1,4 +1,5 @@
 import type { Game } from '../game.ts';
+import type { GameState } from '../sim/state.ts';
 import { TuningPanel } from './panel.ts';
 import { PerfOverlay } from './perf.ts';
 
@@ -11,6 +12,7 @@ export interface QaApi {
   info(): { drawCalls: number; triangles: number; gpu: string; simSteps: number; visualTime: number };
   click(x: number, y: number): void;
   earn(amount: number): void;
+  set(values: Partial<GameState>): void;
   buy(producer: number, times?: number): void;
   showcase(): void;
   viewFrom(position: [number, number, number], target: [number, number, number], fov: number): void;
@@ -73,6 +75,10 @@ export function installDebug(game: Game): void {
     earn(amount) {
       game.sim.state.popcorn += amount;
       game.sim.state.totalEarned += amount;
+    },
+    set(values) {
+      Object.assign(game.sim.state, values);
+      game.sim.invalidate();
     },
     buy(producer, times = 1) {
       for (let index = 0; index < times; index += 1) game.sim.buyProducer(producer);

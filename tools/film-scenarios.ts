@@ -52,6 +52,30 @@ export const filmScenarios: Record<string, FilmScenario> = {
     },
     step: (page) => advance(page, FRAME * 2),
   },
+  /** The shovel taking payment out of the heap. */
+  shovel: {
+    clip: { x: 180, y: 120, width: 640, height: 480 },
+    frames: 24,
+    columns: 6,
+    setup: async (page) => {
+      await warmedUp(page, 800);
+      await advance(page, 2);
+      await qa(page, (api) => api.buy(0), null);
+    },
+    step: (page) => advance(page, FRAME * 2),
+  },
+  /** Seasoning bottle, sprinkle and the color spreading through the heap. */
+  flavor: {
+    clip: { x: 180, y: 60, width: 640, height: 540 },
+    frames: 28,
+    columns: 7,
+    setup: async (page) => {
+      await warmedUp(page, 900);
+      await advance(page, 2);
+      await qa(page, (api) => api.game.sim.buyFlavor(), null);
+    },
+    step: (page) => advance(page, FRAME * 4),
+  },
   /** Ten clicks per second, sampled every second frame. */
   rapid: {
     clip: POT_CLIP,
