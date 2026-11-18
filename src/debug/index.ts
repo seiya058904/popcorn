@@ -9,6 +9,14 @@ export interface QaApi {
   /** Advances presentation by whole 1/60 s frames. Only meaningful in capture mode. */
   advance(seconds: number): void;
   info(): { drawCalls: number; triangles: number; gpu: string; simSteps: number; visualTime: number };
+  click(x: number, y: number): void;
+  earn(amount: number): void;
+  buy(producer: number, times?: number): void;
+  showcase(): void;
+  viewFrom(position: [number, number, number], target: [number, number, number], fov: number): void;
+  pieces(): { airborne: number };
+  /** RGBA bytes of a canvas rectangle given in top-left pixel coordinates. */
+  readRegion(x: number, y: number, width: number, height: number): number[];
   /** Makes every frame wait for the GPU, so uncapped timing cannot hide queued work. */
   setGpuSync(enabled: boolean): void;
   /** Collects frame intervals from requestAnimationFrame for the given duration. */
@@ -58,6 +66,32 @@ export function installDebug(game: Game): void {
         simSteps: game.simSteps,
         visualTime: game.visualTime,
       };
+    },
+    click(x, y) {
+      game.world.click(x, y);
+    },
+    earn(amount) {
+      game.sim.state.popcorn += amount;
+      game.sim.state.totalEarned += amount;
+    },
+    buy(producer, times = 1) {
+      for (let index = 0; index < times; index += 1) game.sim.buy(producer);
+    },
+    showcase() {
+      game.world.showcase();
+    },
+    viewFrom(position, target, fov) {
+      game.world.viewFrom(position, target, fov);
+    },
+    pieces() {
+      return { airborne: game.world.director.airborne };
+    },
+    readRegion(x, y, width, height) {
+      const gl = game.stage.renderer.getContext();
+      const pixels = new Uint8Array(width * height * 4);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.readPixels(x, gl.drawingBufferHeight - y - height, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+      return Array.from(pixels);
     },
     setGpuSync(enabled) {
       syncGpu = enabled;
