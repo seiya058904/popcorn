@@ -116,6 +116,29 @@ export const shotPresets: ShotPreset[] = [
   scene('m6-overflow-d', 2, 1.6e6, [4, 3, 2, 4]),
   scene('m6-overflow-e', 2, 3.2e6, [6, 3, 2, 6]),
   scene('m6-overflow-f', 2, 6e6, [6, 4, 2, 8]),
+  {
+    name: 'm6-cinema-belt',
+    size: { width: 1920, height: 1080 },
+    async run(page) {
+      await qa(
+        page,
+        (api) => {
+          api.set({ stage: 2, totalEarned: 2.4e6, popcorn: 1e15, flavors: 4 });
+          api.advance(0.2);
+          [4, 4, 2, 4].forEach((count, unit) => api.buy(unit, count));
+          api.game.sim.buyUpgrade('syn-cart-cinema');
+          api.set({ popcorn: 2.4e6 });
+          api.advance(3.5);
+        },
+        null,
+      );
+    },
+  },
+  // The same busy moment at every quality tier.
+  { ...kitchen('m7-tier-low', 28000, [8, 4, 2]), query: 'quality=low' },
+  { ...kitchen('m7-tier-medium', 28000, [8, 4, 2]), query: 'quality=medium' },
+  { ...kitchen('m7-tier-high', 28000, [8, 4, 2]), query: 'quality=high' },
+  { ...kitchen('m7-tier-ultra', 28000, [8, 4, 2]), query: 'quality=ultra' },
   kitchen('m4-kitchen-start', 1200, [0, 0, 0]),
   kitchen('m4-kitchen-mid', 7000, [6, 3, 1]),
   kitchen('m4-kitchen-full', 46000, [8, 6, 4]),

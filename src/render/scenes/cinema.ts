@@ -187,16 +187,29 @@ function bucketGeometry(): THREE.BufferGeometry {
   return kit.build();
 }
 
-const BELT = { z: 17.5, halfLength: 38, y: GROUND + 1.75 };
+/** One belt on each side of the stage, climbing from the carts up to the popcorn machines. */
+const BELT = { x: 26, nearZ: 7, farZ: -19, nearY: GROUND + 6, farY: GROUND + 10.5 };
+const beltHeightAt = (z: number): number => BELT.nearY + ((BELT.nearZ - z) / (BELT.nearZ - BELT.farZ)) * (BELT.farY - BELT.nearY);
 
 function beltGeometry(): THREE.BufferGeometry {
   const kit = new Kit();
-  const { z, halfLength: h, y } = BELT;
-  kit.add(P.box(h * 2, 0.5, 3, 0.14, 2), { color: '#2d2b36', gloss: 0.4, matrix: at(0, y - 0.3, z) });
-  kit.add(P.box(h * 2 + 0.4, 0.1, 2.5, 0.04, 1), { color: '#4a4757', gloss: 0.25, outline: 0, matrix: at(0, y - 0.02, z) });
-  for (const side of [-1, 1]) kit.add(P.box(h * 2, 0.34, 0.16, 0.06, 1), { color: C.gold, gloss: 0.8, matrix: at(0, y + 0.08, z + side * 1.5) });
-  for (let i = -6; i <= 6; i += 1) {
-    for (const side of [-1, 1]) kit.add(P.box(0.3, 1.4, 0.3, 0.08, 1), { color: '#2d2b36', gloss: 0.3, matrix: at(i * 6, GROUND + 0.7, z + side * 1.2) });
+  const { x, nearZ, farZ, nearY, farY } = BELT;
+  const run = nearZ - farZ;
+  const rise = farY - nearY;
+  const length = Math.hypot(run, rise);
+  const pitch = Math.atan2(rise, run);
+  const z = (nearZ + farZ) / 2;
+  const y = (nearY + farY) / 2;
+  for (const side of [-1, 1]) {
+    const cx = side * x;
+    kit.add(P.box(3, 0.5, length, 0.14, 2), { color: '#2d2b36', gloss: 0.4, matrix: at(cx, y - 0.3, z, [pitch, 0, 0]) });
+    kit.add(P.box(2.5, 0.1, length + 0.4, 0.04, 1), { color: '#4a4757', gloss: 0.25, outline: 0, matrix: at(cx, y - 0.02, z, [pitch, 0, 0]) });
+    for (const rail of [-1, 1]) kit.add(P.box(0.16, 0.34, length, 0.06, 1), { color: C.gold, gloss: 0.8, matrix: at(cx + rail * 1.5, y + 0.08, z, [pitch, 0, 0]) });
+    for (let i = 0; i <= 3; i += 1) {
+      const postZ = farZ + 1 + (i * (run - 2)) / 3;
+      const top = beltHeightAt(postZ) - 0.4;
+      for (const rail of [-1, 1]) kit.add(P.box(0.3, top - GROUND, 0.3, 0.08, 1), { color: '#2d2b36', gloss: 0.3, matrix: at(cx + rail * 1.2, (top + GROUND) / 2, postZ) });
+    }
   }
   return kit.build();
 }
@@ -325,12 +338,14 @@ function buildCinema(stage: Stage, root: THREE.Group): SceneParts {
     update(dt, ctx: SceneContext) {
       time += dt;
       if (beltOn) {
-        const span = BELT.halfLength * 2;
+        const span = BELT.nearZ - BELT.farZ;
         for (let i = 0; i < BELT_LOADS; i += 1) {
-          const x = ((i / BELT_LOADS) * span + time * 5.5) % span;
+          const side = i % 2 === 0 ? -1 : 1;
+          const travelled = ((i / BELT_LOADS) * span + time * 3.4) % span;
           e.set(0, i * 2.4, 0);
           q.setFromEuler(e);
-          p.set(x - BELT.halfLength, BELT.y + 0.04, BELT.z + Math.sin(i * 3.7) * 0.4);
+          const z = BELT.nearZ - travelled;
+          p.set(side * BELT.x + Math.sin(i * 3.7) * 0.4, beltHeightAt(z) + 0.04, z);
           m.compose(p, q, s.setScalar(0.85 + (i % 3) * 0.12));
           beltLoads.setMatrixAt(i, m);
         }
