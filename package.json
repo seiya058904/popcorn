@@ -1,0 +1,32 @@
+{
+  "name": "pop-popcorn-overload",
+  "version": "0.1.0",
+  "private": true,
+  "description": "POP! Popcorn Overload: a 3D toy-miniature incremental game for the web.",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "vite",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.sim.json",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm run test",
+    "balance": "node tools/simulate.ts",
+    "shots": "node tools/shots.ts",
+    "e2e": "playwright test",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "three": "0.187.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.1",
+    "@types/node": "24.19.2",
+    "@types/three": "0.187.0",
+    "typescript": "7.0.2",
+    "vite": "8.3.8",
+    "vitest": "5.1.1"
+  }
+}

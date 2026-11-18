@@ -1,0 +1,9 @@
+{
+  "//": "Compiles the pure game logic with no DOM or Node types, so a browser API in sim/ is a type error.",
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2023"],
+    "types": []
+  },
+  "include": ["src/sim", "src/content", "src/events"]
+}
