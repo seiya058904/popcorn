@@ -52,7 +52,7 @@ test('clicking ten times per second keeps every frame on time', async ({ page })
     const timer = setInterval(() => api.click(540, 390), 100);
     const sampled = await api.sampleFrames(6);
     clearInterval(timer);
-    return { intervals: sampled, clicks: api.game.sim.state.clicks, cpuWorst: Math.max(...cpu) };
+    return { intervals: sampled, clicks: api.game.sim.state.stats.clicks, cpuWorst: Math.max(...cpu) };
   });
   const sorted = [...intervals].sort((a, b) => a - b);
   const p99 = sorted[Math.floor(sorted.length * 0.99)]!;

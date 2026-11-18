@@ -33,7 +33,7 @@ export class Hud {
     this.button.append(name, this.buttonOwned, this.buttonCost);
     this.button.addEventListener('pointerdown', (event) => {
       event.stopPropagation();
-      if (this.sim.buy(0)) this.bump(this.button);
+      if (this.sim.buyProducer(0)) this.bump(this.button);
     });
 
     root.append(this.counter, this.button);

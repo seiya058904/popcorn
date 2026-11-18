@@ -75,7 +75,7 @@ export function installDebug(game: Game): void {
       game.sim.state.totalEarned += amount;
     },
     buy(producer, times = 1) {
-      for (let index = 0; index < times; index += 1) game.sim.buy(producer);
+      for (let index = 0; index < times; index += 1) game.sim.buyProducer(producer);
     },
     showcase() {
       game.world.showcase();
