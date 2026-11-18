@@ -5,7 +5,7 @@ import { qa } from './shot-presets.ts';
 
 /**
  * Real-time stress run: a simulated player keeps playing while memory is sampled after forced GC.
- * Usage: node tools/soak.ts [--minutes=120] [--size=1920x1080] [--start=0]
+ * Usage: node tools/soak.ts [--minutes=120] [--size=1920x1080]
  * Scene changes legitimately load new assets, so growth is judged inside each scene.
  */
 const minutes = Number(argValue('minutes') ?? 120);
