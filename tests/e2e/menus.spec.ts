@@ -12,13 +12,15 @@ test('the title screen holds the economy until the game starts', async ({ page }
   await page.goto('/');
   await ready(page);
   await expect(page.locator('.title-logo')).toBeVisible();
-  await page.mouse.click(400, 500);
+  // The pot's side of the screen: the canvas is exposed here, beside the title column.
+  await page.mouse.click(900, 400);
   await page.waitForTimeout(300);
   expect(await qa(page, (api) => api.game.sim.state.stats.clicks)).toBe(0);
   await press(page, '[data-action="start"]');
-  await expect(page.locator('.title')).toHaveCount(0);
+  // The first click counts straight away, even while the title is still fading out.
   await page.mouse.click(400, 500);
   expect(await qa(page, (api) => api.game.sim.state.stats.clicks)).toBe(1);
+  await expect(page.locator('.title')).toHaveCount(0);
 });
 
 test('pause stops production and settings persist across a reload', async ({ page }) => {

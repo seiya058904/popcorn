@@ -31,6 +31,8 @@ export class Stage {
   private width = 0;
   private height = 0;
   private appliedShift = Number.NaN;
+  /** Same pixel format as the scene target, so warmed-up shaders are the ones really used. */
+  private readonly preloadTarget = new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType });
 
   constructor(options: StageOptions) {
     this.canvas = options.canvas;
@@ -102,6 +104,26 @@ export class Stage {
     this.post.finish(this.camera, time, this.outputWidth, this.outputHeight);
     this.stats.drawCalls = this.renderer.info.render.calls;
     this.stats.triangles = this.renderer.info.render.triangles;
+  }
+
+  /**
+   * Draws a tree once off-screen, so its shaders and buffers are on the GPU before they are
+   * needed. The shadow map it overwrites is redrawn at the start of every frame.
+   */
+  preload(root: THREE.Object3D): void {
+    const culled: THREE.Object3D[] = [];
+    root.traverse((node) => {
+      if (node.frustumCulled) {
+        node.frustumCulled = false;
+        culled.push(node);
+      }
+    });
+    this.camera.updateMatrixWorld();
+    this.shadow.render(this.renderer, root);
+    this.renderer.setRenderTarget(this.preloadTarget);
+    this.renderer.render(root, this.camera);
+    this.renderer.setRenderTarget(null);
+    for (const node of culled) node.frustumCulled = true;
   }
 
   gpuName(): string {

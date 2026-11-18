@@ -11,7 +11,7 @@ export interface Harness {
   close(): Promise<void>;
 }
 
-export async function startHarness(options: { uncapped?: boolean } = {}): Promise<Harness> {
+export async function startHarness(options: { uncapped?: boolean; extraArgs?: string[] } = {}): Promise<Harness> {
   const server = await createServer({
     // No file watching: tools must not be interrupted by edits made while they run.
     server: { host: '127.0.0.1', port: 0, hmr: false, watch: null },
@@ -21,7 +21,7 @@ export async function startHarness(options: { uncapped?: boolean } = {}): Promis
   const baseUrl = server.resolvedUrls?.local[0];
   if (!baseUrl) throw new Error('Vite did not report a local URL');
   const browser = await chromium.launch({
-    args: options.uncapped ? [...GPU_ARGS, ...UNCAPPED_ARGS] : GPU_ARGS,
+    args: [...GPU_ARGS, ...(options.uncapped ? UNCAPPED_ARGS : []), ...(options.extraArgs ?? [])],
   });
 
   return {

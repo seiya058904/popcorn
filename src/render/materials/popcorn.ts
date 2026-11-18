@@ -25,6 +25,7 @@ export const popcornUniforms = {
 export function createPileUniforms(): PileUniforms {
   return {
     uPileTex: { value: null },
+    uPileCliff: { value: null },
     uPileMin: { value: new THREE.Vector2() },
     uPileSize: { value: 1 },
     uPileTexel: { value: 1 / 180 },
@@ -35,6 +36,7 @@ export function createPileUniforms(): PileUniforms {
 
 export interface PileUniforms {
   uPileTex: { value: THREE.Texture | null };
+  uPileCliff: { value: THREE.Texture | null };
   uPileMin: { value: THREE.Vector2 };
   uPileSize: { value: number };
   uPileTexel: { value: number };
@@ -202,10 +204,14 @@ void main() {
 `;
 
 const pilePars = /* glsl */ `
-uniform sampler2D uPileTex;
+uniform sampler2D uPileTex, uPileCliff;
 uniform vec2 uPileMin;
 uniform float uPileSize, uPileTexel;
-vec2 pileUv(vec2 xz) { return (xz - uPileMin) / uPileSize; }
+// Grid points land exactly on texel centers, so a drop stays one cell wide.
+vec2 pileUv(vec2 xz) { return (xz - uPileMin) / uPileSize * (1.0 - uPileTexel) + 0.5 * uPileTexel; }
+// Rise over run of the resting heap, stored up to CLIFF_RANGE in pile.ts. Popcorn cannot stand
+// steeper than a couple of units, so more than that is the grid bridging a rim or a table edge.
+float pileCliff(vec2 uv) { return textureLod(uPileCliff, uv, 0.0).r * 6.0; }
 `;
 
 const surfaceVertex = /* glsl */ `
@@ -228,7 +234,7 @@ void main() {
   vTone = fract(iPlace.x * 13.7 + iPlace.y * 7.3);
   float reveal = smoothstep(0.0, 0.1 * uPieceK, depth);
   float jiggle = h.g;
-  float scale = iPlace.w * reveal * h.a * (1.0 + jiggle * 0.5);
+  float scale = iPlace.w * reveal * h.a * (1.0 + jiggle * 0.5) * (1.0 - smoothstep(2.0, 2.6, pileCliff(uv)));
   vec4 q = normalize(iQuat + vec4(jiggle * sin(iPlace.x * 31.0 + uTime * 26.0) * 0.7, 0.0, jiggle * cos(iPlace.y * 29.0 + uTime * 23.0) * 0.7, 0.0));
   vec3 p = rotateQ(q, position * scale);
   vec3 wp = vec3(iPlace.x, h.r + iPlace.z + jiggle * 0.05 * uPieceK, iPlace.y) + p;
@@ -291,16 +297,17 @@ float pileHeight(vec2 uv) { return texture2D(uPileTex, uv).r; }
 void main() {
   vec2 uv = pileUv(vXZ);
   vec4 h = texture2D(uPileTex, uv);
-  if (h.r - h.b < 0.015 * uPieceK) discard;
+  if (h.r - h.b < 0.015 * uPieceK || pileCliff(uv) > 2.6) discard;
   float e = uPileTexel;
   float world = uPileSize * e * 2.0;
   vec3 N = normalize(vec3(pileHeight(uv - vec2(e, 0.0)) - pileHeight(uv + vec2(e, 0.0)), world, pileHeight(uv - vec2(0.0, e)) - pileHeight(uv + vec2(0.0, e))));
 
   // Far away the heap is only this pattern, so it must still read as separate puffs.
-  // Sliding the pattern outward with height keeps it from stretching down steep slopes.
-  vec2 fromCenter = vXZ - (uPileMin + uPileSize * 0.5);
-  vec2 unrolled = vXZ - normalize(fromCenter + 1e-4) * (h.r - h.b) * 0.9;
-  vec2 p = unrolled * uLumpScale / uPieceK + 0.35 * vec2(vnoise(vXZ * 3.1 / uPieceK), vnoise(vXZ * 3.1 / uPieceK + 9.0));
+  // Projecting along the dominant axis keeps it from stretching down steep slopes;
+  // where two projections meet, the seam reads as one more crack between puffs.
+  vec3 facing = abs(N);
+  vec2 sheet = facing.y > 0.62 ? vXZ : facing.x > facing.z ? vec2(vXZ.y, h.r) : vec2(vXZ.x, h.r);
+  vec2 p = sheet * uLumpScale / uPieceK + 0.35 * vec2(vnoise(sheet * 3.1 / uPieceK), vnoise(sheet * 3.1 / uPieceK + 9.0));
   vec2 w = worley(p);
   float puff = sat(1.0 - w.x * 1.1);
   float gap = smoothstep(0.0, 0.34, w.y - w.x);
@@ -334,8 +341,9 @@ ${pilePars}
 uniform float uPieceK;
 varying vec2 vXZ;
 void main() {
-  vec4 h = texture2D(uPileTex, pileUv(vXZ));
-  if (h.r - h.b < 0.015 * uPieceK) discard;
+  vec2 uv = pileUv(vXZ);
+  vec4 h = texture2D(uPileTex, uv);
+  if (h.r - h.b < 0.015 * uPieceK || pileCliff(uv) > 2.6) discard;
   gl_FragColor = vec4(1.0);
 }
 `;

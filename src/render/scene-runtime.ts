@@ -97,6 +97,7 @@ export class SceneRuntime {
         this.launchBudget -= 1;
         this.director!.launch(x, y, z);
       },
+      heightAt: (x, z) => this.pile.heightAt(x, z),
       flash: (x, y, z, size) =>
         this.sprites.spawn({ x, y, z, sizeStart: size, sizeEnd: size * 1.5, life: 0.11, color: flashColor, alpha: 1, additive: 1, kind: SpriteKind.Star }),
       smoke: (x, y, z, size) =>
@@ -133,6 +134,10 @@ export class SceneRuntime {
       rig.sync(owned[index]!, animate, UNIT_DROP_DELAY);
       this.parts.unitsChanged?.(kind, rig.visible);
     });
+  }
+
+  syncUpgrades(owned: readonly string[]): void {
+    this.parts.upgradesChanged?.(owned);
   }
 
   fireCannon(result: CannonResult): void {
@@ -194,6 +199,11 @@ export class SceneRuntime {
   /** As the camera pulls away, this scene stops casting shadows: they would be too small to see. */
   beginShrinking(stage: Stage): void {
     stage.shadow.removeTree(this.root);
+    this.flock?.setHidden(true);
+  }
+
+  setFlockHidden(hidden: boolean): void {
+    this.flock?.setHidden(hidden);
   }
 
   /** Called once this scene has been outgrown and shrinks into a prop in the next one. */
@@ -207,7 +217,7 @@ export class SceneRuntime {
     if (this.heroCannon) this.heroCannon.group.visible = false;
     // Only the pans are still large enough to read at miniature scale.
     for (const [kind, rig] of this.rigs) if (kind !== 'pan') rig.hide();
-    this.flock?.hide();
+    this.flock?.setHidden(true);
     this.shovel?.hide();
     this.flavor?.hide();
     this.parts.settleAsMiniature?.();

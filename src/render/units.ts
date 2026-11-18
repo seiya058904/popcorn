@@ -266,6 +266,8 @@ export interface UnitHost {
   rng: Rng;
   /** Launches a popcorn piece from a machine; the world limits how many fly at once. */
   launch(x: number, y: number, z: number): void;
+  /** Height of the popcorn surface, so machines can sink into a rising heap. */
+  heightAt(x: number, z: number): number;
   flash(x: number, y: number, z: number, size: number): void;
   smoke(x: number, y: number, z: number, size: number): void;
   caramel(x: number, y: number, z: number, size: number): void;
@@ -281,6 +283,8 @@ interface UnitState {
   spin: number;
   lidHop: number;
   lidSpin: number;
+  /** 0 standing clear, 1 swallowed by the heap; negative until first placed. */
+  sunk: number;
 }
 
 interface UnitDef {
@@ -302,6 +306,8 @@ const quat = new THREE.Quaternion();
 const euler = new THREE.Euler();
 const scale = new THREE.Vector3();
 const HIDDEN = new THREE.Matrix4().makeScale(0, 0, 0);
+/** A machine goes under once the heap reaches this share of its height. */
+const BURY_AT = 0.6;
 
 const putLocal = (base: THREE.Matrix4, put: (part: number, matrix: THREE.Matrix4) => void, part: number, x: number, y: number, z: number, rx: number, ry: number, rz: number): void => {
   euler.set(rx, ry, rz);
@@ -416,6 +422,7 @@ export class UnitRig {
   private readonly cursors: number[];
   private readonly states: UnitState[] = [];
   private readonly base = new THREE.Matrix4();
+  private readonly height: number;
   private tier = 0;
 
   constructor(stage: Stage, parent: THREE.Object3D, kind: UnitKindName, slots: UnitSlot[], host: UnitHost) {
@@ -423,7 +430,14 @@ export class UnitRig {
     this.slots = slots;
     this.host = host;
     const shadowParts = this.def.shadowParts ?? this.def.parts.length;
-    this.parts = this.def.parts.map((make, index) => addToyInstances(stage, parent, make(), slots.length, index < shadowParts));
+    let height = 0;
+    this.parts = this.def.parts.map((make, index) => {
+      const geometry = make();
+      geometry.computeBoundingBox();
+      height = Math.max(height, geometry.boundingBox!.max.y);
+      return addToyInstances(stage, parent, geometry, slots.length, index < shadowParts);
+    });
+    this.height = height;
     this.cursors = this.parts.map(() => 0);
     const tints = this.def.tints;
     if (tints) {
@@ -459,6 +473,7 @@ export class UnitRig {
         spin: this.host.rng.range(0, 6),
         lidHop: 0,
         lidSpin: 0,
+        sunk: -1,
       });
     }
     this.states.length = Math.min(this.states.length, count);
@@ -477,6 +492,16 @@ export class UnitRig {
       const slot = this.slots[index]!;
       const s = slot.scale ?? 1;
       if (st.age < 0) {
+        for (let part = 0; part < this.parts.length; part += 1) put(part, HIDDEN);
+        return;
+      }
+      // Half-buried machines leave odd scraps poking out, so the heap swallows them whole.
+      const height = this.height * s;
+      const line = slot.y + height * BURY_AT;
+      const surface = this.host.heightAt(slot.x, slot.z);
+      const under = surface > line || (st.sunk > 0.5 && surface > line - height * 0.08);
+      st.sunk = st.sunk < 0 ? (under ? 1 : 0) : THREE.MathUtils.clamp(st.sunk + (under ? dt : -dt) * 2.4, 0, 1);
+      if (st.sunk >= 1) {
         for (let part = 0; part < this.parts.length; part += 1) put(part, HIDDEN);
         return;
       }
@@ -505,13 +530,14 @@ export class UnitRig {
       const jitter = st.shake * 0.018 * s;
       pos.set(
         slot.x + Math.sin(time * 61 + index) * jitter,
-        slot.y + (drop * drop * def.dropHeight + Math.max(0, hop) * 0.06) * s,
+        slot.y + (drop * drop * def.dropHeight + Math.max(0, hop) * 0.06) * s - st.sunk * st.sunk * height * 0.85,
         slot.z + Math.cos(time * 53 + index) * jitter,
       );
       const squash = 1 + landing - hop * 0.05;
       euler.set(0, rotation, 0);
       quat.setFromEuler(euler);
-      scale.set(s * (1 + (1 - squash) * 0.5), s * squash, s * (1 + (1 - squash) * 0.5));
+      const shrink = s * (1 - st.sunk * 0.3);
+      scale.set(shrink * (1 + (1 - squash) * 0.5), shrink * squash, shrink * (1 + (1 - squash) * 0.5));
       this.base.compose(pos, quat, scale);
       def.pose(st, time, index, this.tier, this.base, put);
     });

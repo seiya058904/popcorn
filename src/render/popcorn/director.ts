@@ -442,7 +442,7 @@ export class PopDirector {
   }
 
   private homeReach(): number {
-    return this.homeRadius * clamp01(0.4 + this.pile.currentLevel * 3);
+    return this.homeRadius * clamp01(0.8 + this.pile.currentLevel * 3);
   }
 
   private updateHomes(dt: number): void {

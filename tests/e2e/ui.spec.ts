@@ -91,7 +91,8 @@ test('progress survives a reload, and a corrupted save falls back to the backup'
     () =>
       new Promise<void>((resolve, reject) => {
         // Stop the page from saving over the damage when it unloads.
-        (window as unknown as QaWindow).__pop.game.saves.save = () => Promise.resolve();
+        (window as unknown as QaWindow).__pop.game.saves.disable();
+        localStorage.removeItem('pop-popcorn:rescue');
         const open = indexedDB.open('pop-popcorn', 1);
         open.onsuccess = () => {
           const put = open.result.transaction('saves', 'readwrite').objectStore('saves').put('{"broken', 'main');

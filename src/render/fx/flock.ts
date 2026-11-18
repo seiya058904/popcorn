@@ -66,9 +66,15 @@ export class Flock {
     }));
   }
 
-  hide(): void {
-    this.body.commit(0);
-    this.wing.commit(0);
+  private hidden = false;
+
+  /** Birds stay out of shot while the camera sweeps past their perches. */
+  setHidden(hidden: boolean): void {
+    this.hidden = hidden;
+    if (hidden) {
+      this.body.commit(0);
+      this.wing.commit(0);
+    }
   }
 
   scare(): void {
@@ -84,6 +90,7 @@ export class Flock {
   }
 
   update(dt: number): void {
+    if (this.hidden) return;
     this.time += dt;
     let wings = 0;
     this.birds.forEach((bird, index) => {

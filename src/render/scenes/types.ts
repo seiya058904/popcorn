@@ -73,6 +73,10 @@ export interface SceneParts {
   blast?(ctx: SceneContext): void;
   /** Free-flight of anything thrown by the blast. */
   afterBlast?(dt: number, ctx: SceneContext): void;
+  /** Upgrades that change the set, such as a conveyor between machines. */
+  upgradesChanged?(owned: readonly string[]): void;
+  /** Progress of the camera arriving in this scene, 0..1, for anything that must clear the path. */
+  enter?(u: number): void;
   /** Called when this scene becomes a small prop inside the next one. */
   settleAsMiniature?(): void;
   finale?: FinalePlan;
@@ -98,7 +102,7 @@ export interface SceneSpec {
   /** Radius the flavor color has to travel to cover the whole heap. */
   spreadRadius: number;
   /** Placement of this scene inside the next one. */
-  nest: { position: THREE.Vector3; scale: number; /** Local up direction when placed on a curved surface. */ tilt?: THREE.Vector3 } | null;
+  nest: { position: THREE.Vector3; scale: number; /** Local up direction when placed on a curved surface. */ tilt?: THREE.Vector3; /** How steeply the camera climbs out, relative to its distance. */ rise?: number } | null;
   slots: Partial<Record<UnitKindName, UnitSlot[]>>;
   cannon: HeroCannonPose | null;
   perches: THREE.Vector3[];

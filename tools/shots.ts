@@ -16,7 +16,8 @@ const presets = only ? shotPresets.filter((preset) => only.includes(preset.name)
 
 async function capture(page: Page, preset: ShotPreset): Promise<Buffer> {
   await preset.run(page);
-  return page.screenshot({ type: 'png' });
+  // CSS animations run on the wall clock, so a byte-exact comparison has to stop them.
+  return page.screenshot({ type: 'png', animations: verify ? 'disabled' : 'allow' });
 }
 
 const sha = (data: Buffer): string => createHash('sha256').update(data).digest('hex').slice(0, 16);

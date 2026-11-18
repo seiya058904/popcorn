@@ -88,6 +88,8 @@ export class Menus {
       start.addEventListener('pointerdown', () => {
         this.host.unlockAudio();
         this.playing = true;
+        // The fading title must not swallow the player's first clicks.
+        title.inert = true;
         const out = title.animate(
           [
             { opacity: 1, transform: 'scale(1)' },

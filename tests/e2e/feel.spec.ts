@@ -37,7 +37,9 @@ test('a click changes the picture on the very next frame', async ({ page }) => {
   expect(response).toBeGreaterThan(baseline + 12);
 });
 
-test('clicking ten times per second keeps every frame on time', async ({ page }) => {
+test('clicking ten times per second keeps every frame on time', async ({ page, browserName }, testInfo) => {
+  // Frame pacing is only meaningful on the GPU-backed Chromium run.
+  test.skip(browserName !== 'chromium' || testInfo.project.name !== 'chromium', 'timing is measured on the GPU-backed run');
   const problems: string[] = [];
   page.on('pageerror', (error) => problems.push(error.message));
   await page.goto('/?play=1');

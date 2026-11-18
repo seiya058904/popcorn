@@ -197,9 +197,12 @@ function buildTown(stage: Stage, root: THREE.Group): SceneParts {
   const sky = addToy(stage, root, skyKit.build(), { shadow: false, outline: false });
   const set = new Kit();
   addTown(set);
-  addCinemaFront(set);
   addClockTower(set);
   addToy(stage, root, set.build());
+  // The picture palace front stands in the camera's way on arrival, so it rises up afterward.
+  const frontKit = new Kit();
+  addCinemaFront(frontKit);
+  const front = addToy(stage, root, frontKit.build());
   const fountain = addToy(stage, root, fountainGeometry());
 
   const wheel = addToy(stage, root, wheelGeometry());
@@ -241,6 +244,10 @@ function buildTown(stage: Stage, root: THREE.Group): SceneParts {
     },
     strain(u) {
       strain = u;
+    },
+    enter(u) {
+      const rise = Math.min(1, Math.max(0, (u - 0.66) / 0.3));
+      front.scale.y = Math.max(0.001, rise * rise * (3 - 2 * rise));
     },
     blast(ctx) {
       // The flash covers the moment the sky gives way to space.
@@ -354,6 +361,7 @@ export const townSpec: SceneSpec = {
   nest: {
     position: new THREE.Vector3(14.5, -5.55, 11.5),
     scale: 0.058,
+    rise: 0.3,
     tilt: new THREE.Vector3(14.5, 28.45, 11.5),
   },
   slots: {

@@ -28,6 +28,8 @@ export interface PileShape {
 const STEP = 1 / 60;
 const ROW_INTERLACE = 4;
 const SURFACE_SHAPES = 4;
+/** Steepest slope the cliff map can store; the heap shaders read it back with the same factor. */
+const CLIFF_RANGE = 6;
 
 /** Height field with a spring layer on top: the visible mass of popcorn, at a fixed cost. */
 export class Pile {
@@ -48,6 +50,9 @@ export class Pile {
   private readonly bump: Float32Array;
   private readonly velocity: Float32Array;
   private readonly texture: THREE.DataTexture;
+  private readonly rest: Float32Array;
+  private readonly cliffs: Uint8Array;
+  private readonly cliffTexture: THREE.DataTexture;
   private level = -1;
   private filledLevel = -1;
   private rowPhase = 0;
@@ -72,6 +77,8 @@ export class Pile {
     this.fills = new Float32Array(cells);
     this.bump = new Float32Array(cells);
     this.velocity = new Float32Array(cells);
+    this.rest = new Float32Array(cells);
+    this.cliffs = new Uint8Array(cells);
 
     const k = shape.k;
     for (let j = 0; j < res; j += 1) {
@@ -99,8 +106,14 @@ export class Pile {
     this.texture.wrapT = THREE.ClampToEdgeWrapping;
     this.texture.generateMipmaps = false;
 
+    this.cliffTexture = new THREE.DataTexture(this.cliffs, res, res, THREE.RedFormat, THREE.UnsignedByteType);
+    this.cliffTexture.minFilter = THREE.LinearFilter;
+    this.cliffTexture.magFilter = THREE.LinearFilter;
+    this.cliffTexture.generateMipmaps = false;
+
     const uniforms = createPileUniforms();
     uniforms.uPileTex.value = this.texture;
+    uniforms.uPileCliff.value = this.cliffTexture;
     uniforms.uPileMin.value.set(this.minX, this.minZ);
     uniforms.uPileSize.value = shape.size;
     uniforms.uPileTexel.value = 1 / res;
@@ -228,8 +241,30 @@ export class Pile {
       }
     }
     const dirty = this.dirty;
-    if (dirty) this.refreshFills();
+    if (dirty) {
+      this.refreshFills();
+      this.writeCliffs();
+    }
     if (moved || dirty) this.writeTexture();
+  }
+
+  /**
+   * Marks where the grid only bridges a drop. Taken from the resting shape, so ripples and
+   * shovel dents never open holes in the heap.
+   */
+  private writeCliffs(): void {
+    const { rest, cliffs, fills, floors, res: r, cell } = this;
+    for (let c = 0; c < rest.length; c += 1) rest[c] = Math.max(fills[c]!, floors[c]!);
+    const scale = 255 / (CLIFF_RANGE * cell);
+    for (let j = 1; j < r - 1; j += 1) {
+      for (let i = 1; i < r - 1; i += 1) {
+        const c = i + j * r;
+        const h = rest[c]!;
+        const jump = Math.max(Math.abs(rest[c - 1]! - h), Math.abs(rest[c + 1]! - h), Math.abs(rest[c - r]! - h), Math.abs(rest[c + r]! - h));
+        cliffs[c] = Math.min(255, jump * scale);
+      }
+    }
+    this.cliffTexture.needsUpdate = true;
   }
 
   private stepSprings(): void {

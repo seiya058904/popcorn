@@ -167,7 +167,10 @@ export class World {
       this.current?.syncUnits(this.sim.state.owned, true);
       this.scoopPayment(spent);
     });
-    bus.on('upgrade_purchased', ({ spent }) => this.scoopPayment(spent));
+    bus.on('upgrade_purchased', ({ spent }) => {
+      this.scoopPayment(spent);
+      this.current?.syncUpgrades(this.sim.state.upgrades);
+    });
     bus.on('flavor_unlocked', ({ flavor, spent }) => {
       this.scoopPayment(spent);
       this.current?.flavor?.play(flavor);
@@ -208,6 +211,16 @@ export class World {
     return runtime;
   }
 
+  /**
+   * Builds the following scene ahead of time. This runs at load and inside the blast's hit-stop,
+   * the two moments a long frame cannot be seen, so the next breakout starts without a stall.
+   */
+  private prepareNext(): void {
+    const next = this.currentIndex + 1;
+    if (next >= SCENES.length || this.runtimes[next]) return;
+    this.stage.preload(this.runtime(next, true).root);
+  }
+
   /** Puts `inner` where it belongs inside `outer`, as a small prop. */
   private nest(inner: SceneRuntime, outer: SceneRuntime): void {
     const nest = inner.spec.nest!;
@@ -241,8 +254,16 @@ export class World {
       if (other && i !== index && i !== index - 1) other.root.removeFromParent();
     });
     runtime.syncUnits(this.sim.state.owned, false);
+    runtime.syncUpgrades(this.sim.state.upgrades);
     runtime.flavor?.sync(this.sim.state.flavors);
     this.applyRest(1);
+    this.prepareNext();
+  }
+
+  /** Places the framing at once, without the usual glide. */
+  snapInset(inset: number): void {
+    this.uiInset = inset;
+    this.shownInset = inset;
   }
 
   qualityChanged(): void {
@@ -418,8 +439,12 @@ export class World {
     this.runtimes[SCENES.indexOf(from.spec) - 1]?.root.removeFromParent();
     this.currentIndex = SCENES.indexOf(tr.to.spec);
     tr.to.syncUnits(this.sim.state.owned, false);
+    tr.to.syncUpgrades(this.sim.state.upgrades);
     tr.to.flavor?.sync(this.sim.state.flavors);
+    tr.to.setFlockHidden(true);
+    tr.to.parts.enter?.(0);
     this.level = 0;
+    this.prepareNext();
   }
 
   /** The camera and light of a scene, re-expressed in the coordinates of the scene that swallows it. */
@@ -452,6 +477,8 @@ export class World {
     tr.from.retire(this.stage);
     // The scene nested inside the old one has become far too small to see.
     this.runtimes[SCENES.indexOf(tr.from.spec) - 1]?.root.removeFromParent();
+    tr.to.parts.enter?.(1);
+    tr.to.setFlockHidden(false);
     this.transition = null;
     if (!tr.arrived) this.hooks.onBreakBeat('arrive', tr.stage);
     this.stage.post.params.shock.w = 0;
@@ -470,6 +497,7 @@ export class World {
       tr.arrived = true;
       this.hooks.onBreakBeat('arrive', tr.stage);
     }
+    if (tr.blasted) tr.to.parts.enter?.(clamp01((t - ZOOM_START) / (ZOOM_END - ZOOM_START)));
     if (t >= TRANSITION_END) this.finishTransition();
   }
 
@@ -567,7 +595,7 @@ export class World {
         pose = { ...rest, position: rest.position.clone().lerp(rest.target, push * 0.08) };
       } else {
         const u = easeInOutCubic(clamp01((tr.t - ZOOM_START) / (ZOOM_END - ZOOM_START)));
-        pose = this.blendPose(tr.startPose!, rest, u);
+        pose = this.blendPose(tr.startPose!, rest, u, tr.from.spec.nest?.rise ?? 0.1);
       }
     }
     if (this.attract) {
@@ -593,7 +621,7 @@ export class World {
     }
   }
 
-  private blendPose(a: Pose, b: Pose, t: number): Pose {
+  private blendPose(a: Pose, b: Pose, t: number, rise: number): Pose {
     const toCamA = v.copy(a.position).sub(a.target);
     const toCamB = v2.copy(b.position).sub(b.target);
     const distance = logLerp(toCamA.length(), toCamB.length(), t);
@@ -602,8 +630,8 @@ export class World {
     const w = (Math.pow(toCamB.length() / toCamA.length(), t) - 1) / (toCamB.length() / toCamA.length() - 1);
     const target = a.target.clone().lerp(b.target, w);
     const position = target.clone().addScaledVector(dir, distance);
-    // A gentle rise carries the camera up and over the furniture on its way out.
-    position.y += Math.sin(t * Math.PI) * distance * 0.1;
+    // The camera climbs up and out, so it clears the walls of the room it is leaving.
+    position.y += Math.sin(t * Math.PI) * distance * rise;
     return {
       position,
       target,

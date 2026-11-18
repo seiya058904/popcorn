@@ -109,6 +109,13 @@ export const shotPresets: ShotPreset[] = [
   scene('m5-earth-start', 4, 1.1e9, [0, 0, 0, 0, 0, 0]),
   scene('m5-earth-mid', 4, 4e9, [0, 1, 2, 2, 3, 4]),
   scene('m5-earth-full', 4, 1.9e10, [0, 2, 2, 2, 3, 8]),
+  // Overflow stages, where the heap changes shape around the vessel and the table.
+  kitchen('m6-overflow-a', 12000, [6, 3, 1]),
+  kitchen('m6-overflow-b', 18000, [6, 3, 1]),
+  kitchen('m6-overflow-c', 28000, [8, 4, 2]),
+  scene('m6-overflow-d', 2, 1.6e6, [4, 3, 2, 4]),
+  scene('m6-overflow-e', 2, 3.2e6, [6, 3, 2, 6]),
+  scene('m6-overflow-f', 2, 6e6, [6, 4, 2, 8]),
   kitchen('m4-kitchen-start', 1200, [0, 0, 0]),
   kitchen('m4-kitchen-mid', 7000, [6, 3, 1]),
   kitchen('m4-kitchen-full', 46000, [8, 6, 4]),

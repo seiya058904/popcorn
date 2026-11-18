@@ -479,7 +479,7 @@ export const kitchenSpec: SceneSpec = {
   homeRadius: BOWL.innerR * 0.72,
   steamY: BOWL.rimY,
   spreadRadius: 24,
-  nest: { position: new THREE.Vector3(-41.2, -2.4, -4.9), scale: 0.16 },
+  nest: { position: new THREE.Vector3(-41.2, -2.4, -4.9), scale: 0.16, rise: 0.62 },
   slots: {
     pan: [
       onCounter(4.8, -14.6, 0.4),

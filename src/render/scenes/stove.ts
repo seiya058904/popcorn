@@ -8,7 +8,7 @@ import { toyMaterials } from '../materials/toy.ts';
 import type { SceneContext, SceneParts, SceneSpec, UnitSlot } from './types.ts';
 import { vesselPile } from './vessel.ts';
 
-export const POT = { floorY: 0.42, rimY: 1.46, innerR: 1.12, outerR: 1.24 };
+export const POT = { floorY: 0.68, rimY: 1.46, innerR: 1.12, outerR: 1.24 };
 
 const C = {
   teal: '#14646b',
@@ -487,7 +487,7 @@ export const stoveSpec: SceneSpec = {
     target: new THREE.Vector3(0, 1.5, -0.4),
     fov: 27,
   },
-  close: { target: new THREE.Vector3(0, 1.12, 0), distance: 0.6, lift: 0 },
+  close: { target: new THREE.Vector3(0, 1.0, 0), distance: 0.6, lift: 3.9 },
   focusPoint: new THREE.Vector3(0, 1, 0),
   focusRange: 3.8,
   aoRadius: 0.42,

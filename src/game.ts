@@ -29,6 +29,9 @@ const MAX_FRAME_SECONDS = 0.1;
 /** A gap this long between frames means the machine slept or the tab was frozen. */
 const SLEEP_GAP_SECONDS = 20;
 
+/** Negative: pushes the pot to the right, leaving the left of the title screen for the logo. */
+const TITLE_INSET = -0.42;
+
 const TIER_ORDER: QualityTier[] = ['low', 'medium', 'high', 'ultra'];
 const PERF_WINDOW_FRAMES = 120;
 const SLOW_FRAME_SECONDS = 0.0215;
@@ -140,10 +143,10 @@ export class Game {
       this.bus.on(type, () => void this.saves?.save());
     }
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'hidden') void this.saves?.save();
+      if (document.visibilityState === 'hidden') this.saves?.saveForExit();
       else this.handleReturn();
     });
-    window.addEventListener('pagehide', () => void this.saves?.save());
+    window.addEventListener('pagehide', () => this.saves?.saveForExit());
   }
 
   private onBreakBeat(beat: BreakBeat, stage: number): void {
@@ -232,8 +235,8 @@ export class Game {
     const outcome = await this.saves.load();
     this.world.syncToSave();
     this.audio.setTrack(this.sim.state.stage >= WORLD_MUSIC_STAGE ? 'world' : 'home');
-    // Compiling up front keeps the first click from stalling on shader work.
-    this.stage.renderer.compile(this.stage.scene, this.stage.camera);
+    // Warming up front keeps the first click from stalling on shader or buffer work.
+    this.stage.preload(this.stage.scene);
     if (outcome.offline) this.hud.showOffline(outcome.offline.seconds, outcome.offline.gained);
     else if (outcome.recovered) {
       this.hud.showNotice(
@@ -267,6 +270,7 @@ export class Game {
   async showTitle(): Promise<void> {
     this.attract = true;
     this.world.attract = true;
+    this.world.snapInset(TITLE_INSET);
     await this.menus.showTitle(this.uiRoot, this.sim.state.stats.clicks > 0 || this.sim.state.totalEarned > 0);
     this.attract = false;
     this.world.attract = false;
@@ -325,7 +329,7 @@ export class Game {
     this.visualTime += visualDelta;
     // Sprites read the shared clock while spawning, so it must advance first.
     this.stage.setTime(this.visualTime);
-    this.world.uiInset = this.attract ? 0 : this.hud.shopInset;
+    this.world.uiInset = this.attract ? TITLE_INSET : this.hud.shopInset;
     this.world.update(visualDelta);
     this.hud.setHidden(this.attract);
     this.hud.update(delta, this.world.pendingGain);

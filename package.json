@@ -17,6 +17,8 @@
     "playthrough": "node tools/playthrough.ts",
     "shots": "node tools/shots.ts",
     "e2e": "playwright test",
+    "e2e:prod": "npm run build && node tools/e2e-prod.ts",
+    "soak": "node tools/soak.ts",
     "fonts": "node tools/fonts.ts",
     "build": "node tools/fonts.ts && vite build",
     "preview": "vite preview"

@@ -17,7 +17,6 @@ export interface QaApi {
   buy(producer: number, times?: number): void;
   showcase(): void;
   viewFrom(position: [number, number, number], target: [number, number, number], fov: number): void;
-  pieces(): { airborne: number };
   skipTransition(): void;
   fireCannon(heldSeconds: number): void;
   setCharge(charge: number): void;
@@ -25,6 +24,9 @@ export interface QaApi {
   /** Attaches a simulated player, for full playthroughs of the real game. */
   startBot(profile: number): void;
   runBot(seconds: number): BotStatus;
+  /** Lets the bot play along with the real-time game loop. */
+  driveBot(): void;
+  memory(): { heapMb: number; geometries: number; textures: number; programs: number; stage: number; total: number; drawCalls: number };
   /** RGBA bytes of a canvas rectangle given in top-left pixel coordinates. */
   readRegion(x: number, y: number, width: number, height: number): number[];
   /** Makes every frame wait for the GPU, so uncapped timing cannot hide queued work. */
@@ -53,7 +55,6 @@ declare global {
 }
 
 export function installDebug(game: Game): void {
-  game.onFrame(() => undefined);
   const panel = new TuningPanel();
   const perf = new PerfOverlay(game);
   const BOT_STEP = 0.1;
@@ -115,9 +116,6 @@ export function installDebug(game: Game): void {
     viewFrom(position, target, fov) {
       game.world.viewFrom(position, target, fov);
     },
-    pieces() {
-      return { airborne: 0 };
-    },
     skipTransition() {
       game.world.skipTransition();
     },
@@ -136,6 +134,30 @@ export function installDebug(game: Game): void {
       bot = new BotPlayer(BOT_PROFILES[profile]!, game.sim, game.bus, () =>
         game.world.click(canvas.clientWidth * 0.4, canvas.clientHeight * 0.5),
       );
+    },
+    driveBot() {
+      let pending = 0;
+      game.onFrame((delta) => {
+        pending += delta;
+        while (pending >= BOT_STEP) {
+          pending -= BOT_STEP;
+          bot!.act(BOT_STEP);
+          bot!.decide(BOT_STEP);
+        }
+      });
+    },
+    memory() {
+      const memory = (performance as unknown as { memory?: { usedJSHeapSize: number } }).memory;
+      const info = game.stage.renderer.info;
+      return {
+        heapMb: (memory?.usedJSHeapSize ?? 0) / 1048576,
+        geometries: info.memory.geometries,
+        textures: info.memory.textures,
+        programs: info.programs?.length ?? 0,
+        stage: game.sim.state.stage,
+        total: game.sim.state.totalEarned,
+        drawCalls: game.stage.stats.drawCalls,
+      };
     },
     runBot(seconds) {
       const steps = Math.round(seconds / BOT_STEP);

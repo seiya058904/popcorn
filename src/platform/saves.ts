@@ -28,12 +28,17 @@ export class SaveManager {
 
   async load(now = Date.now()): Promise<LoadOutcome> {
     const main = await this.store.read('main');
-    if (main !== null) {
-      const parsed = parseSave(main);
-      if (parsed.ok) {
-        this.sim.load(parsed.state);
-        return { source: 'main', recovered: false, offline: this.collectOffline(now) };
-      }
+    const parsedMain = main === null ? null : parseSave(main);
+    // A rescue copy only exists when the last regular save may not have finished.
+    const rescueText = this.store.readRescue();
+    const rescue = rescueText === null ? null : parseSave(rescueText);
+    if (rescue?.ok && (!parsedMain?.ok || rescue.state.savedAt >= parsedMain.state.savedAt)) {
+      this.sim.load(rescue.state);
+      return { source: 'main', recovered: false, offline: this.collectOffline(now) };
+    }
+    if (parsedMain?.ok) {
+      this.sim.load(parsedMain.state);
+      return { source: 'main', recovered: false, offline: this.collectOffline(now) };
     }
     const backup = await this.store.read('backup');
     if (backup !== null) {
@@ -68,7 +73,16 @@ export class SaveManager {
 
   /** Saves are chained, so a slow write can never finish after a newer one. */
   save(now = Date.now()): Promise<void> {
-    if (!this.enabled) return this.writing;
+    if (this.enabled) this.enqueue(now);
+    return this.writing;
+  }
+
+  /** For a page being hidden or closed: the regular save may be cut off, so keep a copy too. */
+  saveForExit(now = Date.now()): void {
+    if (this.enabled) this.store.writeRescue(this.enqueue(now));
+  }
+
+  private enqueue(now: number): string {
     this.timer = AUTOSAVE_SECONDS;
     this.sim.state.savedAt = now;
     const text = serializeSave(this.sim.state);
@@ -78,9 +92,11 @@ export class SaveManager {
       .then(async () => {
         await this.store.write('main', text);
         if (refreshBackup) await this.store.write('backup', text);
+        // The copy has served its purpose, unless a newer one was made in the meantime.
+        if (this.store.readRescue() === text) this.store.clearRescue();
       })
-      .catch((error: unknown) => console.warn('Save failed', error));
-    return this.writing;
+      .catch((error: unknown) => console.warn(`Save failed: ${String(error)}`));
+    return text;
   }
 
   exportText(): string {
@@ -105,5 +121,6 @@ export class SaveManager {
     await this.writing;
     await this.store.remove('main');
     await this.store.remove('backup');
+    this.store.clearRescue();
   }
 }

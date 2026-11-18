@@ -919,3 +919,10 @@
   opacity: 1;
   animation: nudge 0.4s ease-in-out infinite alternate;
 }
+
+/* These callouts share one spot under the counter, so later ones step down. */
+.frenzy.is-on ~ .hopper-call,
+.frenzy.is-on ~ .hint,
+.hopper-call.is-on ~ .hint {
+  top: 21rem;
+}

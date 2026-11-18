@@ -1,6 +1,7 @@
 const DB_NAME = 'pop-popcorn';
 const STORE = 'saves';
 const FALLBACK_PREFIX = 'pop-popcorn:';
+const RESCUE_KEY = `${FALLBACK_PREFIX}rescue`;
 
 export type SaveSlot = 'main' | 'backup' | 'settings';
 
@@ -8,27 +9,74 @@ export interface KeyValueStore {
   read(slot: SaveSlot): Promise<string | null>;
   write(slot: SaveSlot, text: string): Promise<void>;
   remove(slot: SaveSlot): Promise<void>;
+  /** A synchronous copy for a page going away, when an asynchronous write may never finish. */
+  writeRescue(text: string): void;
+  readRescue(): string | null;
+  clearRescue(): void;
 }
 
-class IndexedDbStore implements KeyValueStore {
-  private readonly db: Promise<IDBDatabase>;
+/** Storage can be blocked at any moment, and none of these calls may ever throw. */
+const browserRescue = {
+  writeRescue(text: string): void {
+    try {
+      localStorage.setItem(RESCUE_KEY, text);
+    } catch {
+      // Without storage there is nowhere left to put it.
+    }
+  },
+  readRescue(): string | null {
+    try {
+      return localStorage.getItem(RESCUE_KEY);
+    } catch {
+      return null;
+    }
+  },
+  clearRescue(): void {
+    try {
+      localStorage.removeItem(RESCUE_KEY);
+    } catch {
+      // Nothing could have been stored either.
+    }
+  },
+};
 
-  constructor() {
-    this.db = new Promise((resolve, reject) => {
+class IndexedDbStore implements KeyValueStore {
+  readonly writeRescue = browserRescue.writeRescue;
+  readonly readRescue = browserRescue.readRescue;
+  readonly clearRescue = browserRescue.clearRescue;
+  private db: Promise<IDBDatabase> | null = null;
+
+  private connect(): Promise<IDBDatabase> {
+    this.db ??= new Promise<IDBDatabase>((resolve, reject) => {
       const request = indexedDB.open(DB_NAME, 1);
       request.onupgradeneeded = () => request.result.createObjectStore(STORE);
-      request.onsuccess = () => resolve(request.result);
+      request.onsuccess = () => {
+        // The browser may close the connection at any time; the next save reopens it.
+        request.result.onclose = () => (this.db = null);
+        resolve(request.result);
+      };
       request.onerror = () => reject(request.error ?? new Error('IndexedDB failed to open'));
     });
+    return this.db;
   }
 
-  private async run<T>(mode: IDBTransactionMode, action: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
-    const db = await this.db;
+  private async attempt<T>(mode: IDBTransactionMode, action: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
+    const db = await this.connect();
     return new Promise((resolve, reject) => {
       const request = action(db.transaction(STORE, mode).objectStore(STORE));
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error ?? new Error('IndexedDB request failed'));
     });
+  }
+
+  private async run<T>(mode: IDBTransactionMode, action: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
+    try {
+      return await this.attempt(mode, action);
+    } catch (error) {
+      this.db = null;
+      if (!(error instanceof DOMException) || error.name !== 'InvalidStateError') throw error;
+      return this.attempt(mode, action);
+    }
   }
 
   async read(slot: SaveSlot): Promise<string | null> {
@@ -46,6 +94,10 @@ class IndexedDbStore implements KeyValueStore {
 }
 
 class LocalStorageStore implements KeyValueStore {
+  readonly writeRescue = browserRescue.writeRescue;
+  readonly readRescue = browserRescue.readRescue;
+  readonly clearRescue = browserRescue.clearRescue;
+
   async read(slot: SaveSlot): Promise<string | null> {
     return localStorage.getItem(FALLBACK_PREFIX + slot);
   }
@@ -61,6 +113,19 @@ class LocalStorageStore implements KeyValueStore {
 
 class MemoryStore implements KeyValueStore {
   private readonly values = new Map<SaveSlot, string>();
+  private rescue: string | null = null;
+
+  writeRescue(text: string): void {
+    this.rescue = text;
+  }
+
+  readRescue(): string | null {
+    return this.rescue;
+  }
+
+  clearRescue(): void {
+    this.rescue = null;
+  }
 
   async read(slot: SaveSlot): Promise<string | null> {
     return this.values.get(slot) ?? null;

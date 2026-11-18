@@ -52,7 +52,7 @@ export class ShadowPass {
     this.casters.delete(mesh);
   }
 
-  render(renderer: THREE.WebGLRenderer, scene: THREE.Scene): void {
+  render(renderer: THREE.WebGLRenderer, scene: THREE.Object3D): void {
     if (!this.target) return;
     const r = this.radius;
     const cam = this.camera;

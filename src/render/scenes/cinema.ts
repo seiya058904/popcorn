@@ -132,6 +132,22 @@ function addSnackBar(kit: Kit): void {
   kit.add(P.box(21, 5.2, 12.5, 0.3, 2), { color: C.red, gloss: 0.6, matrix: at(-40.8, GROUND + 2.6, -4.4) });
   for (let i = 0; i < 8; i += 1) kit.add(P.box(1.25, 4.4, 0.2, 0.08, 1), { color: i % 2 ? C.cream : C.red, gloss: 0.6, outline: 0, matrix: at(-49.4 + i * 2.5, GROUND + 2.6, 1.9) });
   kit.add(P.box(22, 0.5, 13.5, 0.14, 2), { color: C.gold, gloss: 0.85, matrix: at(-40.8, GROUND + 5.45, -4.4) });
+  // A dark inlay and a ring of bulbs, so the top still reads when the camera sweeps across it.
+  const top = GROUND + 5.7;
+  kit.add(P.box(20.4, 0.05, 11.9, 0.02, 1), { color: '#4d1020', gloss: 0.55, outline: 0, matrix: at(-40.8, top + 0.01, -4.4) });
+  const bulb = (x: number, z: number): void => {
+    kit.add(P.sphere(0.2, 8, 6), { color: '#ffe9b0', emissive: 1, outline: 0, matrix: at(x, top + 0.14, z) });
+  };
+  for (let i = 0; i <= 13; i += 1) {
+    const x = -50.6 + i * 1.507;
+    bulb(x, -10.75);
+    bulb(x, 1.95);
+  }
+  for (let i = 1; i < 8; i += 1) {
+    const z = -10.75 + i * 1.5875;
+    bulb(-50.6, z);
+    bulb(-31, z);
+  }
 }
 
 function seatGeometry(): THREE.BufferGeometry {
@@ -170,6 +186,30 @@ function bucketGeometry(): THREE.BufferGeometry {
   kit.add(P.lathe([[i, r], [i - 0.12, f + 0.4], [i - 0.6, f], [0, f]], 72, 0.2), { color: C.navy, gloss: 0.3, outline: 0, ao: (p) => 0.4 + 0.6 * smooth(f, r, p.y) });
   return kit.build();
 }
+
+const BELT = { z: 17.5, halfLength: 38, y: GROUND + 1.75 };
+
+function beltGeometry(): THREE.BufferGeometry {
+  const kit = new Kit();
+  const { z, halfLength: h, y } = BELT;
+  kit.add(P.box(h * 2, 0.5, 3, 0.14, 2), { color: '#2d2b36', gloss: 0.4, matrix: at(0, y - 0.3, z) });
+  kit.add(P.box(h * 2 + 0.4, 0.1, 2.5, 0.04, 1), { color: '#4a4757', gloss: 0.25, outline: 0, matrix: at(0, y - 0.02, z) });
+  for (const side of [-1, 1]) kit.add(P.box(h * 2, 0.34, 0.16, 0.06, 1), { color: C.gold, gloss: 0.8, matrix: at(0, y + 0.08, z + side * 1.5) });
+  for (let i = -6; i <= 6; i += 1) {
+    for (const side of [-1, 1]) kit.add(P.box(0.3, 1.4, 0.3, 0.08, 1), { color: '#2d2b36', gloss: 0.3, matrix: at(i * 6, GROUND + 0.7, z + side * 1.2) });
+  }
+  return kit.build();
+}
+
+function beltLoadGeometry(): THREE.BufferGeometry {
+  const kit = new Kit();
+  kit.add(P.sphere(0.72, 10, 8), { color: '#fff2d2', gloss: 0.12, matrix: at(0, 0.48, 0) });
+  kit.add(P.sphere(0.48, 8, 6), { color: '#ffe9bd', gloss: 0.12, matrix: at(0.55, 0.32, 0.2) });
+  kit.add(P.sphere(0.42, 8, 6), { color: '#ffe9bd', gloss: 0.12, matrix: at(-0.5, 0.3, -0.2) });
+  return kit.build();
+}
+
+const BELT_LOADS = 26;
 
 const steam = new THREE.Color(0.92, 0.9, 0.88);
 const beamColor = new THREE.Color(0.9, 0.85, 0.65);
@@ -219,6 +259,12 @@ function buildCinema(stage: Stage, root: THREE.Group): SceneParts {
   heads.ink.instanceColor = heads.body.instanceColor;
   seats.commit(audience.length);
 
+  // The cart-to-cinema supply line, built by the "影院专线" upgrade.
+  const belt = addToy(stage, root, beltGeometry());
+  belt.visible = false;
+  const beltLoads = addToyInstances(stage, root, beltLoadGeometry(), BELT_LOADS, false);
+  let beltOn = false;
+
   const bucketKick = new Spring(0, 420, 15);
   const m = new THREE.Matrix4();
   const q = new THREE.Quaternion();
@@ -234,6 +280,11 @@ function buildCinema(stage: Stage, root: THREE.Group): SceneParts {
   return {
     kick(strength) {
       bucketKick.kick(-0.16 - 0.14 * strength);
+    },
+    upgradesChanged(owned) {
+      beltOn = owned.includes('syn-cart-cinema');
+      belt.visible = beltOn;
+      if (!beltOn) beltLoads.commit(0);
     },
     strain(u) {
       strain = u;
@@ -267,9 +318,25 @@ function buildCinema(stage: Stage, root: THREE.Group): SceneParts {
       blasted = true;
       screenUniforms.uTear.value = 2;
       heads.commit(0);
+      belt.visible = false;
+      beltOn = false;
+      beltLoads.commit(0);
     },
     update(dt, ctx: SceneContext) {
       time += dt;
+      if (beltOn) {
+        const span = BELT.halfLength * 2;
+        for (let i = 0; i < BELT_LOADS; i += 1) {
+          const x = ((i / BELT_LOADS) * span + time * 5.5) % span;
+          e.set(0, i * 2.4, 0);
+          q.setFromEuler(e);
+          p.set(x - BELT.halfLength, BELT.y + 0.04, BELT.z + Math.sin(i * 3.7) * 0.4);
+          m.compose(p, q, s.setScalar(0.85 + (i % 3) * 0.12));
+          beltLoads.setMatrixAt(i, m);
+        }
+        s.set(1, 1, 1);
+        beltLoads.commit(BELT_LOADS);
+      }
       const kick = bucketKick.update(dt);
       bucket.scale.set(1 - kick * 0.018, 1 + kick * 0.03 + strain * strain * 0.03 * Math.sin(time * 50), 1 - kick * 0.018);
       audience.forEach((person, index) => {
@@ -377,7 +444,7 @@ export const cinemaSpec: SceneSpec = {
   homeRadius: BUCKET.innerR * 0.72,
   steamY: BUCKET.rimY,
   spreadRadius: 46,
-  nest: { position: new THREE.Vector3(-25, 1.9, -24.5), scale: 0.2 },
+  nest: { position: new THREE.Vector3(-25, 1.9, -24.5), scale: 0.2, rise: 0.85 },
   slots: {
     pan: [stageSlot(2.5, 11.5, 2.2), stageSlot(0.7, 11.5, 2.2), stageSlot(3.3, 11.8, 2.2), stageSlot(-0.1, 11.8, 2.2), stageSlot(2.0, 8.6, 2), stageSlot(1.15, 8.6, 2)],
     cart: [floorSlot(-24, 8, 0.6, 4), floorSlot(24, 8, -0.6, 4), floorSlot(-33, 14, 0.9, 4), floorSlot(33, 14, -0.9, 4)],
