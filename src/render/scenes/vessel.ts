@@ -50,7 +50,8 @@ export function vesselPile(c: VesselConfig): PileShape {
       if (r < c.outerR + 0.05 * k) return moundAt(r, level);
       const crest = crestAt(level);
       if (crest <= 0) return c.groundY - k;
-      const reach = c.outerR + crest * 3.1 * (1 + wobble * 0.5);
+      // Tongues vary by a bounded amount, so a deep overflow still reads as one mass.
+      const reach = c.outerR + crest * 3.1 + wobble * Math.min(crest * 1.55, 2.4 * k);
       const table = c.table;
       if (table && r >= table.radius) {
         // Past the table edge the popcorn has fallen: it heaps on the floor below, growing with
@@ -65,7 +66,11 @@ export function vesselPile(c: VesselConfig): PileShape {
       const base = table ? table.y : c.groundY;
       const edge = smooth(reach, reach - Math.max(0.9 * k, (reach - c.outerR) * 0.7), r);
       if (edge <= 0) return c.groundY - k;
-      const height = lerp(base - 0.12 * k, moundAt(r * (1 + wobble * 0.08), level), edge);
+      // What spills over lands at the foot of the vessel and builds up from there,
+      // instead of hanging from the rim like a curtain.
+      const mound = moundAt(r * (1 + wobble * 0.08), level);
+      const collar = base + crest * 2.1 + 0.3 * k;
+      const height = lerp(base - 0.12 * k, Math.min(mound, collar), edge);
       if (!table) return height;
       // Until the overflow is deep enough to pour over, the heap stops short of the table edge.
       const pour = Math.min(1, Math.max(0, (reach - table.radius) / (2.4 * k)));

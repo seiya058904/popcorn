@@ -134,6 +134,76 @@ function cartSign(): THREE.BufferGeometry {
   return kit.build();
 }
 
+function cinemaBody(): THREE.BufferGeometry {
+  const kit = new Kit();
+  kit.add(P.box(2.2, 1.2, 1.5, 0.1, 2), { color: RED, gloss: 0.8, matrix: at(0, 0.6, 0) });
+  kit.add(P.box(2.3, 0.1, 1.6, 0.03, 1), { color: BUTTER, gloss: 0.9, matrix: at(0, 1.24, 0) });
+  for (const x of [-1.04, 1.04]) for (const z of [-0.68, 0.68]) kit.add(P.box(0.08, 1.5, 0.08, 0.03, 1), { color: BUTTER, gloss: 0.9, matrix: at(x, 2.02, z) });
+  kit.add(P.box(2.3, 0.1, 1.6, 0.03, 1), { color: BUTTER, gloss: 0.9, matrix: at(0, 2.8, 0) });
+  kit.add(P.box(2.4, 0.62, 0.22, 0.09, 2), { color: RED, gloss: 0.7, matrix: at(0, 3.2, 0.1) });
+  kit.add(P.box(2.04, 0.38, 0.06, 0.05, 1), { color: CREAM, emissive: 0.5, outline: 0, matrix: at(0, 3.2, 0.23) });
+  for (let i = 0; i < 12; i += 1) kit.add(P.sphere(0.2, 8, 6), { color: '#fff3d4', gloss: 0.1, outline: 0.4, matrix: at(-0.8 + (i % 6) * 0.32, 1.42 + (i % 2) * 0.12, -0.4 + (Math.floor(i / 6)) * 0.72) });
+  return kit.build();
+}
+
+function cinemaKettle(): THREE.BufferGeometry {
+  const kit = new Kit();
+  kit.add(P.lathe([[0, -0.2], [0.34, -0.2], [0.4, 0.12], [0.3, 0.2], [0, 0.22]], 18, 0.05, 2), { color: CHROME, gloss: 1 });
+  kit.add(P.capsule(0.03, 0.4, 2, 6), { color: IRON, matrix: at(0, 0.42, 0) });
+  return kit.build();
+}
+
+function cinemaLamps(): THREE.BufferGeometry {
+  const kit = new Kit();
+  for (let i = 0; i < 9; i += 1) kit.add(P.sphere(0.075, 6, 5), { color: '#fff1c4', emissive: 1, outline: 0, matrix: at(-1.04 + i * 0.26, 3.58, 0.14) });
+  return kit.build();
+}
+
+function factoryBody(): THREE.BufferGeometry {
+  const kit = new Kit();
+  const brick = '#c4684a';
+  kit.add(P.box(4.6, 2.2, 2.8, 0.12, 2), { color: brick, gloss: 0.15, matrix: at(0, 1.1, 0), ao: (p) => 0.65 + 0.35 * Math.min(1, p.y) });
+  // Saw-tooth roof, the factory silhouette every child draws.
+  for (let i = 0; i < 4; i += 1) {
+    kit.add(P.box(1.25, 0.1, 2.9, 0.03, 1), { color: '#6f4a44', gloss: 0.3, matrix: at(-1.72 + i * 1.15, 2.62, 0, [0, 0, 0.72]) });
+    kit.add(P.box(0.08, 0.86, 2.8, 0.02, 1), { color: '#ffe3a0', emissive: 0.6, outline: 0, matrix: at(-1.26 + i * 1.15, 2.62, 0) });
+  }
+  for (let i = 0; i < 4; i += 1) kit.add(P.box(0.56, 0.72, 0.08, 0.05, 1), { color: '#ffd98a', emissive: 0.55, outline: 0, matrix: at(-1.65 + i * 1.1, 1.3, 1.42) });
+  kit.add(P.box(1, 1.1, 0.1, 0.05, 1), { color: '#5c3a30', gloss: 0.3, outline: 0, matrix: at(1.4, 0.55, 1.42) });
+  kit.add(P.lathe([[0, 0], [0.52, 0], [0.38, 3.2], [0.46, 3.3], [0.46, 3.5], [0, 3.5]], 16, 0.04, 1), { color: '#a9543c', gloss: 0.2, matrix: at(-1.6, 2, -0.7) });
+  kit.add(P.torus(0.42, 0.05, 6, 16), { color: CREAM, gloss: 0.4, outline: 0, matrix: at(-1.6, 4.9, -0.7, [Math.PI / 2, 0, 0]) });
+  kit.add(P.box(2, 0.46, 0.1, 0.08, 1), { color: BUTTER, gloss: 0.8, emissive: 0.15, matrix: at(0.6, 3.2, 1.2) });
+  return kit.build();
+}
+
+function factoryChimney(): THREE.BufferGeometry {
+  const kit = new Kit();
+  kit.add(P.lathe([[0, 0], [0.4, 0], [0.3, 2.4], [0.38, 2.5], [0.38, 2.66], [0, 2.66]], 14, 0.03, 1), { color: '#a9543c', gloss: 0.2, matrix: at(0.1, 2.1, -0.8) });
+  return kit.build();
+}
+
+function volcanoBody(): THREE.BufferGeometry {
+  const kit = new Kit();
+  const rock = new THREE.Color('#6a4a58');
+  const hot = new THREE.Color('#ff6a2a');
+  kit.add(P.lathe([[0, 0], [2.7, 0], [2.3, 0.5], [0.95, 2.6], [0.72, 2.95], [0.5, 2.8], [0.3, 2.3], [0, 2.3]], 22, 0.14, 2), {
+    color: rock,
+    gloss: 0.12,
+    colorFn: (p, _n, out) => {
+      const a = Math.atan2(p.z, p.x);
+      const river = Math.pow(Math.max(0, Math.cos(a * 3 + 0.6)), 22);
+      out.lerp(hot, Math.max(p.y > 2.65 ? 1 : 0, river * Math.min(1, p.y / 0.8)));
+    },
+  });
+  return kit.build();
+}
+
+function volcanoGlow(): THREE.BufferGeometry {
+  const kit = new Kit();
+  kit.add(P.puck(0.56, 0.56, 0.05, 16, 0.01), { color: '#ffb04a', emissive: 1, outline: 0, matrix: at(0, 2.42, 0) });
+  return kit.build();
+}
+
 export function cannonFrame(): THREE.BufferGeometry {
   const kit = new Kit();
   kit.add(P.box(2.4, 0.14, 1.3, 0.06, 2), { color: '#6a4227', gloss: 0.3, matrix: at(0, 0.07, 0) });
@@ -198,6 +268,8 @@ export interface UnitHost {
   launch(x: number, y: number, z: number): void;
   flash(x: number, y: number, z: number, size: number): void;
   smoke(x: number, y: number, z: number, size: number): void;
+  caramel(x: number, y: number, z: number, size: number): void;
+  ember(x: number, y: number, z: number, size: number): void;
   onCannonFired(): void;
 }
 
@@ -213,6 +285,8 @@ interface UnitState {
 
 interface UnitDef {
   parts: Array<() => THREE.BufferGeometry>;
+  /** Small inner parts skip the shadow pass; nobody can see their shadows. */
+  shadowParts?: number;
   interval: [number, number];
   tints?: string[];
   muzzle: [number, number, number];
@@ -257,6 +331,7 @@ export const UNIT_DEFS: Partial<Record<UnitKindName, UnitDef>> = {
   },
   cart: {
     parts: [cartBody, cartTumbler, cartSign],
+    shadowParts: 1,
     interval: [1.3, 2.4],
     muzzle: [0, 2.3, 0],
     dropHeight: 6,
@@ -284,6 +359,52 @@ export const UNIT_DEFS: Partial<Record<UnitKindName, UnitDef>> = {
       host.onCannonFired();
     },
   },
+  cinema: {
+    parts: [cinemaBody, cinemaKettle, cinemaLamps],
+    shadowParts: 1,
+    interval: [1.1, 2],
+    muzzle: [0, 3, 0],
+    dropHeight: 6,
+    pose(st, time, index, tier, base, put) {
+      put(0, base);
+      const tip = Math.max(0, Math.sin(st.spin * 0.9));
+      putLocal(base, put, 1, 0, 2.22, 0, 0, 0, tip * 0.75);
+      // The marquee lights come on once the machine has earned a following.
+      put(2, tier >= 1 || Math.sin(time * 5 + index) > 0 ? base : HIDDEN);
+    },
+  },
+  factory: {
+    parts: [factoryBody, factoryChimney],
+    interval: [1.6, 2.8],
+    muzzle: [-1.6, 5.7, -0.7],
+    dropHeight: 5,
+    pose(_st, _time, _index, tier, base, put) {
+      put(0, base);
+      if (tier >= 1) put(1, base);
+      else put(1, HIDDEN);
+    },
+    fire(_st, host, x, y, z, s) {
+      host.caramel(x, y, z, s);
+    },
+  },
+  volcano: {
+    parts: [volcanoBody, volcanoGlow],
+    shadowParts: 1,
+    interval: [0.9, 1.7],
+    muzzle: [0, 3, 0],
+    dropHeight: 3,
+    pose(st, _time, _index, _tier, base, put) {
+      put(0, base);
+      const pulse = 1 + st.shake * 0.5;
+      local.makeScale(pulse, 1, pulse);
+      child.multiplyMatrices(base, local);
+      put(1, child);
+    },
+    fire(_st, host, x, y, z, s) {
+      host.flash(x, y, z, 1.2 * s);
+      host.ember(x, y, z, s);
+    },
+  },
 };
 
 /** All visible copies of one unit type in one scene. */
@@ -301,7 +422,8 @@ export class UnitRig {
     this.def = UNIT_DEFS[kind]!;
     this.slots = slots;
     this.host = host;
-    this.parts = this.def.parts.map((make) => addToyInstances(stage, parent, make(), slots.length));
+    const shadowParts = this.def.shadowParts ?? this.def.parts.length;
+    this.parts = this.def.parts.map((make, index) => addToyInstances(stage, parent, make(), slots.length, index < shadowParts));
     this.cursors = this.parts.map(() => 0);
     const tints = this.def.tints;
     if (tints) {
@@ -318,6 +440,11 @@ export class UnitRig {
 
   get visible(): number {
     return this.states.length;
+  }
+
+  hide(): void {
+    for (const part of this.parts) part.commit(0);
+    this.states.length = 0;
   }
 
   sync(owned: number, animate: boolean, delay = 0): void {

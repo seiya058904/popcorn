@@ -19,6 +19,7 @@ export class SaveManager {
   private timer = AUTOSAVE_SECONDS;
   private saves = 0;
   private writing: Promise<void> = Promise.resolve();
+  private enabled = true;
 
   constructor(sim: Simulation, store: KeyValueStore) {
     this.sim = sim;
@@ -46,12 +47,16 @@ export class SaveManager {
   }
 
   private collectOffline(now: number): OfflineReport | null {
-    return this.sim.applyOffline(elapsedSince(this.sim.state.savedAt, now));
+    const report = this.sim.applyOffline(elapsedSince(this.sim.state.savedAt, now));
+    // Restart the absence clock, so the same time away can never be paid twice.
+    if (now > this.sim.state.savedAt) this.sim.state.savedAt = now;
+    return report;
   }
 
   /** Credits time spent suspended or in a background tab, and restarts the absence clock. */
   resume(now = Date.now()): OfflineReport | null {
     const report = this.collectOffline(now);
+    // A clock that jumped backward also restarts here, so play is not lost to it later.
     this.sim.state.savedAt = now;
     return report;
   }
@@ -63,6 +68,7 @@ export class SaveManager {
 
   /** Saves are chained, so a slow write can never finish after a newer one. */
   save(now = Date.now()): Promise<void> {
+    if (!this.enabled) return this.writing;
     this.timer = AUTOSAVE_SECONDS;
     this.sim.state.savedAt = now;
     const text = serializeSave(this.sim.state);
@@ -88,6 +94,11 @@ export class SaveManager {
     this.sim.load(parsed.state);
     await this.save();
     return null;
+  }
+
+  /** Stops all writing, so a wipe cannot be undone by the save on page unload. */
+  disable(): void {
+    this.enabled = false;
   }
 
   async wipe(): Promise<void> {

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { Rng } from '../../motion/rng.ts';
+import { QUALITY } from '../core/quality.ts';
 import type { Stage } from '../core/stage.ts';
 import { createPileMaterials, createPileUniforms } from '../materials/popcorn.ts';
 import { lowFlake } from './batches.ts';
@@ -33,6 +34,7 @@ export class Pile {
   readonly shape: PileShape;
   readonly group = new THREE.Group();
   private readonly surface = new THREE.Group();
+  private readonly surfaceCounts: number[] = [];
   private readonly res: number;
   private readonly cell: number;
   private readonly minX: number;
@@ -120,7 +122,8 @@ export class Pile {
   private buildSurface(stage: Stage, material: THREE.Material): void {
     const rng = new Rng(4242);
     const shape = this.shape;
-    const perShape = Math.floor(stage.quality.pileInstances / SURFACE_SHAPES);
+    // Built at full density once; lower quality simply draws fewer of them.
+    const perShape = Math.floor(QUALITY.ultra.pileInstances / SURFACE_SHAPES);
     for (let s = 0; s < SURFACE_SHAPES; s += 1) {
       const base = lowFlake(s);
       const geometry = new THREE.InstancedBufferGeometry();
@@ -151,10 +154,20 @@ export class Pile {
       geometry.setAttribute('iPlace', new THREE.InstancedBufferAttribute(place, 4));
       geometry.setAttribute('iQuat', new THREE.InstancedBufferAttribute(quat, 4));
       geometry.instanceCount = placed;
+      this.surfaceCounts.push(placed);
       const mesh = new THREE.Mesh(geometry, material);
       mesh.frustumCulled = false;
       this.surface.add(mesh);
     }
+    this.setDetail(stage.quality.pileInstances / QUALITY.ultra.pileInstances);
+  }
+
+  /** Fraction of the surface flakes to draw. The order is random, so any prefix looks even. */
+  setDetail(fraction: number): void {
+    this.surface.children.forEach((child, index) => {
+      const geometry = (child as THREE.Mesh).geometry as THREE.InstancedBufferGeometry;
+      geometry.instanceCount = Math.floor(this.surfaceCounts[index]! * fraction);
+    });
   }
 
   /** A distant heap needs only the height field; its pattern reads as popcorn from afar. */

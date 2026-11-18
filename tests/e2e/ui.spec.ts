@@ -8,7 +8,7 @@ const qa = <T>(page: Page, body: (api: QaApi) => T): Promise<T> =>
   page.evaluate(`(${body.toString()})(window.__pop)`) as Promise<T>;
 
 test('a new player can make the first purchase without any instructions', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/?play=1');
   await ready(page);
   await expect(page.locator('.hint')).toBeVisible();
   for (let i = 0; i < 15; i += 1) await page.mouse.click(520, 400);
@@ -76,7 +76,7 @@ test('the counter does not move the layout as its length changes', async ({ page
 });
 
 test('progress survives a reload, and a corrupted save falls back to the backup', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/?play=1');
   await ready(page);
   await qa(page, (api) => {
     api.earn(500);

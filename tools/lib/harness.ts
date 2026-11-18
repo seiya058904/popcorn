@@ -13,7 +13,8 @@ export interface Harness {
 
 export async function startHarness(options: { uncapped?: boolean } = {}): Promise<Harness> {
   const server = await createServer({
-    server: { host: '127.0.0.1', port: 0 },
+    // No file watching: tools must not be interrupted by edits made while they run.
+    server: { host: '127.0.0.1', port: 0, hmr: false, watch: null },
     logLevel: 'warn',
   });
   await server.listen();
@@ -33,7 +34,7 @@ export async function startHarness(options: { uncapped?: boolean } = {}): Promis
       page.on('console', (message) => {
         if (message.type() === 'error') console.error(`[console] ${message.text()}`);
       });
-      await page.goto(`${baseUrl}?${query}`);
+      await page.goto(`${baseUrl}?play=1&${query}`);
       await page.waitForFunction(() => Boolean((window as Window & { __pop?: QaApi }).__pop));
       return page;
     },

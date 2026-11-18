@@ -172,6 +172,7 @@ export function addToyInstances(
   parent: THREE.Object3D,
   geometry: THREE.BufferGeometry,
   capacity: number,
+  castShadow = true,
 ): ToyInstances {
   const materials = toyMaterials();
   const body = new THREE.InstancedMesh(geometry, materials.body, capacity);
@@ -182,7 +183,7 @@ export function addToyInstances(
   ink.frustumCulled = false;
   body.count = 0;
   ink.count = 0;
-  stage.shadow.add(body, materials.depth);
+  if (castShadow) stage.shadow.add(body, materials.depth);
   parent.add(body, ink);
   return {
     body,

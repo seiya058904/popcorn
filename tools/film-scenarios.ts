@@ -101,6 +101,78 @@ export const filmScenarios: Record<string, FilmScenario> = {
     },
     step: (page) => advance(page, FRAME * 4),
   },
+  /** The kitchen bursting into the cinema. */
+  breakoutKitchen: {
+    clip: { x: 0, y: 0, width: 1280, height: 720 },
+    frames: 30,
+    columns: 6,
+    setup: async (page) => {
+      await qa(
+        page,
+        (api) => {
+          api.set({ stage: 1, totalEarned: 4.9e4, popcorn: 4.9e4, flavors: 3 });
+          api.advance(3);
+          api.earn(2000);
+        },
+        null,
+      );
+    },
+    step: (page) => advance(page, FRAME * 6),
+  },
+  /** The cinema tearing open into the town. */
+  breakoutCinema: {
+    clip: { x: 0, y: 0, width: 1280, height: 720 },
+    frames: 30,
+    columns: 6,
+    setup: async (page) => {
+      await qa(
+        page,
+        (api) => {
+          api.set({ stage: 2, totalEarned: 9.8e6, popcorn: 9.8e6, flavors: 6 });
+          api.advance(3);
+          api.earn(3e5);
+        },
+        null,
+      );
+    },
+    step: (page) => advance(page, FRAME * 6),
+  },
+  /** Town giving way to the planet. */
+  breakoutTown: {
+    clip: { x: 0, y: 0, width: 1280, height: 720 },
+    frames: 30,
+    columns: 6,
+    setup: async (page) => {
+      await qa(
+        page,
+        (api) => {
+          api.set({ stage: 3, totalEarned: 9.8e8, popcorn: 9.8e8, flavors: 9 });
+          api.advance(3);
+          api.earn(3e7);
+        },
+        null,
+      );
+    },
+    step: (page) => advance(page, FRAME * 6),
+  },
+  /** The whole ending, about two frames per second. */
+  finale: {
+    clip: { x: 0, y: 0, width: 1280, height: 720 },
+    frames: 42,
+    columns: 7,
+    setup: async (page) => {
+      await qa(
+        page,
+        (api) => {
+          api.set({ stage: 4, totalEarned: 1.95e10, popcorn: 1.95e10, flavors: 12 });
+          api.advance(3);
+          api.earn(1e9);
+        },
+        null,
+      );
+    },
+    step: (page) => advance(page, FRAME * 29),
+  },
   /** The shovel taking payment out of the heap. */
   shovel: {
     clip: { x: 180, y: 120, width: 640, height: 480 },

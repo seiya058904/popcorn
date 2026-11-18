@@ -212,6 +212,46 @@ export const SOUND_RECIPES: Record<string, () => Float32Array> = {
   },
 };
 
+SOUND_RECIPES['moon-heat'] = () => {
+  const rng = new Rng(90);
+  const low = new Biquad('low', 120, 1.4);
+  const band = new Biquad('band', 500, 1.2);
+  const out = seconds(4.6);
+  for (let i = 0; i < out.length; i += 1) {
+    const t = i / SAMPLE_RATE;
+    const u = t / 4.6;
+    band.set(240 + 2400 * u * u);
+    const n = rng.next() * 2 - 1;
+    out[i] = (low.run(n) * 2.2 + band.run(n) * u + Math.sin(TAU * (34 + 38 * u) * t) * 0.55) * u * u;
+  }
+  return fadeEdges(normalizePeak(out, 0.7), 0.3, 0.03);
+};
+SOUND_RECIPES['moon-pop'] = () => {
+  const out = boom(5, 240, 26, 1.4, 91);
+  mixIn(out, tone(0.5, (t) => Math.sin(TAU * (520 * t - 300 * t * t)) * Math.exp(-t / 0.08) * 1.4), 0);
+  const air = new Biquad('high', 1200);
+  mixIn(out, burstNoise(2, 92, air, (t) => Math.exp(-t / 0.5)), 0, 0.5);
+  [196, 247, 294, 392].forEach((frequency) => mixIn(out, tone(3.8, bell(frequency, 1.2, 0.2)), 0.5));
+  return fadeEdges(normalizePeak(out, 0.86), 0, 0.5);
+};
+SOUND_RECIPES['hand-whoosh'] = () => {
+  const rng = new Rng(93);
+  const band = new Biquad('band', 200, 0.7);
+  const out = seconds(3.4);
+  for (let i = 0; i < out.length; i += 1) {
+    const u = i / out.length;
+    band.set(90 + 700 * Math.sin(u * Math.PI) ** 2);
+    out[i] = band.run(rng.next() * 2 - 1) * Math.sin(u * Math.PI);
+  }
+  return normalizePeak(out, 0.55);
+};
+SOUND_RECIPES['hand-grab'] = () => {
+  const out = boom(1.6, 110, 40, 0.3, 94);
+  const crunch = new Biquad('band', 1300, 0.8);
+  mixIn(out, burstNoise(0.5, 95, crunch, (t) => Math.exp(-t / 0.1)), 0.02, 1.2);
+  return fadeEdges(normalizePeak(out, 0.8), 0, 0.12);
+};
+
 const STEM_CACHE = new Map<string, ReturnType<typeof renderMusic>>();
 const stems = (key: string, spec: Parameters<typeof renderMusic>[0]): ReturnType<typeof renderMusic> => {
   let rendered = STEM_CACHE.get(key);

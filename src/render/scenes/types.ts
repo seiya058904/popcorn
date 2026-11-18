@@ -37,11 +37,25 @@ export interface HeroCannonPose {
   scale: number;
 }
 
+/** The closing show, played by the last scene once the run has ended. */
+export interface FinalePlan {
+  duration: number;
+  beats: Array<[number, FinaleBeat]>;
+  camera(t: number): { position: THREE.Vector3; target: THREE.Vector3 };
+  update(t: number, dt: number, ctx: SceneContext): void;
+  /** Jumps to the aftermath, for a save that has already seen the ending. */
+  showFinal(): void;
+}
+
+export type FinaleBeat = 'moon-heat' | 'moon-silence' | 'moon-pop' | 'hand' | 'grab';
+
 export interface SceneContext {
   time: number;
   level: number;
   /** Rate of the whole economy on a log scale, 0 when idle. */
   intensity: number;
+  /** True behind the title screen. */
+  attract: boolean;
   sprites: Sprites;
   director: PopDirector;
   rng: Rng;
@@ -61,6 +75,7 @@ export interface SceneParts {
   afterBlast?(dt: number, ctx: SceneContext): void;
   /** Called when this scene becomes a small prop inside the next one. */
   settleAsMiniature?(): void;
+  finale?: FinalePlan;
   /** Tells the set how many units of a kind are on show, e.g. to light burners. */
   unitsChanged?(kind: UnitKindName, count: number): void;
 }
@@ -83,7 +98,7 @@ export interface SceneSpec {
   /** Radius the flavor color has to travel to cover the whole heap. */
   spreadRadius: number;
   /** Placement of this scene inside the next one. */
-  nest: { position: THREE.Vector3; scale: number } | null;
+  nest: { position: THREE.Vector3; scale: number; /** Local up direction when placed on a curved surface. */ tilt?: THREE.Vector3 } | null;
   slots: Partial<Record<UnitKindName, UnitSlot[]>>;
   cannon: HeroCannonPose | null;
   perches: THREE.Vector3[];

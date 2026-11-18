@@ -21,6 +21,8 @@ const MACHINE_LAUNCHES_PER_SECOND = 7;
 
 const flashColor = new THREE.Color(2.4, 1.8, 1);
 const smokeColor = new THREE.Color(0.55, 0.5, 0.5);
+const caramelColor = new THREE.Color('#d99a58');
+const emberColor = new THREE.Color(2.8, 1.05, 0.25);
 
 export interface RuntimeHooks {
   onBurst(position: THREE.Vector3, combo: number, gain: number, manual: boolean): void;
@@ -45,6 +47,7 @@ export class SceneRuntime {
   private readonly rigs = new Map<UnitKindName, UnitRig>();
   private readonly rng: Rng;
   private launchBudget = 0;
+  private fountainBudget = 0;
   private live: boolean;
 
   constructor(stage: Stage, spec: SceneSpec, rng: Rng, hooks: RuntimeHooks, live: boolean) {
@@ -98,6 +101,16 @@ export class SceneRuntime {
         this.sprites.spawn({ x, y, z, sizeStart: size, sizeEnd: size * 1.5, life: 0.11, color: flashColor, alpha: 1, additive: 1, kind: SpriteKind.Star }),
       smoke: (x, y, z, size) =>
         this.sprites.spawn({ x, y, z, vy: size * 0.8, drag: 1.5, sizeStart: size * 0.4, sizeEnd: size * 1.3, life: 0.9, color: smokeColor, alpha: 0.26, kind: SpriteKind.Puff }),
+      caramel: (x, y, z, size) => {
+        for (let i = 0; i < 2; i += 1) {
+          this.sprites.spawn({ x, y, z, vx: rng.range(-0.3, 0.3) * size, vy: rng.range(0.8, 1.3) * size, vz: rng.range(-0.3, 0.3) * size, drag: 0.5, sizeStart: 0.4 * size, sizeEnd: rng.range(1.1, 1.6) * size, life: rng.range(1.6, 2.4), color: caramelColor, alpha: 0.5, kind: SpriteKind.Puff, spin: rng.range(-0.5, 0.5) });
+        }
+      },
+      ember: (x, y, z, size) => {
+        for (let i = 0; i < 5; i += 1) {
+          this.sprites.spawn({ x, y, z, vx: rng.range(-1, 1) * size, vy: rng.range(1.6, 3.6) * size, vz: rng.range(-1, 1) * size, gravity: 4 * size, sizeStart: 0.1 * size, sizeEnd: 0.02 * size, life: rng.range(0.5, 0.9), color: emberColor, alpha: 1, additive: 1, kind: SpriteKind.Drop });
+        }
+      },
       onCannonFired: () => {
         this.flock?.scare();
         hooks.onMachineCannon();
@@ -136,6 +149,7 @@ export class SceneRuntime {
       director.update(dt);
       this.shovel?.update(dt);
       this.flavor?.update(dt, this.spec.pile.centerX, this.pile.heightAt(this.spec.pile.centerX, this.spec.pile.centerZ), this.spec.pile.centerZ);
+      this.updateFountain(dt, ctx.intensity, ctx.attract);
       this.heroCannon?.update(dt, cooling);
       this.flock?.update(dt);
       const tempo = 1 + Math.min(1.6, ctx.intensity * 0.28);
@@ -146,17 +160,56 @@ export class SceneRuntime {
     this.sprites.flush();
   }
 
+  /**
+   * Past a certain output single pops stop making sense:
+   * the vessel turns into a fountain, and its height carries the scale.
+   */
+  private updateFountain(dt: number, intensity: number, attract: boolean): void {
+    const k = this.spec.pile.k;
+    const rate = attract ? 1.3 : Math.min(26, Math.max(0, (intensity - 2.4) * 5.5));
+    this.fountainBudget = Math.min(5, this.fountainBudget + rate * dt);
+    while (this.fountainBudget >= 1) {
+      this.fountainBudget -= 1;
+      const a = this.rng.range(0, 6.28);
+      const r = this.rng.range(0, this.spec.homeRadius * 0.7);
+      const x = Math.cos(a) * r;
+      const z = Math.sin(a) * r;
+      this.director!.launch(x, this.pile.heightAt(x, z) + 0.2 * k, z, {
+        flight: this.rng.range(0.85, 1.35),
+        scale: this.rng.range(0.26, 0.42),
+        reach: 1.3,
+        quiet: true,
+      });
+    }
+  }
+
+  setDetail(fraction: number): void {
+    this.pile.setDetail(fraction);
+  }
+
   context(time: number, level: number, intensity: number): SceneContext | null {
-    return this.director ? { time, level, intensity, sprites: this.sprites, director: this.director, rng: this.rng } : null;
+    return this.director ? { time, level, intensity, attract: false, sprites: this.sprites, director: this.director, rng: this.rng } : null;
+  }
+
+  /** As the camera pulls away, this scene stops casting shadows: they would be too small to see. */
+  beginShrinking(stage: Stage): void {
+    stage.shadow.removeTree(this.root);
   }
 
   /** Called once this scene has been outgrown and shrinks into a prop in the next one. */
-  retire(): void {
+  retire(stage: Stage): void {
     this.live = false;
+    stage.shadow.removeTree(this.root);
     this.pile.setSurfaceVisible(false);
-    this.batches && (this.batches.group.visible = false);
+    if (this.batches) this.batches.group.visible = false;
     this.sprites.mesh.visible = false;
     this.director?.hideHopper(false);
+    if (this.heroCannon) this.heroCannon.group.visible = false;
+    // Only the pans are still large enough to read at miniature scale.
+    for (const [kind, rig] of this.rigs) if (kind !== 'pan') rig.hide();
+    this.flock?.hide();
+    this.shovel?.hide();
+    this.flavor?.hide();
     this.parts.settleAsMiniature?.();
   }
 }

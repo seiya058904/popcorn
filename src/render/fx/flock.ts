@@ -66,6 +66,11 @@ export class Flock {
     }));
   }
 
+  hide(): void {
+    this.body.commit(0);
+    this.wing.commit(0);
+  }
+
   scare(): void {
     for (const bird of this.birds) {
       if (bird.state === 'fleeing') continue;

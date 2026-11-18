@@ -53,6 +53,7 @@ declare global {
 }
 
 export function installDebug(game: Game): void {
+  game.onFrame(() => undefined);
   const panel = new TuningPanel();
   const perf = new PerfOverlay(game);
   const BOT_STEP = 0.1;

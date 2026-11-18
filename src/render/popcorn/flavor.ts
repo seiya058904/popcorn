@@ -80,6 +80,10 @@ export class FlavorShow {
     this.tint = this.bottle.children as THREE.Mesh[];
   }
 
+  hide(): void {
+    this.bottle.visible = false;
+  }
+
   get busy(): boolean {
     return this.t >= 0 || this.spreadT >= 0;
   }

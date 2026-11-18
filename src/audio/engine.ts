@@ -263,6 +263,11 @@ export class AudioEngine {
     }
   }
 
+  setPaused(paused: boolean): void {
+    if (!this.context) return;
+    void (paused ? this.context.suspend() : this.context.resume());
+  }
+
   /** Everything drops away for the silent beat before a breakout. */
   duck(silent: boolean): void {
     const context = this.context;

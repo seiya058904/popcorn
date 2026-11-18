@@ -340,6 +340,7 @@ function buildKitchen(stage: Stage, root: THREE.Group): SceneParts {
   const bowlKick = new Spring(0, 420, 15);
   let time = 0;
   let steamTimer = 0;
+  let doorOpening = false;
 
   return {
     kick(strength) {
@@ -349,6 +350,24 @@ function buildKitchen(stage: Stage, root: THREE.Group): SceneParts {
     strain(u) {
       lampSwing.kick(u * u * 0.05 * Math.sin(time * 30));
       door.rotation.y = -u * u * 0.06 * Math.abs(Math.sin(time * 40));
+    },
+    blast(ctx) {
+      doorOpening = true;
+      lampSwing.kick(0.5);
+      // The fridge gives way first, then the window.
+      for (let i = 0; i < 24; i += 1) {
+        ctx.director.launch(-20 + ctx.rng.range(-2.4, 2.4), GROUND + ctx.rng.range(2, 11), -10.5, { flight: ctx.rng.range(0.7, 1.2), scale: ctx.rng.range(0.4, 0.6), reach: 1.6, quiet: i > 5 });
+      }
+      for (let i = 0; i < 20; i += 1) {
+        ctx.director.launch(WINDOW.x + ctx.rng.range(-4, 4), WINDOW.y + ctx.rng.range(-3, 3), -16.6, { flight: ctx.rng.range(0.7, 1.2), scale: ctx.rng.range(0.4, 0.6), reach: 1.6, quiet: i > 4 });
+      }
+    },
+    afterBlast(dt) {
+      if (doorOpening) door.rotation.y = Math.max(-1.9, door.rotation.y - dt * 7);
+    },
+    settleAsMiniature() {
+      door.rotation.y = -1.9;
+      moon.visible = false;
     },
     update(dt, ctx: SceneContext) {
       time += dt;
@@ -460,7 +479,7 @@ export const kitchenSpec: SceneSpec = {
   homeRadius: BOWL.innerR * 0.72,
   steamY: BOWL.rimY,
   spreadRadius: 24,
-  nest: null,
+  nest: { position: new THREE.Vector3(-41.2, -2.4, -4.9), scale: 0.16 },
   slots: {
     pan: [
       onCounter(4.8, -14.6, 0.4),

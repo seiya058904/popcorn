@@ -56,7 +56,59 @@ const kitchen = (name: string, total: number, units: [number, number, number]): 
   },
 });
 
+const scene = (name: string, stage: number, total: number, units: number[]): ShotPreset => ({
+  name,
+  size: { width: 1920, height: 1080 },
+  async run(page) {
+    await qa(
+      page,
+      (api, value: { stage: number; total: number; units: number[] }) => {
+        api.set({ stage: value.stage, totalEarned: value.total, popcorn: 1e15, flavors: value.stage * 2 });
+        api.advance(0.2);
+        value.units.forEach((count, unit) => api.buy(unit, count));
+        api.set({ popcorn: value.total });
+        api.advance(3.5);
+      },
+      { stage, total, units },
+    );
+  },
+});
+
 export const shotPresets: ShotPreset[] = [
+  {
+    name: 'm6-title',
+    query: 'title=1',
+    size: { width: 1920, height: 1080 },
+    async run(page) {
+      await advance(page, 3);
+      await page.waitForTimeout(1500);
+    },
+  },
+  {
+    name: 'm6-hopper',
+    size: { width: 1920, height: 1080 },
+    async run(page) {
+      await qa(
+        page,
+        (api) => {
+          api.set({ stage: 1, totalEarned: 9000, popcorn: 9000 });
+          api.advance(2);
+          api.showHopper();
+          api.advance(1.3);
+        },
+        null,
+      );
+    },
+  },
+  scene('m5-cinema-start', 2, 6e4, [0, 0, 0, 0]),
+  scene('m5-cinema-mid', 2, 6e5, [4, 3, 2, 4]),
+  scene('m5-cinema-full', 2, 9.5e6, [6, 4, 2, 8]),
+  scene('m5-town-start', 3, 1.2e7, [0, 0, 0, 0, 0]),
+  scene('m5-town-mid', 3, 1.2e8, [0, 2, 2, 4, 4]),
+  scene('m5-town-full', 3, 9.5e8, [0, 4, 3, 4, 8]),
+  scene('m5-earth-start', 4, 1.1e9, [0, 0, 0, 0, 0, 0]),
+  scene('m5-earth-mid', 4, 4e9, [0, 1, 2, 2, 3, 4]),
+  scene('m5-earth-full', 4, 1.9e10, [0, 2, 2, 2, 3, 8]),
   kitchen('m4-kitchen-start', 1200, [0, 0, 0]),
   kitchen('m4-kitchen-mid', 7000, [6, 3, 1]),
   kitchen('m4-kitchen-full', 46000, [8, 6, 4]),

@@ -6,7 +6,7 @@ test('boots with a live canvas and a clean console', async ({ page }) => {
   page.on('console', (message) => {
     if (message.type() === 'error') problems.push(message.text());
   });
-  await page.goto('/');
+  await page.goto('/?play=1');
   await expect(page).toHaveTitle('砰！爆米花失控了');
   await page.waitForFunction(() => (window as unknown as { __pop?: unknown }).__pop !== undefined);
   await page.waitForFunction(

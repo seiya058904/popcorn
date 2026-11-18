@@ -35,6 +35,7 @@ try {
   let maxTriangles = 0;
   const stageTimes: Array<{ stage: number; minutes: number; draws: number }> = [];
   const started = Date.now();
+  let creditsShown = false;
   const shoot = async (name: string): Promise<void> => {
     writeFileSync(join(outDir, `${name}.png`), await page.screenshot({ type: 'png' }));
   };
@@ -57,6 +58,13 @@ try {
     }
     if (status.ended) {
       console.log(`run finished at ${(simulated / 60).toFixed(1)} min`);
+      await qa(page, (api) => api.advance(9), null);
+      await shoot('ending-moon');
+      await qa(page, (api) => api.advance(7.5), null);
+      await shoot('ending-hand');
+      await qa(page, (api) => api.advance(6), null);
+      await shoot('ending-credits');
+      creditsShown = await page.locator('.dialog.is-credits').isVisible();
       break;
     }
   }
@@ -68,11 +76,12 @@ try {
     maxDrawCalls: maxDraws,
     maxTriangles,
     final,
+    creditsShown,
     errors,
   };
   console.log(JSON.stringify(report, null, 2));
   writeFileSync(join(outDir, 'report.json'), JSON.stringify(report, null, 2));
-  if (errors.length > 0 || maxDraws > 150) exitCode = 1;
+  if (errors.length > 0 || maxDraws > 150 || (final.ended && !creditsShown)) exitCode = 1;
 } finally {
   await harness.close();
 }

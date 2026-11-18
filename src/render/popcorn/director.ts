@@ -31,6 +31,8 @@ interface Piece {
   popFrom: number;
   pop: number;
   glow: number;
+  /** Counts down through a little idle hop. */
+  idleHop: number;
 }
 
 export interface DirectorHooks {
@@ -151,6 +153,7 @@ export class PopDirector {
         popFrom: 0,
         pop: 0,
         glow: 0,
+        idleHop: 0,
       };
       this.pieces.push(piece);
     }
@@ -161,6 +164,7 @@ export class PopDirector {
     piece.gain = 0;
     piece.pop = 0;
     piece.glow = 0;
+    piece.idleHop = 0;
     piece.scale = KERNEL_SCALE * this.k;
     piece.quat.setFromAxisAngle(v.set(this.rng.range(-1, 1), this.rng.range(-1, 1), this.rng.range(-1, 1)).normalize(), this.rng.range(0, 6.28));
     return piece;
@@ -471,6 +475,9 @@ export class PopDirector {
         }
         p.pos.y = this.pile.heightAt(p.pos.x, p.pos.z) + 0.1 * this.k;
         if (p.phase === 'rise' && p.t > 0.2) p.phase = 'idle';
+        // Waiting kernels can't quite sit still in the heat.
+        p.idleHop = Math.max(0, p.idleHop - dt * 2.8);
+        if (p.phase === 'idle' && p.idleHop === 0 && this.rng.next() < dt * 0.09) p.idleHop = 1;
         break;
       }
       case 'squash':
@@ -563,6 +570,10 @@ export class PopDirector {
       case 'idle': {
         const sizzle = Math.sin(this.clock * 3.1 + p.pos.x * 40 + p.pos.z * 23);
         if (sizzle > 0.93) shakeX = Math.sin(this.clock * 70 + p.pos.z * 9) * 0.007 * k;
+        const arc = 4 * p.idleHop * (1 - p.idleHop);
+        offsetY = arc * 0.2 * k;
+        sy = 1 + arc * 0.14;
+        sx = 1 - arc * 0.07;
         break;
       }
       case 'squash': {

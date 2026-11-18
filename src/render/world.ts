@@ -8,11 +8,15 @@ import { Rng } from '../motion/rng.ts';
 import { tuning } from '../motion/tuning.ts';
 import type { Simulation } from '../sim/simulation.ts';
 import { applyLightRig, globals, type LightRig } from './core/globals.ts';
+import { QUALITY } from './core/quality.ts';
 import type { Stage } from './core/stage.ts';
 import { SceneRuntime, type RuntimeHooks } from './scene-runtime.ts';
+import { cinemaSpec } from './scenes/cinema.ts';
+import { earthSpec } from './scenes/earth.ts';
 import { kitchenSpec } from './scenes/kitchen.ts';
-import { stoveSpec } from './scenes/stove.ts';
-import type { Grade, SceneSpec } from './scenes/types.ts';
+import { setPotSkin, stoveSpec } from './scenes/stove.ts';
+import { townSpec } from './scenes/town.ts';
+import type { FinaleBeat, Grade, SceneSpec } from './scenes/types.ts';
 
 export type BreakBeat = 'strain' | 'silence' | 'blast' | 'arrive';
 
@@ -21,10 +25,12 @@ export interface WorldHooks {
   onLand(gain: number): void;
   onMachineCannon(): void;
   onBreakBeat(beat: BreakBeat, stage: number): void;
+  onFinaleBeat(beat: FinaleBeat): void;
+  onFinaleDone(): void;
 }
 
 /** Scenes in play order; later milestones extend this list. */
-export const SCENES: SceneSpec[] = [stoveSpec, kitchenSpec];
+export const SCENES: SceneSpec[] = [stoveSpec, kitchenSpec, cinemaSpec, townSpec, earthSpec];
 
 const STRAIN_END = 0.5;
 const ZOOM_START = 0.86;
@@ -113,6 +119,12 @@ export class World {
   pendingGain = 0;
   /** Fraction of the window taken by the shop, used to center the action. */
   uiInset = 0.2;
+  /** Playback speed for breakouts and the ending. */
+  showSpeed = 1;
+  /** Replaces sweeping camera moves with cuts hidden by a flash. */
+  reduceMotion = false;
+  /** Behind the title screen the camera drifts and the pot pops on its own. */
+  attract = false;
   private readonly stage: Stage;
   private readonly sim: Simulation;
   private readonly hooks: WorldHooks;
@@ -127,6 +139,7 @@ export class World {
   private time = 0;
   private cameraLocked = false;
   private intensity = 0;
+  private shownInset = 0.2;
 
   constructor(stage: Stage, sim: Simulation, bus: EventBus<GameEvents>, impact: ImpactDirector, hooks: WorldHooks) {
     this.stage = stage;
@@ -201,6 +214,12 @@ export class World {
     outer.root.add(inner.root);
     inner.root.position.copy(nest.position);
     inner.root.scale.setScalar(nest.scale);
+    inner.root.quaternion.copy(this.nestTurn(inner.spec));
+  }
+
+  private nestTurn(spec: SceneSpec): THREE.Quaternion {
+    const tilt = spec.nest?.tilt;
+    return tilt ? new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), tilt.clone().normalize()) : new THREE.Quaternion();
   }
 
   /** Jumps straight to the scene matching the save, without any animation. */
@@ -213,16 +232,27 @@ export class World {
     this.currentIndex = index;
     if (index > 0) {
       const previous = this.runtime(index - 1, false);
-      if (previous.isLive) previous.retire();
+      if (previous.isLive) previous.retire(this.stage);
+      else this.stage.shadow.removeTree(previous.root);
       this.nest(previous, runtime);
     }
+    // Only this scene and the one nested inside it stay in the world.
+    this.runtimes.forEach((other, i) => {
+      if (other && i !== index && i !== index - 1) other.root.removeFromParent();
+    });
     runtime.syncUnits(this.sim.state.owned, false);
     runtime.flavor?.sync(this.sim.state.flavors);
     this.applyRest(1);
   }
 
+  qualityChanged(): void {
+    const fraction = this.stage.quality.pileInstances / QUALITY.ultra.pileInstances;
+    for (const runtime of this.runtimes) runtime?.setDetail(fraction);
+  }
+
   /** Matches presentation to a freshly loaded save without replaying any animation. */
   syncToSave(): void {
+    setPotSkin(this.sim.state.legacy.potSkin);
     this.transition = null;
     this.pendingGain = 0;
     this.showScene(this.sceneIndexForStage(this.sim.state.stage));
@@ -230,6 +260,11 @@ export class World {
     this.current!.pile.setLevel(this.level);
     this.current!.pile.update(0);
     if (this.sim.hopperActive) this.current!.director?.showHopper();
+    if (this.sim.state.ended) {
+      this.finaleTime = -2;
+      this.current!.parts.finale?.showFinal();
+      this.hooks.onFinaleDone();
+    }
   }
 
   private targetLevel(): number {
@@ -304,7 +339,11 @@ export class World {
 
   private beginBreak(broken: number): void {
     const nextIndex = broken + 1;
-    if (nextIndex >= SCENES.length || !this.current) return;
+    if (nextIndex >= SCENES.length) {
+      if (this.current?.parts.finale && this.finaleTime === -1) this.finaleTime = 0;
+      return;
+    }
+    if (!this.current) return;
     if (this.transition) this.finishTransition();
     if (this.currentIndex !== broken) return;
     const from = this.current;
@@ -325,6 +364,38 @@ export class World {
   /** Long shows can always be skipped. */
   skipTransition(): void {
     if (this.transition) this.finishTransition();
+    else if (this.finaleTime >= 0) this.endFinale();
+  }
+
+  get inFinale(): boolean {
+    return this.finaleTime >= 0;
+  }
+
+  private endFinale(): void {
+    this.finaleTime = -2;
+    const parts = this.current?.parts;
+    parts?.finale?.showFinal();
+    const root = this.current?.root;
+    root?.position.set(0, 0, 0);
+    this.hooks.onFinaleDone();
+  }
+
+  private updateFinale(dt: number): void {
+    const plan = this.current?.parts.finale;
+    if (!plan) return;
+    const before = this.finaleTime;
+    const step = dt * this.showSpeed;
+    this.finaleTime += step;
+    for (const [at, beat] of plan.beats) {
+      if (before < at && this.finaleTime >= at) {
+        this.hooks.onFinaleBeat(beat);
+        if (beat === 'moon-pop') this.impact.hit('epic');
+        if (beat === 'grab') this.impact.hit('large');
+      }
+    }
+    const ctx = this.current!.context(this.time, 1, this.intensity);
+    if (ctx) plan.update(this.finaleTime, step, ctx);
+    if (this.finaleTime >= plan.duration) this.endFinale();
   }
 
   private startBlast(tr: Transition): void {
@@ -342,6 +413,9 @@ export class World {
     tr.to.root.position.set(0, 0, 0);
     tr.to.root.scale.setScalar(1);
     this.nest(from, tr.to);
+    from.beginShrinking(this.stage);
+    // Whatever was nested inside the old scene is now too small to matter.
+    this.runtimes[SCENES.indexOf(from.spec) - 1]?.root.removeFromParent();
     this.currentIndex = SCENES.indexOf(tr.to.spec);
     tr.to.syncUnits(this.sim.state.owned, false);
     tr.to.flavor?.sync(this.sim.state.flavors);
@@ -352,7 +426,8 @@ export class World {
   private poseInNextScene(spec: SceneSpec): Pose {
     const nest = spec.nest!;
     const m = nest.scale;
-    const toParent = (p: THREE.Vector3): THREE.Vector3 => p.clone().multiplyScalar(m).add(nest.position);
+    const turn = this.nestTurn(spec);
+    const toParent = (p: THREE.Vector3): THREE.Vector3 => p.clone().multiplyScalar(m).applyQuaternion(turn).add(nest.position);
     const camera = this.stage.camera;
     const rig = spec.light;
     const c = toParent(new THREE.Vector3(...(rig.pool.slice(0, 3) as [number, number, number])));
@@ -374,7 +449,9 @@ export class World {
     const tr = this.transition;
     if (!tr) return;
     if (!tr.blasted) this.startBlast(tr);
-    tr.from.retire();
+    tr.from.retire(this.stage);
+    // The scene nested inside the old one has become far too small to see.
+    this.runtimes[SCENES.indexOf(tr.from.spec) - 1]?.root.removeFromParent();
     this.transition = null;
     if (!tr.arrived) this.hooks.onBreakBeat('arrive', tr.stage);
     this.stage.post.params.shock.w = 0;
@@ -382,7 +459,7 @@ export class World {
 
   private updateTransition(dt: number): void {
     const tr = this.transition!;
-    tr.t += dt;
+    tr.t += dt * this.showSpeed;
     const t = tr.t;
     if (!tr.silenced && t >= STRAIN_END) {
       tr.silenced = true;
@@ -420,7 +497,7 @@ export class World {
 
     const current = this.current!;
     const cooling = this.sim.state.cannonCooldown > 0;
-    const shared = { time: this.time, level: this.level, intensity: this.intensity };
+    const shared = { time: this.time, level: this.level, intensity: this.intensity, attract: this.attract };
     if (active && !active.blasted) {
       const u = clamp01(active.t / STRAIN_END);
       const ctx = active.from.context(this.time, 1, this.intensity);
@@ -438,10 +515,15 @@ export class World {
       }
     }
 
+    if (this.finaleTime >= 0) this.updateFinale(dt);
+    // The framing glides when the interface comes or goes.
+    this.shownInset += (this.uiInset - this.shownInset) * (1 - Math.exp(-dt * 3));
     this.applyView(dt);
   }
 
   private readonly cameraTarget = new THREE.Vector3();
+  /** -1 before the ending, -2 after it, otherwise seconds into the closing show. */
+  private finaleTime = -1;
 
   private restPose(spec: SceneSpec, level: number): Pose {
     const t = smoothstep(level, 0.3, 0.92);
@@ -474,7 +556,11 @@ export class World {
     const tr = this.transition;
     const rest = this.restPose(this.current!.spec, this.level);
     let pose = rest;
-    if (tr) {
+    const plan = this.current!.parts.finale;
+    if (plan && this.finaleTime !== -1) {
+      const shot = plan.camera(this.finaleTime === -2 ? plan.duration : this.finaleTime);
+      pose = { ...rest, position: shot.position, target: shot.target, focusDistance: shot.position.distanceTo(shot.target), focusRange: 150, shadowCenter: new THREE.Vector3(0, -14, 0), shadowRadius: 62 };
+    } else if (tr && !(this.reduceMotion && tr.blasted)) {
       if (!tr.blasted) {
         // The camera leans in while the pressure builds.
         const push = easeInOutCubic(clamp01(tr.t / (STRAIN_END + 0.3)));
@@ -483,6 +569,12 @@ export class World {
         const u = easeInOutCubic(clamp01((tr.t - ZOOM_START) / (ZOOM_END - ZOOM_START)));
         pose = this.blendPose(tr.startPose!, rest, u);
       }
+    }
+    if (this.attract) {
+      // A slow drift around the pot while the title is up.
+      const angle = Math.sin(this.time * 0.13) * 0.16;
+      const offset = pose.position.clone().sub(pose.target).applyAxisAngle(up.set(0, 1, 0), angle);
+      pose = { ...pose, position: pose.target.clone().add(offset) };
     }
     this.applyPose(pose);
 
@@ -545,8 +637,9 @@ export class World {
       camera.rotateZ(shakeRoll);
     }
     camera.near = Math.max(0.05, distance * 0.03);
-    camera.far = Math.max(160, distance * 8);
-    this.stage.viewShiftX = this.uiInset * 0.46;
+    // Far enough for the sky domes even when the camera is close to the action.
+    camera.far = 1400;
+    this.stage.viewShiftX = this.shownInset * 0.46;
     camera.updateProjectionMatrix();
 
     applyLightRig(pose.rig);

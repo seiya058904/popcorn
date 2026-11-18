@@ -1,5 +1,6 @@
 import { ACHIEVEMENTS } from '../content/achievements.ts';
 import { formatAmount } from '../content/format.ts';
+import { CREDITS, NEWS_LINES } from '../content/news.ts';
 import { STAGES } from '../content/stages.ts';
 import type { EventBus } from '../events/bus.ts';
 import type { GameEvents } from '../events/game-events.ts';
@@ -33,6 +34,7 @@ export class Hud {
   private readonly count: Text;
   private readonly rate: Text;
   private readonly frenzy: HTMLElement;
+  private readonly hopperCall: HTMLElement;
   private readonly frenzyText: Text;
   private readonly stageLabel: Text;
   private readonly stageGoal: Text;
@@ -41,12 +43,17 @@ export class Hud {
   private readonly hint: HTMLElement;
   private readonly floats: HTMLElement[] = [];
   private readonly toasts: HTMLElement;
+  private readonly news: HTMLElement;
+  private readonly newsText: Text;
+  private newsIndex = 0;
+  private newsTimer = 2;
   private readonly slate: HTMLElement;
   private readonly skip: HTMLElement;
   /** Set by the game: jumps past the current breakout show. */
   onSkip: (() => void) | null = null;
   private readonly veil: HTMLElement;
   private readonly dialog: HTMLElement;
+  private cinematic = false;
   private floatCursor = 0;
   private shopTimer = 0;
   private shown = 0;
@@ -66,6 +73,7 @@ export class Hud {
 
     this.frenzy = el('div', 'frenzy', root);
     this.frenzyText = new Text(this.frenzy);
+    this.hopperCall = el('div', 'hopper-call', root, '跳跳粒出现了，快点它！');
 
     const stagebar = el('div', 'stagebar', root);
     const label = el('div', 'stagebar-label', stagebar);
@@ -88,6 +96,12 @@ export class Hud {
     trophy.setAttribute('aria-label', '成就');
     trophy.addEventListener('pointerdown', () => this.showAchievements());
 
+    this.news = el('div', 'news', root);
+    const screen = el('div', 'news-screen', this.news);
+    el('b', '', screen, '爆米花新闻');
+    this.newsText = new Text(el('p', '', screen));
+    el('i', 'news-knob', this.news);
+    el('i', 'news-knob is-low', this.news);
     this.slate = el('div', 'slate', root);
     this.skip = el('button', 'skip', root, '跳过 ▶');
     this.skip.addEventListener('pointerdown', (event) => {
@@ -114,6 +128,7 @@ export class Hud {
 
   /** Fraction of the window width covered by the shop, used to center the action. */
   get shopInset(): number {
+    if (this.cinematic) return 0;
     return (this.shop.root.offsetWidth + 16) / Math.max(1, window.innerWidth);
   }
 
@@ -181,6 +196,17 @@ export class Hud {
     );
   }
 
+  /** Keeps the interface off the title screen. */
+  setHidden(hidden: boolean): void {
+    setClass(this.root, 'is-title', hidden);
+  }
+
+  /** Clears the screen for the ending; only the skip button stays. */
+  setCinematic(on: boolean): void {
+    this.cinematic = on;
+    setClass(this.root, 'is-cinematic', on);
+  }
+
   setSkipVisible(visible: boolean): void {
     setClass(this.skip, 'is-on', visible);
   }
@@ -204,6 +230,26 @@ export class Hud {
     el('button', 'btn', dialog, '收下').addEventListener('pointerdown', () => this.closeDialog());
   }
 
+  showCredits(onRestart: () => void): void {
+    const s = this.sim.state;
+    const minutes = Math.round(s.stats.playSeconds / 60);
+    const dialog = this.openDialog(true);
+    dialog.classList.add('is-credits');
+    el('h2', '', dialog, '月亮是一粒玉米');
+    el('p', '', dialog, '然后，有人把地球当零食拿走了。');
+    const list = el('dl', 'credits', dialog);
+    for (const [role, name] of CREDITS) {
+      el('dt', '', list, role);
+      el('dd', '', list, name);
+    }
+    el('p', 'credits-stats', dialog, `本锅用时 ${minutes} 分钟 · 点击 ${formatAmount(s.stats.clicks)} 次 · 累计爆出 ${formatAmount(s.totalEarned)}`);
+    el('p', 'credits-stats', dialog, '再来一锅：从头开始，永久产量 +25%，图鉴和成就保留，并解锁新的锅。');
+    const restart = el('button', 'btn', dialog, '再来一锅');
+    restart.dataset.action = 'restart';
+    restart.addEventListener('pointerdown', () => onRestart());
+    el('button', 'btn is-quiet', dialog, '再看一会儿').addEventListener('pointerdown', () => this.closeDialog());
+  }
+
   showNotice(title: string, body: string): void {
     const dialog = this.openDialog(true);
     el('h2', '', dialog, title);
@@ -211,7 +257,7 @@ export class Hud {
     el('button', 'btn', dialog, '知道了').addEventListener('pointerdown', () => this.closeDialog());
   }
 
-  private showAchievements(): void {
+  showAchievements(): void {
     const dialog = this.openDialog(false);
     const earned = new Set(this.sim.state.legacy.achievements);
     el('h2', '', dialog, `成就 ${earned.size} / ${ACHIEVEMENTS.length}`);
@@ -237,6 +283,7 @@ export class Hud {
     const frenzy = sim.state.frenzy;
     setClass(this.frenzy, 'is-on', frenzy > 0);
     if (frenzy > 0) this.frenzyText.set(`狂热 ×5 · ${Math.ceil(frenzy)} 秒`);
+    setClass(this.hopperCall, 'is-on', sim.hopperActive);
     setClass(this.hint, 'is-gone', sim.state.stats.clicks > 0);
 
     const index = Math.min(sim.state.stage, STAGES.length - 1);
@@ -253,12 +300,22 @@ export class Hud {
       setClass(dot, 'is-now', i === sim.state.stage);
     });
 
+    const lines = NEWS_LINES[Math.min(sim.state.stage, 4)];
+    setClass(this.news, 'is-on', Boolean(lines));
+    if (lines) {
+      this.newsTimer -= deltaSeconds;
+      if (this.newsTimer <= 0) {
+        this.newsTimer = 7.5;
+        this.newsText.set(lines[this.newsIndex % lines.length]!);
+        this.newsIndex += 1;
+      }
+    }
+
     this.gauge.update(deltaSeconds);
     this.shopTimer -= deltaSeconds;
     if (this.shopTimer <= 0) {
       this.shopTimer = SHOP_REFRESH_SECONDS;
       this.shop.update();
     }
-    void this.root;
   }
 }

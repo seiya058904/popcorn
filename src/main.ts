@@ -16,6 +16,10 @@ async function boot(): Promise<void> {
     installDebug(game);
   }
   game.start();
+  // Automated sessions go straight into play.
+  const skipTitle = __QA__ && (capture || params.has('play')) && !params.has('title');
+  if (skipTitle) game.startImmediately();
+  else await game.showTitle();
 }
 
 void boot();

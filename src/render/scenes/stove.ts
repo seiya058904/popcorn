@@ -28,6 +28,14 @@ const C = {
   moon: '#fff1c4',
 };
 
+/** Finished runs unlock new enamel colors for the pot. */
+const POT_SKINS = ['#cf2f38', '#3fae94', '#f0b02c', '#4c8be0', '#2d2c3a', '#c3cdd8'];
+let potColor = POT_SKINS[0]!;
+
+export function setPotSkin(index: number): void {
+  potColor = POT_SKINS[Math.min(index, POT_SKINS.length - 1)]!;
+}
+
 const smooth = (a: number, b: number, x: number): number => {
   const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
   return t * t * (3 - 2 * t);
@@ -209,7 +217,7 @@ function potGeometry(): THREE.BufferGeometry {
       0.09,
       6,
     ),
-    { color: C.red, gloss: 0.95, ao: body },
+    { color: potColor, gloss: 0.95, ao: body },
   );
   kit.add(
     P.lathe(
@@ -276,7 +284,7 @@ function lidGeometry(): THREE.BufferGeometry {
       0.08,
       6,
     ),
-    { color: C.red, gloss: 0.95 },
+    { color: potColor, gloss: 0.95 },
   );
   kit.add(
     P.lathe(

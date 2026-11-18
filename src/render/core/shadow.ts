@@ -40,6 +40,13 @@ export class ShadowPass {
     this.casters.set(mesh, depthMaterial);
   }
 
+  /** Stops everything under `root` from casting, e.g. a scene that has become a tiny prop. */
+  removeTree(root: THREE.Object3D): void {
+    root.traverse((node) => {
+      if ((node as THREE.Mesh).isMesh) this.remove(node as THREE.Mesh);
+    });
+  }
+
   remove(mesh: THREE.Mesh): void {
     mesh.layers.disable(SHADOW_LAYER);
     this.casters.delete(mesh);

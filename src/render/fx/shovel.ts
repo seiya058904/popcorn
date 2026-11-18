@@ -70,6 +70,11 @@ export class Shovel {
     this.rng = rng;
   }
 
+  hide(): void {
+    this.t = -1;
+    this.group.visible = false;
+  }
+
   get active(): boolean {
     return this.t >= 0;
   }

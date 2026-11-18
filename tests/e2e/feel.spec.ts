@@ -40,7 +40,7 @@ test('a click changes the picture on the very next frame', async ({ page }) => {
 test('clicking ten times per second keeps every frame on time', async ({ page }) => {
   const problems: string[] = [];
   page.on('pageerror', (error) => problems.push(error.message));
-  await page.goto('/');
+  await page.goto('/?play=1');
   await ready(page);
   // Let start-up work finish; the requirement concerns play, not page load.
   await page.waitForTimeout(1500);
