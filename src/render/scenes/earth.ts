@@ -105,23 +105,37 @@ float fbm(vec3 p) { return gnoise(p) * 0.55 + gnoise(p * 2.1 + 3.1) * 0.3 + gnoi
 void main() {
   float c = cos(uSpin), s = sin(uSpin);
   vec3 d = vec3(vDir.x * c - vDir.z * s, vDir.y, vDir.x * s + vDir.z * c);
-  float land = smoothstep(0.5, 0.53, fbm(d * 2.6 + 11.0));
-  float inland = smoothstep(0.54, 0.64, fbm(d * 2.6 + 11.0));
-  vec3 ocean = mix(vec3(0.04, 0.26, 0.66), vec3(0.06, 0.42, 0.78), smoothstep(0.3, 0.5, fbm(d * 2.6 + 11.0)));
-  vec3 ground = mix(vec3(0.3, 0.68, 0.34), vec3(0.74, 0.62, 0.3), inland * smoothstep(0.1, 0.55, gnoise(d * 5.0 + 2.0)));
-  vec3 albedo = mix(ocean, ground, land);
+  float height = fbm(d * 2.6 + 11.0) + gnoise(d * 11.0 + 5.0) * 0.035;
+  float land = smoothstep(0.5, 0.512, height);
+  float inland = smoothstep(0.54, 0.64, height);
+  float beach = smoothstep(0.5, 0.507, height) * (1.0 - smoothstep(0.507, 0.525, height));
+  float peaks = smoothstep(0.62, 0.68, height + gnoise(d * 16.0) * 0.05);
+  vec3 ocean = mix(vec3(0.02, 0.15, 0.48), vec3(0.05, 0.42, 0.74), smoothstep(0.34, 0.5, height));
+  vec3 ground = mix(vec3(0.2, 0.56, 0.28), vec3(0.72, 0.6, 0.3), inland * smoothstep(0.1, 0.55, gnoise(d * 5.0 + 2.0)));
+  ground = mix(ground, vec3(0.5, 0.42, 0.4), peaks * 0.75);
+  ground = mix(ground, vec3(0.96, 0.87, 0.64), beach);
+  // Ice at the poles of the real planet, before the popcorn takes over.
+  float ice = smoothstep(0.86, 0.92, abs(d.y) + gnoise(d * 7.0) * 0.06);
+  vec3 albedo = mix(mix(ocean, ground, land), vec3(0.92, 0.96, 1.0), ice);
   float gloss = mix(0.75, 0.1, land);
 
   // Popcorn snow advances from the pole, breaking into drifts at its edge.
-  float line = 1.0 - uSnow * 2.15;
+  float line = 1.0 - uSnow * 1.55;
   float edge = fbm(vDir * 5.0) * 0.26;
   float snow = smoothstep(line - 0.02, line + 0.05, vDir.y + edge - 0.13);
-  vec2 cell = worley(vDir.xz * 18.0 + vDir.y * 11.0);
-  vec3 drift = mix(uPopShade, uPopCream, smoothstep(0.1, 0.62, 1.0 - cell.x));
-  drift = mix(drift, vec3(1.0, 0.96, 0.86), 0.45);
+  // Seen from above the planet this projection stays even, so the drifts never smear into lines.
+  vec2 flat_ = vDir.xz / (1.0 + abs(vDir.y));
+  vec2 cell = worley(flat_ * 34.0);
+  vec2 fine = worley(flat_ * 92.0 + 3.0);
+  float puff = smoothstep(0.05, 0.72, 1.0 - cell.x) * 0.7 + smoothstep(0.1, 0.75, 1.0 - fine.x) * 0.3;
+  vec3 drift = mix(uPopShade, uPopCream, smoothstep(0.0, 0.7, puff));
+  drift = mix(drift, vec3(1.0, 0.96, 0.86), 0.28);
 
   vec3 cloudP = d * 3.4 + vec3(uTime * 0.03, 0.0, uTime * 0.018);
-  float cloud = smoothstep(0.56, 0.68, fbm(cloudP));
+  float cloud = smoothstep(0.54, 0.66, fbm(cloudP) + gnoise(cloudP * 3.1) * 0.05);
+  // Clouds throw a soft shadow onto the ground beneath them.
+  float cloudShade = smoothstep(0.54, 0.66, fbm(cloudP + uSunDir * 0.12));
+  albedo *= 1.0 - cloudShade * 0.32;
   albedo = mix(albedo, vec3(0.98), cloud * 0.85);
   albedo = mix(albedo, drift, snow);
   gloss = mix(gloss, 0.08, max(snow, cloud));
@@ -150,16 +164,37 @@ function craterGeometry(): THREE.BufferGeometry {
   const ridge = new THREE.Color('#84606e');
   const glow = new THREE.Color('#ff7a2f');
   const inner = new THREE.Color('#2a1820');
-  kit.add(P.lathe(profile, 72, 0.12, 2), {
+  // Faceted and pushed about, so the great cone reads as broken rock.
+  const cone = P.lathe(profile, 96, 0.12, 2).toNonIndexed();
+  const position = cone.getAttribute('position') as THREE.BufferAttribute;
+  for (let n = 0; n < position.count; n += 1) {
+    const x = position.getX(n);
+    const y = position.getY(n);
+    const z = position.getZ(n);
+    const rr = Math.hypot(x, z);
+    if (rr < o + 0.25 || rr > s - 0.2) continue;
+    const a = Math.atan2(z, x);
+    const lump = Math.sin(a * 7 + y * 1.3) * Math.cos(a * 13 - rr * 0.9) * 0.5 + Math.sin(a * 23 + rr * 2.1) * 0.25;
+    position.setXYZ(n, x, y + lump * 0.42 * smooth(o, o + 2, rr) * (1 - smooth(s - 2, s, rr)), z);
+  }
+  cone.computeVertexNormals();
+  const lavaAt = (p: THREE.Vector3): number => {
+    const rr = Math.hypot(p.x, p.z);
+    const a = Math.atan2(p.z, p.x);
+    const rivers = Math.pow(Math.max(0, Math.cos(a * 5 + 0.8 + Math.sin(rr * 0.8 + a * 2) * 0.55)), 26) * (1 - smooth(s - 3, s, rr));
+    return rr < i + 0.08 ? 0 : Math.max(smooth(o + 1.1, o - 0.1, rr), rivers);
+  };
+  kit.add(cone, {
     color: rock,
-    gloss: 0.12,
+    gloss: 0.1,
     colorFn: (p, _n, out) => {
       const rr = Math.hypot(p.x, p.z);
       const a = Math.atan2(p.z, p.x);
       out.lerpColors(rock, ridge, 0.5 + 0.5 * Math.sin(a * 11 + rr * 1.3));
       if (rr < i + 0.08) out.copy(inner);
-      else out.lerp(glow, smooth(o + 1.4, o - 0.1, rr));
+      else out.lerp(glow, lavaAt(p));
     },
+    emissiveFn: (p) => lavaAt(p) * 0.75,
   });
   return kit.build();
 }
@@ -271,6 +306,26 @@ function buildEarth(stage: Stage, root: THREE.Group): SceneParts {
   globeInk.position.y = -R;
   root.add(globeInk);
   stage.shadow.add(globe, toyMaterials().depth);
+  // A thin blue shell of air around the planet.
+  const air = new THREE.Mesh(
+    new THREE.SphereGeometry(R * 1.055, 64, 40),
+    new THREE.ShaderMaterial({
+      name: 'atmosphere',
+      vertexShader: 'varying vec3 vN, vP; void main() { vec4 w = modelMatrix * vec4(position, 1.0); vP = w.xyz; vN = normalize(mat3(modelMatrix) * normal); gl_Position = projectionMatrix * viewMatrix * w; }',
+      fragmentShader: 'varying vec3 vN, vP; void main() { float g = pow(abs(dot(normalize(vN), normalize(cameraPosition - vP))), 3.0); gl_FragColor = vec4(vec3(0.3, 0.55, 1.0) * g * 0.75, 0.0); }',
+      side: THREE.BackSide,
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.CustomBlending,
+      blendEquation: THREE.AddEquation,
+      blendSrc: THREE.OneFactor,
+      blendDst: THREE.OneFactor,
+      blendSrcAlpha: THREE.ZeroFactor,
+      blendDstAlpha: THREE.OneFactor,
+    }),
+  );
+  air.position.y = -R;
+  root.add(air);
 
   const crater = addToy(stage, root, craterGeometry());
 

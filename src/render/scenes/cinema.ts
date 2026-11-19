@@ -1,10 +1,14 @@
 import * as THREE from 'three';
+import { SIGN_TEXT } from '../../content/signs.ts';
 import { Spring } from '../../motion/ease.ts';
 import { globals } from '../core/globals.ts';
 import type { Stage } from '../core/stage.ts';
+import { addLightBeam } from '../fx/beam.ts';
 import { SpriteKind } from '../fx/sprites.ts';
-import { addToy, addToyInstances, at, Kit, P, type ToyInstances } from '../geometry/kit.ts';
+import { addToy, addToyInstances, at, Kit, P, Pattern, type ToyInstances } from '../geometry/kit.ts';
+import { addSign } from '../materials/sign.ts';
 import type { SceneContext, SceneParts, SceneSpec, UnitSlot } from './types.ts';
+import { dressCinema } from './dress.ts';
 import { vesselPile } from './vessel.ts';
 
 const GROUND = -9;
@@ -65,12 +69,12 @@ void main() {
 `;
 
 function addHall(kit: Kit): void {
-  kit.add(P.box(150, 1, 130, 0.05, 1), { color: C.floor, gloss: 0.15, outline: 0, matrix: at(0, GROUND - 0.5, 20) });
+  kit.add(P.box(150, 1, 130, 0.05, 1), { color: C.floor, gloss: 0.08, pattern: Pattern.Fabric + 0.2, outline: 0, matrix: at(0, GROUND - 0.5, 20) });
   kit.add(P.box(14, 0.08, 90, 0.03, 1), { color: C.aisle, gloss: 0.1, outline: 0, matrix: at(0, GROUND + 0.05, 58) });
   // Back wall with pilasters and side walls in paneled velvet.
-  kit.add(P.box(130, 60, 1, 0.05, 1), { color: C.wall, gloss: 0.1, outline: 0, matrix: at(0, 19, -46) });
+  kit.add(P.box(130, 60, 1, 0.05, 1), { color: C.wall, gloss: 0.08, pattern: Pattern.Fabric + 0.15, outline: 0, matrix: at(0, 19, -46) });
   for (const side of [-1, 1]) {
-    kit.add(P.box(1, 60, 130, 0.05, 1), { color: C.wall, gloss: 0.1, outline: 0, matrix: at(side * 63, 19, 18) });
+    kit.add(P.box(1, 60, 130, 0.05, 1), { color: C.wall, gloss: 0.08, pattern: Pattern.Fabric + 0.15, outline: 0, matrix: at(side * 63, 19, 18) });
     for (let i = 0; i < 6; i += 1) {
       const z = -30 + i * 20;
       kit.add(P.box(1.2, 44, 2.4, 0.3, 2), { color: C.wallLight, gloss: 0.2, matrix: at(side * 62, 12, z) });
@@ -87,10 +91,12 @@ function addStage(kit: Kit): void {
     matrix: at(0, GROUND, 0),
     ao: (p) => 0.55 + 0.45 * smooth(GROUND, -2, p.y),
   });
-  kit.add(P.torus(STAGE_R, 0.3, 8, 90), { color: C.gold, gloss: 0.9, matrix: at(0, 0, 0, [Math.PI / 2, 0, 0]) });
+  kit.add(P.torus(STAGE_R, 0.3, 8, 90), { color: C.gold, gloss: 0.8, metal: 1, wear: 0.3, matrix: at(0, 0, 0, [Math.PI / 2, 0, 0]) });
   kit.add(P.puck(STAGE_R, STAGE_R - 0.1, 0.1, 90, 0.04), {
-    color: '#3d1a2a',
-    gloss: 0.5,
+    color: '#5a2a30',
+    gloss: 0.7,
+    coat: 0.5,
+    pattern: Pattern.Wood + 0.1,
     outline: 0,
     matrix: at(0, -0.08, 0),
     ao: (p) => 0.5 + 0.5 * smooth(4, 8, Math.hypot(p.x, p.z)),
@@ -103,15 +109,16 @@ function addStage(kit: Kit): void {
 }
 
 function addProscenium(kit: Kit): void {
-  kit.add(P.box(92, 5, 3, 0.8, 3), { color: C.gold, gloss: 0.75, matrix: at(0, 39, -41) });
+  kit.add(P.box(92, 5, 3, 0.8, 3), { color: C.gold, gloss: 0.8, metal: 1, wear: 0.3, matrix: at(0, 39, -41) });
   for (const side of [-1, 1]) {
-    kit.add(P.box(4.4, 54, 3, 0.8, 3), { color: C.gold, gloss: 0.75, matrix: at(side * 45, 12.5, -41) });
+    kit.add(P.box(4.4, 54, 3, 0.8, 3), { color: C.gold, gloss: 0.8, metal: 1, wear: 0.3, matrix: at(side * 45, 12.5, -41) });
     // Heavy folded curtains, gathered to each side.
     for (let i = 0; i < 9; i += 1) {
       const x = side * (43 - i * 1.9);
       kit.add(P.capsule(1.25, 38, 3, 10), {
         color: i % 2 ? C.curtain : C.curtainDeep,
-        gloss: 0.3,
+        gloss: 0.22,
+        pattern: Pattern.Fabric,
         outline: i === 8 ? 1 : 0.35,
         matrix: at(x, 16 + i * 0.25, -39.5 + (i % 2) * 0.7, [0, 0, side * i * 0.008]),
         ao: (p) => 0.55 + 0.45 * smooth(GROUND, 8, p.y),
@@ -119,7 +126,7 @@ function addProscenium(kit: Kit): void {
     }
   }
   for (let i = -11; i <= 11; i += 1) {
-    kit.add(P.sphere(2.3, 12, 9), { color: i & 1 ? C.curtain : C.curtainDeep, gloss: 0.3, outline: 0.5, matrix: at(i * 3.65, 35.5, -39.3, [0, 0, 0], [1, 1.15, 0.6]) });
+    kit.add(P.sphere(2.3, 12, 9), { color: i & 1 ? C.curtain : C.curtainDeep, gloss: 0.22, pattern: Pattern.Fabric, outline: 0.5, matrix: at(i * 3.65, 35.5, -39.3, [0, 0, 0], [1, 1.15, 0.6]) });
   }
   // Marquee letters of light along the arch.
   for (let i = -20; i <= 20; i += 1) {
@@ -131,7 +138,7 @@ function addSnackBar(kit: Kit): void {
   // The kitchen diorama now sits on the concession counter like a window display.
   kit.add(P.box(21, 5.2, 12.5, 0.3, 2), { color: C.red, gloss: 0.6, matrix: at(-40.8, GROUND + 2.6, -4.4) });
   for (let i = 0; i < 8; i += 1) kit.add(P.box(1.25, 4.4, 0.2, 0.08, 1), { color: i % 2 ? C.cream : C.red, gloss: 0.6, outline: 0, matrix: at(-49.4 + i * 2.5, GROUND + 2.6, 1.9) });
-  kit.add(P.box(22, 0.5, 13.5, 0.14, 2), { color: C.gold, gloss: 0.85, matrix: at(-40.8, GROUND + 5.45, -4.4) });
+  kit.add(P.box(22, 0.5, 13.5, 0.14, 2), { color: C.gold, gloss: 0.8, metal: 1, wear: 0.3, matrix: at(-40.8, GROUND + 5.45, -4.4) });
   // A dark inlay and a ring of bulbs, so the top still reads when the camera sweeps across it.
   const top = GROUND + 5.7;
   kit.add(P.box(20.4, 0.05, 11.9, 0.02, 1), { color: '#4d1020', gloss: 0.55, outline: 0, matrix: at(-40.8, top + 0.01, -4.4) });
@@ -152,8 +159,8 @@ function addSnackBar(kit: Kit): void {
 
 function seatGeometry(): THREE.BufferGeometry {
   const kit = new Kit();
-  kit.add(P.box(3, 0.7, 2.6, 0.3, 2), { color: '#ffffff', gloss: 0.4, matrix: at(0, 1.9, 0) });
-  kit.add(P.box(3, 3, 0.6, 0.28, 2), { color: '#ffffff', gloss: 0.4, matrix: at(0, 3.5, 1.2, [0.14, 0, 0]) });
+  kit.add(P.box(3, 0.7, 2.6, 0.3, 2), { color: '#ffffff', gloss: 0.2, pattern: Pattern.Fabric, matrix: at(0, 1.9, 0) });
+  kit.add(P.box(3, 3, 0.6, 0.28, 2), { color: '#ffffff', gloss: 0.2, pattern: Pattern.Fabric, matrix: at(0, 3.5, 1.2, [0.14, 0, 0]) });
   for (const side of [-1, 1]) kit.add(P.box(0.32, 1.9, 2.4, 0.12, 1), { color: '#2d1520', gloss: 0.5, matrix: at(side * 1.65, 1, 0.1) });
   return kit.build();
 }
@@ -179,10 +186,10 @@ function bucketGeometry(): THREE.BufferGeometry {
       arc,
     );
     geometry.computeVertexNormals();
-    kit.add(geometry, { color: s % 2 ? C.cream : C.red, gloss: 0.7, outline: 0, ao: (p) => 0.6 + 0.4 * smooth(0, 1.6, p.y) });
+    kit.add(geometry, { color: s % 2 ? C.cream : C.red, gloss: 0.72, coat: 0.3, outline: 0, ao: (p) => 0.6 + 0.4 * smooth(0, 1.6, p.y) });
   }
   kit.add(P.lathe([[0, 0.02], [2.72, 0.02], [o - 0.08, r - 0.04], [o - 0.15, r - 0.04]], 72, 0.02, 1), { color: C.red, gloss: 0.4 });
-  kit.add(P.lathe([[o - 0.03, r - 0.1], [o + 0.12, r], [o + 0.03, r + 0.12], [i + 0.02, r + 0.1], [i - 0.03, r - 0.05]], 72, 0.04), { color: C.gold, gloss: 0.9 });
+  kit.add(P.lathe([[o - 0.03, r - 0.1], [o + 0.12, r], [o + 0.03, r + 0.12], [i + 0.02, r + 0.1], [i - 0.03, r - 0.05]], 72, 0.04), { color: C.gold, gloss: 0.8, metal: 1, wear: 0.3 });
   kit.add(P.lathe([[i, r], [i - 0.12, f + 0.4], [i - 0.6, f], [0, f]], 72, 0.2), { color: C.navy, gloss: 0.3, outline: 0, ao: (p) => 0.4 + 0.6 * smooth(f, r, p.y) });
   return kit.build();
 }
@@ -204,7 +211,7 @@ function beltGeometry(): THREE.BufferGeometry {
     const cx = side * x;
     kit.add(P.box(3, 0.5, length, 0.14, 2), { color: '#2d2b36', gloss: 0.4, matrix: at(cx, y - 0.3, z, [pitch, 0, 0]) });
     kit.add(P.box(2.5, 0.1, length + 0.4, 0.04, 1), { color: '#4a4757', gloss: 0.25, outline: 0, matrix: at(cx, y - 0.02, z, [pitch, 0, 0]) });
-    for (const rail of [-1, 1]) kit.add(P.box(0.16, 0.34, length, 0.06, 1), { color: C.gold, gloss: 0.8, matrix: at(cx + rail * 1.5, y + 0.08, z, [pitch, 0, 0]) });
+    for (const rail of [-1, 1]) kit.add(P.box(0.16, 0.34, length, 0.06, 1), { color: C.gold, gloss: 0.8, metal: 1, wear: 0.3, matrix: at(cx + rail * 1.5, y + 0.08, z, [pitch, 0, 0]) });
     for (let i = 0; i <= 3; i += 1) {
       const postZ = farZ + 1 + (i * (run - 2)) / 3;
       const top = beltHeightAt(postZ) - 0.4;
@@ -233,7 +240,11 @@ function buildCinema(stage: Stage, root: THREE.Group): SceneParts {
   addStage(set);
   addProscenium(set);
   addSnackBar(set);
+  dressCinema(set, GROUND, STAGE_R);
   addToy(stage, root, set.build());
+  addSign(root, SIGN_TEXT.popcorn, { background: '#ffc63f', color: '#8f1f26', border: '#8f1f26', glow: 0.4 }, 9, 2.4, at(-40.8, GROUND + 2.9, 2.08));
+  // The projector's beam, drifting through the dark over the audience.
+  addLightBeam(root, new THREE.Vector3(0, 35, 74), new THREE.Vector3(0, 16, -44), 1.2, 34, '#cdd8ff', 0.035);
   const bucket = addToy(stage, root, bucketGeometry());
 
   const screenUniforms = { uTime: globals.uTime, uTear: { value: 0 } };

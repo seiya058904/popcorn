@@ -1,17 +1,21 @@
 import * as THREE from 'three';
+import { SIGN_TEXT } from '../../content/signs.ts';
 import { Spring } from '../../motion/ease.ts';
 import { Rng } from '../../motion/rng.ts';
 import type { Stage } from '../core/stage.ts';
 import { PopcornSnow } from '../fx/snow.ts';
 import { SpriteKind } from '../fx/sprites.ts';
-import { addToy, addToyInstances, at, Kit, P } from '../geometry/kit.ts';
+import { addToy, addToyInstances, at, Kit, P, Pattern } from '../geometry/kit.ts';
+import { addSign } from '../materials/sign.ts';
 import { toyMaterials } from '../materials/toy.ts';
 import type { SceneContext, SceneParts, SceneSpec, UnitSlot } from './types.ts';
+import { addRichTree, carDetails, clockTowerDetails, dressHouse, dressPlaza, fountainStatue, wheelGondolas, windowFrameAt, type HouseFrame } from './dress.ts';
 import { vesselPile } from './vessel.ts';
 
 const FOUNTAIN = { floorY: 0.5, rimY: 2.1, innerR: 5, outerR: 5.8 };
 const BOARD_R = 104;
 const RING_ROAD = 27;
+const STROLLERS = 18;
 
 const C = {
   grass: '#7fcf8e',
@@ -45,7 +49,7 @@ function addSkyDome(kit: Kit): void {
   });
 }
 
-function addHouse(kit: Kit, rng: Rng, x: number, z: number, rotation: number): void {
+function addHouse(kit: Kit, rng: Rng, look: Rng, x: number, z: number, rotation: number): void {
   const w = rng.range(5, 8.5);
   const d = rng.range(5, 7.5);
   const h = rng.range(4.5, 11);
@@ -55,38 +59,29 @@ function addHouse(kit: Kit, rng: Rng, x: number, z: number, rotation: number): v
   const s = Math.sin(rotation);
   const place = (lx: number, ly: number, lz: number, extra: [number, number, number] = [0, 0, 0], scale: number | [number, number, number] = 1): THREE.Matrix4 =>
     at(x + lx * c + lz * s, ly, z - lx * s + lz * c, [extra[0], rotation + extra[1], extra[2]], scale);
-  kit.add(P.box(w, h, d, 0.3, 1), { color: wall, gloss: 0.3, matrix: place(0, h / 2, 0), ao: (p) => 0.62 + 0.38 * Math.min(1, p.y / 3) });
-  // Hipped roof: a four-sided cone stretched over the footprint.
-  kit.add(P.lathe([[0, 0], [1, 0], [0, 1]], 4, 0.01, 1), { color: roof, gloss: 0.5, matrix: place(0, h, 0, [0, Math.PI / 4, 0], [w * 0.76, 3.2, d * 0.76]) });
-  const rows = Math.floor(h / 3.2);
-  for (let row = 0; row < rows; row += 1) {
-    for (const lx of [-w * 0.24, w * 0.24]) {
-      const lit = rng.next() < 0.45;
-      kit.add(P.box(1.1, 1.4, 0.12, 0.08, 1), { color: lit ? '#ffe9a6' : C.navy, gloss: 0.8, emissive: lit ? 0.55 : 0, outline: 0, matrix: place(lx, 2 + row * 3, d / 2 + 0.03) });
-    }
+  const house: HouseFrame = { x, z, w, d, h, rotation, place };
+  kit.add(P.box(w, h, d, 0.12, 1), { color: wall, gloss: 0.18, pattern: Pattern.Plaster, matrix: place(0, h / 2, 0), ao: (p) => 0.62 + 0.38 * Math.min(1, p.y / 3) });
+  // Hipped roof in courses of tile.
+  kit.add(P.lathe([[0, 0], [1, 0], [0, 1]], 4, 0.01, 1), { color: roof, gloss: 0.3, pattern: 4.72, matrix: place(0, h, 0, [0, Math.PI / 4, 0], [w * 0.76, 3.2, d * 0.76]) });
+  for (let y = 4; y + 1 < h; y += 2.9) {
+    for (const lx of [-w * 0.24, w * 0.24]) windowFrameAt(kit, house, lx, y, look.next() < 0.4);
   }
-}
-
-function addTree(kit: Kit, rng: Rng, x: number, z: number): void {
-  const h = rng.range(2.4, 3.8);
-  kit.add(P.capsule(0.42, h, 2, 6), { color: C.trunk, gloss: 0.2, matrix: at(x, h / 2, z) });
-  const leaf = rng.next() < 0.5 ? '#3fa56d' : '#58bd7c';
-  kit.add(P.sphere(2.2, 10, 8), { color: leaf, gloss: 0.2, matrix: at(x, h + 1.6, z) });
-  kit.add(P.sphere(1.5, 8, 6), { color: leaf, gloss: 0.2, matrix: at(x + 1.2, h + 0.8, z + 0.6) });
+  dressHouse(kit, look, house, wall);
 }
 
 function addTown(kit: Kit): void {
   kit.add(P.puck(BOARD_R + 2, BOARD_R, 6, 96, 0.8), { color: C.grassDeep, gloss: 0.2, matrix: at(0, -6, 0) });
   kit.add(P.puck(BOARD_R, BOARD_R - 0.2, 0.2, 96, 0.08), {
     color: C.grass,
-    gloss: 0.15,
+    gloss: 0.08,
+    pattern: Pattern.Fabric + 0.05,
     outline: 0,
     matrix: at(0, -0.16, 0),
     ao: (p) => 0.7 + 0.3 * Math.min(1, Math.hypot(p.x, p.z) / 14),
   });
   // Plaza, ring road and four avenues.
   kit.add(P.puck(17, 16.9, 0.08, 72, 0.02), { color: C.plaza, gloss: 0.25, outline: 0, matrix: at(0, 0.02, 0) });
-  kit.add(P.torus(RING_ROAD, 3.2, 3, 96), { color: C.road, gloss: 0.2, outline: 0, matrix: at(0, 0.02, 0, [Math.PI / 2, 0, 0], [1, 1, 0.03]) });
+  kit.add(P.torus(RING_ROAD, 3.2, 3, 96), { color: C.road, gloss: 0.18, pattern: Pattern.Rubber + 0.1, outline: 0, matrix: at(0, 0.02, 0, [Math.PI / 2, 0, 0], [1, 1, 0.03]) });
   for (let i = 0; i < 44; i += 1) {
     const a = (i / 44) * Math.PI * 2;
     kit.add(P.box(1.7, 0.04, 0.32, 0.01, 1), { color: C.line, outline: 0, matrix: at(Math.cos(a) * RING_ROAD, 0.12, Math.sin(a) * RING_ROAD, [0, -a + Math.PI / 2, 0]) });
@@ -94,10 +89,13 @@ function addTown(kit: Kit): void {
   for (let spoke = 0; spoke < 4; spoke += 1) {
     const a = spoke * (Math.PI / 2) + Math.PI / 4;
     const mid = (RING_ROAD + BOARD_R) / 2 + 2;
-    kit.add(P.box(BOARD_R - RING_ROAD, 0.08, 5.6, 0.02, 1), { color: C.road, gloss: 0.2, outline: 0, matrix: at(Math.cos(a) * mid, 0.03, Math.sin(a) * mid, [0, -a, 0]) });
+    kit.add(P.box(BOARD_R - RING_ROAD, 0.08, 5.6, 0.02, 1), { color: C.road, gloss: 0.18, pattern: Pattern.Rubber + 0.1, outline: 0, matrix: at(Math.cos(a) * mid, 0.03, Math.sin(a) * mid, [0, -a, 0]) });
   }
 
   const rng = new Rng(2024);
+  // Details draw from their own sequence, so the layout of the town never shifts with them.
+  const look = new Rng(99);
+  dressPlaza(kit, look, RING_ROAD);
   let houses = 0;
   let guard = 0;
   while (houses < 74 && guard < 900) {
@@ -111,14 +109,14 @@ function addTown(kit: Kit): void {
     if (offSpoke > Math.PI / 4 - 6 / r) continue;
     if (x > -48 && x < -4 && z > -46 && z < -4) continue;
     if (z > 42 && Math.abs(x) < 46) continue;
-    addHouse(kit, rng, x, z, -a + Math.PI / 2);
+    addHouse(kit, rng, look, x, z, -a + Math.PI / 2);
     houses += 1;
   }
   for (let i = 0; i < 46; i += 1) {
     const a = rng.range(0, Math.PI * 2);
     const r = rng.range(19, BOARD_R - 5);
     if (r > RING_ROAD - 5 && r < RING_ROAD + 5) continue;
-    addTree(kit, rng, Math.cos(a) * r, Math.sin(a) * r);
+    addRichTree(kit, look, Math.cos(a) * r, Math.sin(a) * r);
   }
 }
 
@@ -126,9 +124,13 @@ function addCinemaFront(kit: Kit): void {
   // The old auditorium, roof off, seen as the town's picture palace.
   const x = -25;
   const z = -7.1;
-  kit.add(P.box(25.6, 11.5, 0.8, 0.2, 2), { color: '#a62435', gloss: 0.4, matrix: at(x, 5.75, z) });
-  kit.add(P.box(15, 3.2, 3, 0.3, 2), { color: C.gold, gloss: 0.7, emissive: 0.12, matrix: at(x, 7, z + 1.5) });
-  kit.add(P.box(13.2, 1.9, 0.2, 0.1, 1), { color: C.cream, gloss: 0.3, emissive: 0.5, outline: 0, matrix: at(x, 7, z + 3.05) });
+  kit.add(P.box(25.6, 11.5, 0.8, 0.2, 2), { color: '#a62435', gloss: 0.3, pattern: Pattern.Plaster, matrix: at(x, 5.75, z) });
+  kit.add(P.box(15, 3.2, 3, 0.3, 2), { color: C.gold, gloss: 0.75, metal: 0.9, wear: 0.3, matrix: at(x, 7, z + 1.5) });
+  // Poster cases and brass doors under the canopy.
+  for (const side of [-1, 1]) {
+    kit.add(P.box(2.2, 3.2, 0.2, 0.05, 1), { color: C.gold, gloss: 0.75, metal: 0.9, matrix: at(x + side * 6, 2.5, z + 0.5) });
+    kit.add(P.box(1.8, 2.8, 0.1, 0.03, 1), { color: side > 0 ? '#3f7fd8' : '#ff8fb0', gloss: 0.5, emissive: 0.35, outline: 0, matrix: at(x + side * 6, 2.5, z + 0.62) });
+  }
   for (let i = 0; i < 18; i += 1) kit.add(P.sphere(0.22, 6, 5), { color: '#fff1c4', emissive: 1, outline: 0, matrix: at(x - 7.1 + i * 0.84, 8.85, z + 3.05) });
   kit.add(P.box(3.4, 4.6, 0.3, 0.1, 1), { color: C.navy, gloss: 0.6, outline: 0, matrix: at(x, 2.3, z + 0.5) });
 }
@@ -136,9 +138,10 @@ function addCinemaFront(kit: Kit): void {
 function addClockTower(kit: Kit): void {
   const x = 20;
   const z = -40;
-  kit.add(P.box(7, 30, 7, 0.4, 2), { color: C.stone, gloss: 0.2, matrix: at(x, 15, z), ao: (p) => 0.6 + 0.4 * Math.min(1, p.y / 8) });
-  kit.add(P.lathe([[0, 0], [1, 0], [0, 1]], 4, 0.01, 1), { color: C.red, gloss: 0.5, matrix: at(x, 30, z, [0, Math.PI / 4, 0], [6.4, 7, 6.4]) });
+  kit.add(P.box(7, 30, 7, 0.2, 2), { color: C.stone, gloss: 0.14, pattern: 4.3, matrix: at(x, 15, z), ao: (p) => 0.6 + 0.4 * Math.min(1, p.y / 8) });
+  kit.add(P.lathe([[0, 0], [1, 0], [0, 1]], 4, 0.01, 1), { color: C.red, gloss: 0.35, pattern: 4.72, matrix: at(x, 30, z, [0, Math.PI / 4, 0], [6.4, 7, 6.4]) });
   kit.add(P.puck(2.5, 2.4, 0.4, 32, 0.08), { color: C.cream, gloss: 0.5, matrix: at(x, 23, z + 3.5, [Math.PI / 2, 0, 0]) });
+  clockTowerDetails(kit, x, z);
 }
 
 function fountainGeometry(): THREE.BufferGeometry {
@@ -146,10 +149,12 @@ function fountainGeometry(): THREE.BufferGeometry {
   const kit = new Kit();
   kit.add(P.lathe([[0, 0.02], [o + 0.7, 0.02], [o + 0.6, 0.6], [o, 0.9], [o, r], [o + 0.15, r + 0.15], [o - 0.1, r + 0.35], [i + 0.1, r + 0.3], [i, r - 0.1], [i, f + 0.1], [i - 0.3, f], [0, f]], 96, 0.14), {
     color: C.stone,
-    gloss: 0.3,
+    gloss: 0.2,
+    pattern: Pattern.Plaster,
     ao: (p) => 0.62 + 0.38 * Math.min(1, p.y / 1.4),
   });
-  kit.add(P.puck(i - 0.1, i - 0.1, 0.08, 72, 0.02), { color: C.water, gloss: 1, outline: 0, matrix: at(0, f + 0.02, 0) });
+  kit.add(P.puck(i - 0.1, i - 0.1, 0.08, 72, 0.02), { color: C.water, gloss: 1, coat: 0.9, outline: 0, matrix: at(0, f + 0.02, 0) });
+  fountainStatue(kit, f);
   return kit.build();
 }
 
@@ -160,16 +165,24 @@ function wheelGeometry(): THREE.BufferGeometry {
     kit.add(P.torus(R, 0.28, 6, 56), { color: C.red, gloss: 0.7, matrix: at(0, 0, z) });
     for (let i = 0; i < 8; i += 1) kit.add(P.box(R * 2, 0.2, 0.2, 0.05, 1), { color: C.cream, gloss: 0.5, outline: 0.5, matrix: at(0, 0, z, [0, 0, (i / 8) * Math.PI]) });
   }
-  kit.add(P.capsule(0.5, 2, 2, 8), { color: C.gold, gloss: 0.8, matrix: at(0, 0, 0, [Math.PI / 2, 0, 0]) });
+  kit.add(P.capsule(0.5, 2, 2, 8), { color: C.gold, gloss: 0.8, metal: 1, matrix: at(0, 0, 0, [Math.PI / 2, 0, 0]) });
+  wheelGondolas(kit, R);
+  return kit.build();
+}
+
+function strollerGeometry(): THREE.BufferGeometry {
+  const kit = new Kit();
+  kit.add(P.capsule(0.3, 0.72, 3, 8), { color: '#ffffff', gloss: 0.25, pattern: Pattern.Fabric, matrix: at(0, 0.82, 0) });
+  kit.add(P.sphere(0.25, 10, 8), { color: '#ffd9b8', gloss: 0.2, fixedColor: true, matrix: at(0, 1.62, 0) });
   return kit.build();
 }
 
 function carGeometry(): THREE.BufferGeometry {
   const kit = new Kit();
-  kit.add(P.box(3.4, 0.9, 1.6, 0.34, 2), { color: '#ffffff', gloss: 0.9, matrix: at(0, 0.8, 0) });
-  kit.add(P.box(1.8, 0.8, 1.4, 0.3, 2), { color: '#ffffff', gloss: 0.9, matrix: at(-0.1, 1.5, 0) });
-  kit.add(P.box(1.5, 0.5, 1.46, 0.12, 1), { color: C.navy, gloss: 1, outline: 0, matrix: at(-0.1, 1.55, 0) });
-  for (const x of [-1, 1]) for (const z of [-0.8, 0.8]) kit.add(P.capsule(0.34, 0.1, 2, 8), { color: '#22222c', gloss: 0.3, matrix: at(x, 0.36, z, [Math.PI / 2, 0, 0]) });
+  kit.add(P.box(3.4, 0.9, 1.6, 0.34, 2), { color: '#ffffff', gloss: 0.88, coat: 0.6, pattern: Pattern.Enamel, matrix: at(0, 0.8, 0) });
+  kit.add(P.box(1.8, 0.8, 1.4, 0.3, 2), { color: '#ffffff', gloss: 0.88, coat: 0.6, pattern: Pattern.Enamel, matrix: at(-0.1, 1.5, 0) });
+  carDetails(kit);
+  for (const x of [-1, 1]) for (const z of [-0.8, 0.8]) kit.add(P.capsule(0.34, 0.1, 2, 8), { color: '#22222c', gloss: 0.2, pattern: Pattern.Rubber, fixedColor: true, matrix: at(x, 0.36, z, [Math.PI / 2, 0, 0]) });
   return kit.build();
 }
 
@@ -203,6 +216,7 @@ function buildTown(stage: Stage, root: THREE.Group): SceneParts {
   const frontKit = new Kit();
   addCinemaFront(frontKit);
   const front = addToy(stage, root, frontKit.build());
+  addSign(front, SIGN_TEXT.theatre, { background: '#fff3cf', color: '#a31d28', glow: 0.9 }, 13.2, 1.9, at(-25, 7, -4.02));
   const fountain = addToy(stage, root, fountainGeometry());
 
   const wheel = addToy(stage, root, wheelGeometry());
@@ -220,6 +234,12 @@ function buildTown(stage: Stage, root: THREE.Group): SceneParts {
   const tint = new THREE.Color();
   carColors.concat(carColors).forEach((color, index) => cars.body.setColorAt(index, tint.set(color)));
   cars.ink.instanceColor = cars.body.instanceColor;
+
+  // People out for a walk around the square.
+  const strollers = addToyInstances(stage, root, strollerGeometry(), STROLLERS);
+  const clothes = ['#d8473f', '#3f7fd8', '#ffc53f', '#58c79c', '#c98bff', '#ff8fb0', '#f7f0df', '#26325e'];
+  for (let i = 0; i < STROLLERS; i += 1) strollers.body.setColorAt(i, tint.set(clothes[i % clothes.length]!));
+  strollers.ink.instanceColor = strollers.body.instanceColor;
 
   const moon = new THREE.Mesh(moonGeometry(19), toyMaterials().body);
   const moonHome = new THREE.Vector3(-108, 112, -190);
@@ -265,6 +285,7 @@ function buildTown(stage: Stage, root: THREE.Group): SceneParts {
       snow.setAmount(0);
       moon.visible = false;
       cars.commit(0);
+      strollers.commit(0);
     },
     update(dt, ctx: SceneContext) {
       time += dt;
@@ -282,6 +303,17 @@ function buildTown(stage: Stage, root: THREE.Group): SceneParts {
         cars.setMatrixAt(i, m);
       }
       cars.commit(12);
+      for (let i = 0; i < STROLLERS; i += 1) {
+        const dir = i % 3 === 0 ? -1 : 1;
+        // They hurry off once the popcorn starts reaching the benches.
+        const radius = 14 + (i % 4) * 0.55 + ctx.level * 6;
+        const a = (i / STROLLERS) * Math.PI * 2 + dir * time * 0.05;
+        p.set(Math.cos(a) * radius, 0.14 + Math.abs(Math.sin(time * 5 + i)) * 0.07, Math.sin(a) * radius);
+        q.setFromAxisAngle(up, -a + (dir > 0 ? Math.PI : 0));
+        m.compose(p, q, s.setScalar(1));
+        strollers.setMatrixAt(i, m);
+      }
+      strollers.commit(ctx.level < 0.8 ? STROLLERS : 0);
 
       const tremble = (Math.sin(time * 0.8) > 0.55 ? 1 : 0.15) * (0.2 + ctx.level * 0.6);
       moon.position.copy(moonHome);

@@ -122,6 +122,27 @@ export const shotPresets: ShotPreset[] = [
       null,
     );
   }, size: { width: 1920, height: 1080 } },
+  {
+    name: 'p5-stirrer',
+    size: { width: 1920, height: 1080 },
+    async run(page) {
+      await qa(
+        page,
+        (api) => {
+          api.earn(320);
+          api.advance(0.3);
+          api.set({ popcorn: 1e6 });
+          api.buy(0, 4);
+          api.buy(1, 2);
+          api.game.sim.state.totalEarned = 1200;
+          api.game.sim.buyUpgrade('auto1');
+          api.set({ popcorn: 0, totalEarned: 320 });
+          api.advance(2.6);
+        },
+        null,
+      );
+    },
+  },
   kitchen('p2-kitchen-machines', 0.45, [4, 3, 3, 2]),
   scene('p2-cinema-machines', 2, 0.45, [4, 0, 3, 0, 4, 4]),
   scene('p2-town-machines', 3, 0.45, [0, 0, 0, 0, 4, 4, 4, 4]),

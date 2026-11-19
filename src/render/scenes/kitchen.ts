@@ -2,9 +2,11 @@ import * as THREE from 'three';
 import { Spring } from '../../motion/ease.ts';
 import type { Stage } from '../core/stage.ts';
 import { SpriteKind } from '../fx/sprites.ts';
+import { addLightBeam } from '../fx/beam.ts';
 import { addToy, at, Kit, P, Pattern } from '../geometry/kit.ts';
 import { toyMaterials } from '../materials/toy.ts';
 import type { SceneContext, SceneParts, SceneSpec, UnitSlot } from './types.ts';
+import { dressKitchen, fridgeBadge } from './dress.ts';
 import { vesselPile } from './vessel.ts';
 
 const GROUND = -5.6;
@@ -63,12 +65,13 @@ function addRoom(kit: Kit): void {
     kit.add(P.box(2.4, 24, 0.3, 0.02, 1), {
       color: i & 1 ? C.wall : C.wallAlt,
       gloss: 0.12,
+      pattern: Pattern.Plaster,
       outline: 0,
       matrix: at(i * 2.4, 6.4, -17.5),
     });
   }
   // Wainscot and rails.
-  kit.add(P.box(74, 4.6, 0.3, 0.05, 1), { color: C.wainscot, gloss: 0.3, outline: 0, matrix: at(0, GROUND + 2.3, -17.3) });
+  kit.add(P.box(74, 4.6, 0.3, 0.05, 1), { color: C.wainscot, gloss: 0.3, pattern: Pattern.Wood, outline: 0, matrix: at(0, GROUND + 2.3, -17.3) });
   kit.add(P.box(74, 0.26, 0.42, 0.08, 2), { color: C.trim, gloss: 0.45, outline: 0.6, matrix: at(0, GROUND + 4.72, -17.2) });
   kit.add(P.box(74, 0.6, 0.42, 0.08, 2), { color: C.trim, gloss: 0.45, outline: 0.6, matrix: at(0, GROUND + 0.3, -17.2) });
   // Left wall.
@@ -78,7 +81,9 @@ function addRoom(kit: Kit): void {
 function addTable(kit: Kit): void {
   kit.add(P.puck(5.1, 5.2, 0.34, 72, 0.1), {
     color: C.cream,
-    gloss: 0.3,
+    gloss: 0.7,
+    coat: 0.5,
+    pattern: Pattern.Enamel,
     matrix: at(0, -0.33, 0),
     ao: (p) => 0.55 + 0.45 * smooth(2.1, 3.8, Math.hypot(p.x, p.z)),
     colorFn: (p, _n, out) => {
@@ -101,23 +106,23 @@ function addTable(kit: Kit): void {
       36,
       0.12,
     ),
-    { color: C.wood, gloss: 0.5 },
+    { color: C.wood, gloss: 0.5, pattern: Pattern.Wood },
   );
 }
 
 function addFridge(kit: Kit): void {
   const x = -21;
   const z = -13.9;
-  kit.add(P.box(6.2, 12.8, 4.8, 1.05, 6), { color: C.mint, gloss: 0.85, matrix: at(x, GROUND + 6.7, z) });
-  for (const dx of [-2.3, 2.3]) kit.add(P.box(0.5, 0.4, 3.4, 0.08, 1), { color: C.chrome, gloss: 1, matrix: at(x + dx, GROUND + 0.2, z) });
+  kit.add(P.box(6.2, 12.8, 4.8, 1.05, 6), { color: C.mint, gloss: 0.85, coat: 0.5, pattern: Pattern.Enamel, wear: 0.2, matrix: at(x, GROUND + 6.7, z) });
+  for (const dx of [-2.3, 2.3]) kit.add(P.box(0.5, 0.4, 3.4, 0.08, 1), { color: C.chrome, gloss: 0.9, metal: 1, pattern: Pattern.Brushed, matrix: at(x + dx, GROUND + 0.2, z) });
 }
 
 function fridgeDoor(): THREE.BufferGeometry {
   // Hinged on its own left edge, which sits at the local origin.
   const kit = new Kit();
-  kit.add(P.box(5.8, 8.4, 0.5, 0.42, 5), { color: C.mint, gloss: 0.9, matrix: at(2.9, -1.9, 0) });
-  kit.add(P.box(5.8, 3.2, 0.5, 0.42, 5), { color: C.mint, gloss: 0.9, matrix: at(2.9, 4.1, 0) });
-  kit.add(P.box(0.26, 2.1, 0.26, 0.11, 3), { color: C.chrome, gloss: 1, matrix: at(5.1, 0.7, 0.42) });
+  kit.add(P.box(5.8, 8.4, 0.5, 0.42, 5), { color: C.mint, gloss: 0.88, coat: 0.5, pattern: Pattern.Enamel, wear: 0.2, matrix: at(2.9, -1.9, 0) });
+  kit.add(P.box(5.8, 3.2, 0.5, 0.42, 5), { color: C.mint, gloss: 0.88, coat: 0.5, pattern: Pattern.Enamel, wear: 0.2, matrix: at(2.9, 4.1, 0) });
+  kit.add(P.box(0.26, 2.1, 0.26, 0.11, 3), { color: C.chrome, gloss: 0.9, metal: 1, pattern: Pattern.Brushed, matrix: at(5.1, 0.7, 0.42) });
   kit.add(P.box(1.8, 0.5, 0.08, 0.1, 2), { color: C.cream, gloss: 0.8, emissive: 0.05, matrix: at(2.9, 4.4, 0.28) });
   kit.add(P.box(1.2, 0.09, 0.03, 0.02, 1), { color: C.red, outline: 0, matrix: at(2.9, 4.4, 0.33) });
   // Refrigerator magnets and a note nobody has read in years.
@@ -125,6 +130,7 @@ function fridgeDoor(): THREE.BufferGeometry {
   kit.add(P.sphere(0.13, 8, 6), { color: C.red, gloss: 0.9, matrix: at(1.9, -0.45, 0.32) });
   kit.add(P.sphere(0.16, 8, 6), { color: C.butter, gloss: 0.9, matrix: at(3.6, -2.2, 0.32) });
   kit.add(P.box(0.5, 0.36, 0.08, 0.04, 1), { color: C.sky, gloss: 0.8, matrix: at(3.5, -0.8, 0.3, [0, 0, -0.15]) });
+  fridgeBadge(kit);
   return kit.build();
 }
 
@@ -174,7 +180,7 @@ function addCounter(kit: Kit): void {
   const cx = (left + right) / 2;
   const width = right - left;
   kit.add(P.box(width, 3.5, 3.6, 0.1, 2), { color: C.cream, gloss: 0.35, matrix: at(cx, GROUND + 1.95, -15.3) });
-  kit.add(P.box(width + 0.4, 0.45, 4.1, 0.14, 3), { color: C.counter, gloss: 0.8, matrix: at(cx, COUNTER_TOP - 0.2, -15.2) });
+  kit.add(P.box(width + 0.4, 0.45, 4.1, 0.14, 3), { color: C.counter, gloss: 0.85, coat: 0.45, pattern: Pattern.Enamel, wear: 0.15, matrix: at(cx, COUNTER_TOP - 0.2, -15.2) });
   kit.add(P.box(width, 0.42, 3.4, 0.05, 1), { color: C.navy, gloss: 0.1, outline: 0, matrix: at(cx, GROUND + 0.2, -15.5) });
   for (let i = 0; i < 9; i += 1) {
     const x = left + 1.75 + i * 3.45;
@@ -188,8 +194,8 @@ function addCounter(kit: Kit): void {
     kit.add(P.sphere(0.12, 8, 7), { color: C.red, gloss: 0.9, matrix: at(20.6 + i * 3.6, 5.5, -14.55) });
   }
   // Sink with a faucet and the rubber duck that lives there.
-  kit.add(P.box(5, 0.08, 2.5, 0.04, 1), { color: '#8fa0b2', gloss: 0.9, outline: 0, matrix: at(10, COUNTER_TOP + 0.05, -15.2) });
-  kit.add(P.tube([new THREE.Vector3(10, COUNTER_TOP, -16.6), new THREE.Vector3(10, COUNTER_TOP + 1.6, -16.6), new THREE.Vector3(10, COUNTER_TOP + 1.9, -15.9), new THREE.Vector3(10, COUNTER_TOP + 1.3, -15.5)], 0.12, 18, 8), { color: C.chrome, gloss: 1 });
+  kit.add(P.box(5, 0.08, 2.5, 0.04, 1), { color: '#a9b6c4', gloss: 0.85, metal: 1, pattern: Pattern.Brushed, outline: 0, matrix: at(10, COUNTER_TOP + 0.05, -15.2) });
+  kit.add(P.tube([new THREE.Vector3(10, COUNTER_TOP, -16.6), new THREE.Vector3(10, COUNTER_TOP + 1.6, -16.6), new THREE.Vector3(10, COUNTER_TOP + 1.9, -15.9), new THREE.Vector3(10, COUNTER_TOP + 1.3, -15.5)], 0.12, 18, 8), { color: C.chrome, gloss: 0.9, metal: 1, pattern: Pattern.Brushed });
   kit.add(P.sphere(0.42, 12, 9), { color: C.butter, gloss: 0.8, matrix: at(11.6, COUNTER_TOP + 0.42, -15, [0, 0, 0], [1.2, 0.85, 1]) });
   kit.add(P.sphere(0.27, 12, 9), { color: C.butter, gloss: 0.8, matrix: at(11.98, COUNTER_TOP + 0.84, -15) });
   kit.add(P.box(0.2, 0.08, 0.18, 0.03, 1), { color: '#f07a2a', gloss: 0.6, matrix: at(12.3, COUNTER_TOP + 0.8, -15) });
@@ -197,7 +203,7 @@ function addCounter(kit: Kit): void {
 
 function addDecor(kit: Kit): void {
   // Shelf over the stove with jars.
-  kit.add(P.box(11, 0.26, 1.5, 0.08, 2), { color: C.wood, gloss: 0.4, matrix: at(-6.2, 5.05, -16.5) });
+  kit.add(P.box(11, 0.26, 1.5, 0.08, 2), { color: C.wood, gloss: 0.4, pattern: Pattern.Wood, matrix: at(-6.2, 5.05, -16.5) });
   for (const x of [-10.6, -1.8]) kit.add(P.box(0.24, 0.8, 1.2, 0.06, 1), { color: C.woodDark, gloss: 0.3, matrix: at(x, 4.6, -16.7) });
   const jars: Array<[number, string, number]> = [
     [-10, C.red, 0.5],
@@ -225,9 +231,9 @@ function addDecor(kit: Kit): void {
   }
   kit.add(P.box(5, 0.4, 5, 0.16, 2), { color: C.red, gloss: 0.5, matrix: at(-21, GROUND + 3.4, 12) });
   for (const [dx, dz] of [[-2, -2], [2, -2], [-2, 2], [2, 2]] as const) {
-    kit.add(P.box(0.34, 3.4, 0.34, 0.1, 1), { color: C.chrome, gloss: 1, matrix: at(-21 + dx, GROUND + 1.7, 12 + dz) });
+    kit.add(P.box(0.34, 3.4, 0.34, 0.1, 1), { color: C.chrome, gloss: 0.9, metal: 1, pattern: Pattern.Brushed, matrix: at(-21 + dx, GROUND + 1.7, 12 + dz) });
   }
-  for (const dx of [-2, 2]) kit.add(P.box(0.32, 4.4, 0.32, 0.1, 1), { color: C.chrome, gloss: 1, matrix: at(-21 + dx, GROUND + 5.8, 9.9) });
+  for (const dx of [-2, 2]) kit.add(P.box(0.32, 4.4, 0.32, 0.1, 1), { color: C.chrome, gloss: 0.9, metal: 1, pattern: Pattern.Brushed, matrix: at(-21 + dx, GROUND + 5.8, 9.9) });
   kit.add(P.box(5, 2, 0.4, 0.16, 2), { color: C.red, gloss: 0.5, matrix: at(-21, GROUND + 7.6, 9.9) });
 }
 
@@ -248,7 +254,7 @@ function bowlGeometry(): THREE.BufferGeometry {
       0.12,
       5,
     ),
-    { color: C.skyDeep, gloss: 0.95, ao: (p) => 0.55 + 0.45 * smooth(0.1, 1.1, p.y) },
+    { color: C.skyDeep, gloss: 0.9, coat: 0.65, pattern: Pattern.Enamel, wear: 0.15, ao: (p) => 0.55 + 0.45 * smooth(0.1, 1.1, p.y) },
   );
   kit.add(P.lathe([[o + 0.03, r - 0.05], [o + 0.1, r + 0.02], [o + 0.03, r + 0.08], [i, r + 0.06], [i - 0.03, r - 0.05]], 84, 0.03), { color: C.cream, gloss: 0.9 });
   kit.add(P.lathe([[i, r], [i - 0.25, f + 0.5], [i - 0.8, f], [0, f]], 84, 0.2), { color: C.navy, gloss: 0.4, outline: 0, ao: (p) => 0.4 + 0.6 * smooth(f, r, p.y) });
@@ -270,7 +276,7 @@ function lampGeometry(): THREE.BufferGeometry {
   // Hangs from the origin.
   const kit = new Kit();
   kit.add(P.capsule(0.05, 6.4, 2, 6), { color: C.navy, gloss: 0.2, outline: 0, matrix: at(0, -3.2, 0) });
-  kit.add(P.lathe([[0, -7.9], [2.4, -7.9], [2.3, -7.75], [0.8, -6.8], [0.32, -6.5], [0, -6.45]], 36, 0.08), { color: C.red, gloss: 0.85, matrix: at(0, 0, 0) });
+  kit.add(P.lathe([[0, -7.9], [2.4, -7.9], [2.3, -7.75], [0.8, -6.8], [0.32, -6.5], [0, -6.45]], 36, 0.08), { color: C.red, gloss: 0.85, coat: 0.55, pattern: Pattern.Enamel, wear: 0.2, matrix: at(0, 0, 0) });
   kit.add(P.sphere(0.72, 18, 12), { color: '#fff3c8', emissive: 1, outline: 0, matrix: at(0, -7.95, 0, [0, 0, 0], [1, 0.62, 1]) });
   return kit.build();
 }
@@ -285,7 +291,11 @@ function buildKitchen(stage: Stage, root: THREE.Group): SceneParts {
   addWindow(set);
   addCounter(set);
   addDecor(set);
+  dressKitchen(set, GROUND, COUNTER_TOP);
   addToy(stage, root, set.build());
+  // The pool under the pendant lamp, and moonlight falling from the window.
+  addLightBeam(root, new THREE.Vector3(0, 10.2, 0), new THREE.Vector3(0, GROUND, 0), 1.9, 10, '#ffd9a4', 0.07);
+  addLightBeam(root, new THREE.Vector3(10, 7.2, -16.9), new THREE.Vector3(1, GROUND, -3), 3.2, 6.5, '#c79bff', 0.05);
   const bowl = addToy(stage, root, bowlGeometry());
 
   const door = addToy(stage, root, fridgeDoor());

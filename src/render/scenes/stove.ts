@@ -1,11 +1,13 @@
 import * as THREE from 'three';
 import { lerp, Spring } from '../../motion/ease.ts';
 import type { Stage } from '../core/stage.ts';
+import { addLightBeam } from '../fx/beam.ts';
 import { Flames } from '../fx/flames.ts';
 import { SpriteKind } from '../fx/sprites.ts';
 import { addToy, at, Kit, P, Pattern } from '../geometry/kit.ts';
 import { toyMaterials } from '../materials/toy.ts';
 import type { SceneContext, SceneParts, SceneSpec, UnitSlot } from './types.ts';
+import { dressStove } from './dress.ts';
 import { vesselPile } from './vessel.ts';
 
 export const POT = { floorY: 0.68, rimY: 1.46, innerR: 1.12, outerR: 1.24 };
@@ -85,7 +87,9 @@ function addWall(kit: Kit): void {
       const tint = new THREE.Color((row + col) & 1 ? C.teal : C.tealDeep).offsetHSL(0, 0, (next() - 0.5) * 0.016);
       kit.add(P.box(tile, tile, 0.09, 0.035, 1), {
         color: tint,
-        gloss: 0.6,
+        gloss: 0.72,
+        coat: 0.35,
+        pattern: Pattern.Enamel,
         outline: 0,
         matrix: at(x, y, -3.58, [(next() - 0.5) * 0.012, (next() - 0.5) * 0.012, 0]),
       });
@@ -96,16 +100,16 @@ function addWall(kit: Kit): void {
 function addStoveBody(kit: Kit): void {
   const contact = (p: THREE.Vector3): number => lerp(0.5, 1, smooth(1.15, 2.4, Math.hypot(p.x, p.z)));
   kit.add(P.box(14.4, 0.34, 6.5, 0.14, 4), { color: C.mint, gloss: 0.62, coat: 0.24, pattern: Pattern.Enamel, ao: contact, matrix: at(0, -0.17, -0.3) });
-  kit.add(P.box(14.7, 0.1, 6.8, 0.05, 2), { color: C.chrome, gloss: 1, matrix: at(0, -0.38, -0.3) });
+  kit.add(P.box(14.7, 0.1, 6.8, 0.05, 2), { color: C.chrome, gloss: 0.9, metal: 1, pattern: Pattern.Brushed, matrix: at(0, -0.38, -0.3) });
   kit.add(P.box(14.4, 1.75, 0.7, 0.12, 3), { color: C.cream, gloss: 0.55, matrix: at(0, -1.3, 2.72) });
   kit.add(P.box(14.4, 4, 6, 0.1, 1), { color: C.mintDeep, gloss: 0.3, outline: 0, matrix: at(0, -3.2, -0.4) });
 
   // Back guard: the unmistakable 1950s range silhouette.
   kit.add(P.box(14.4, 1.2, 0.5, 0.2, 4), { color: C.mint, gloss: 0.62, matrix: at(0, 0.54, -3.2) });
-  kit.add(P.box(14.0, 0.12, 0.56, 0.05, 2), { color: C.chrome, gloss: 1, matrix: at(0, 1.12, -3.18) });
+  kit.add(P.box(14.0, 0.12, 0.56, 0.05, 2), { color: C.chrome, gloss: 0.9, metal: 1, pattern: Pattern.Brushed, matrix: at(0, 1.12, -3.18) });
 
   const clock = at(-0.2, 0.58, -2.95, [Math.PI / 2, 0, 0]);
-  kit.add(P.puck(0.42, 0.38, 0.07, 40, 0.02), { color: C.chrome, gloss: 1, matrix: clock });
+  kit.add(P.puck(0.42, 0.38, 0.07, 40, 0.02), { color: C.chrome, gloss: 0.9, metal: 1, pattern: Pattern.Brushed, matrix: clock });
   kit.add(P.puck(0.34, 0.33, 0.085, 40, 0.01), { color: C.cream, gloss: 0.5, outline: 0, matrix: clock });
   for (let hour = 0; hour < 12; hour += 1) {
     const a = (hour / 12) * Math.PI * 2;
@@ -118,7 +122,7 @@ function addStoveBody(kit: Kit): void {
 
   for (let i = -3; i <= 3; i += 1) {
     const x = i * 1.75;
-    kit.add(P.puck(0.3, 0.26, 0.05, 28, 0.015), { color: C.chrome, gloss: 1, matrix: at(x, -1.05, 3.07, [Math.PI / 2, 0, 0]) });
+    kit.add(P.puck(0.3, 0.26, 0.05, 28, 0.015), { color: C.chrome, gloss: 0.9, metal: 1, pattern: Pattern.Brushed, matrix: at(x, -1.05, 3.07, [Math.PI / 2, 0, 0]) });
     kit.add(P.puck(0.2, 0.16, 0.2, 24, 0.04), { color: C.red, gloss: 0.9, matrix: at(x, -1.05, 3.1, [Math.PI / 2, 0, 0]) });
     kit.add(P.box(0.05, 0.2, 0.04, 0.012, 1), { color: C.cream, outline: 0, matrix: at(x, -1.05, 3.31, [0, 0, i * 0.55]) });
   }
@@ -126,14 +130,14 @@ function addStoveBody(kit: Kit): void {
 
 function addBurner(kit: Kit, x: number, z: number): void {
   kit.add(P.puck(0.86, 0.82, 0.03, 40, 0.012), { color: C.drip, gloss: 0.7, outline: 0, matrix: at(x, 0, z) });
-  kit.add(P.torus(0.84, 0.018, 8, 48), { color: C.chrome, gloss: 1, outline: 0, matrix: at(x, 0.03, z, [Math.PI / 2, 0, 0]) });
-  kit.add(P.puck(0.4, 0.33, 0.09, 28, 0.03), { color: C.iron, gloss: 0.3, outline: 0.6, matrix: at(x, 0.02, z) });
-  kit.add(P.torus(0.74, 0.042, 8, 40), { color: C.iron, gloss: 0.35, matrix: at(x, 0.255, z, [Math.PI / 2, 0, 0]) });
+  kit.add(P.torus(0.84, 0.018, 8, 48), { color: C.chrome, gloss: 0.9, metal: 1, pattern: Pattern.Brushed, outline: 0, matrix: at(x, 0.03, z, [Math.PI / 2, 0, 0]) });
+  kit.add(P.puck(0.4, 0.33, 0.09, 28, 0.03), { color: C.iron, gloss: 0.42, metal: 0.65, wear: 0.6, outline: 0.6, matrix: at(x, 0.02, z) });
+  kit.add(P.torus(0.74, 0.042, 8, 40), { color: C.iron, gloss: 0.45, metal: 0.7, wear: 0.7, matrix: at(x, 0.255, z, [Math.PI / 2, 0, 0]) });
   for (let a = 0; a < 4; a += 1) {
     const angle = (a / 4) * Math.PI * 2 + Math.PI / 4;
     const cx = x + Math.cos(angle) * 0.56;
     const cz = z + Math.sin(angle) * 0.56;
-    kit.add(P.box(0.4, 0.07, 0.085, 0.03, 2), { color: C.iron, gloss: 0.35, matrix: at(cx, 0.255, cz, [0, -angle, 0]) });
+    kit.add(P.box(0.4, 0.07, 0.085, 0.03, 2), { color: C.iron, gloss: 0.45, metal: 0.7, wear: 0.7, matrix: at(cx, 0.255, cz, [0, -angle, 0]) });
     kit.add(P.box(0.075, 0.25, 0.075, 0.03, 2), {
       color: C.iron,
       gloss: 0.3,
@@ -202,7 +206,7 @@ function addForeground(kit: Kit): void {
     ),
     { color: C.cream, gloss: 0.7, matrix: at(-5.9, 0, 2.05) },
   );
-  kit.add(P.sphere(0.23, 20, 12), { color: C.chrome, gloss: 1, matrix: at(-5.9, 0.82, 2.05, [0, 0, 0], [1, 0.62, 1]) });
+  kit.add(P.sphere(0.23, 20, 12), { color: C.chrome, gloss: 0.9, metal: 1, pattern: Pattern.Brushed, matrix: at(-5.9, 0.82, 2.05, [0, 0, 0], [1, 0.62, 1]) });
   kit.add(P.box(1.3, 0.1, 0.76, 0.05, 3), { color: C.butter, gloss: 0.55, matrix: at(5.7, 0.05, 2.2, [0, 0.3, 0]) });
   kit.add(P.box(0.86, 0.32, 0.44, 0.05, 2), { color: '#ffe48a', gloss: 0.4, matrix: at(5.7, 0.26, 2.2, [0, 0.3, 0]) });
 }
@@ -224,7 +228,7 @@ function potGeometry(): THREE.BufferGeometry {
       0.09,
       6,
     ),
-    { color: potColor, gloss: 0.95, ao: body },
+    { color: potColor, gloss: 0.9, coat: 0.65, pattern: Pattern.Enamel, wear: 0.15, ao: body },
   );
   kit.add(
     P.lathe(
@@ -291,7 +295,7 @@ function lidGeometry(): THREE.BufferGeometry {
       0.08,
       6,
     ),
-    { color: potColor, gloss: 0.95 },
+    { color: potColor, gloss: 0.9, coat: 0.65, pattern: Pattern.Enamel, wear: 0.15 },
   );
   kit.add(
     P.lathe(
@@ -307,7 +311,7 @@ function lidGeometry(): THREE.BufferGeometry {
     ),
     { color: C.cream, gloss: 0.9, outline: 0 },
   );
-  kit.add(P.puck(0.14, 0.1, 0.1, 20, 0.03), { color: C.chrome, gloss: 1, matrix: at(0, 0.41, 0) });
+  kit.add(P.puck(0.14, 0.1, 0.1, 20, 0.03), { color: C.chrome, gloss: 0.9, metal: 1, pattern: Pattern.Brushed, matrix: at(0, 0.41, 0) });
   kit.add(P.sphere(0.21, 24, 16), { color: C.cream, gloss: 0.9, matrix: at(0, 0.6, 0, [0, 0, 0], [1, 0.8, 1]) });
   return kit.build();
 }
@@ -324,7 +328,10 @@ function buildStove(stage: Stage, root: THREE.Group): SceneParts {
   for (const slot of PAN_SLOTS.slice(0, BURNER_PANS)) addBurner(set, slot.x, slot.z);
   addWindow(set);
   addForeground(set);
+  dressStove(set);
   addToy(stage, root, set.build());
+  // Evening light slanting in through the window.
+  addLightBeam(root, new THREE.Vector3(-3.95, 4.3, -3.25), new THREE.Vector3(-0.8, 0.1, 1.1), 1, 2.3, '#ff9ec4', 0.075);
 
   const pot = addToy(stage, root, potGeometry());
 

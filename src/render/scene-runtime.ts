@@ -2,9 +2,11 @@ import * as THREE from 'three';
 import type { CannonResult } from '../events/game-events.ts';
 import type { Rng } from '../motion/rng.ts';
 import type { Stage } from './core/stage.ts';
+import { UPGRADE_BY_ID } from '../content/upgrades.ts';
 import { Flock } from './fx/flock.ts';
 import { Shovel } from './fx/shovel.ts';
 import { SpriteKind, Sprites } from './fx/sprites.ts';
+import { Stirrer } from './fx/stirrer.ts';
 import { HeroCannon } from './hero-cannon.ts';
 import { PieceBatches } from './popcorn/batches.ts';
 import { PopDirector } from './popcorn/director.ts';
@@ -47,6 +49,7 @@ export class SceneRuntime {
   readonly flavor: FlavorShow | null = null;
   readonly heroCannon: HeroCannon | null = null;
   readonly flock: Flock | null = null;
+  private readonly stirrer: Stirrer | null = null;
   private readonly rigs = new Map<UnitKindName, UnitRig>();
   private readonly rng: Rng;
   private launchBudget = 0;
@@ -91,6 +94,7 @@ export class SceneRuntime {
     this.shovel = new Shovel(stage, this.root, this.sprites, rng, k);
     this.flavor = new FlavorShow(stage, this.root, this.sprites, rng, spec.spreadRadius, k);
     if (spec.perches.length > 0) this.flock = new Flock(stage, this.root, spec.perches, 0.62 * k, rng);
+    this.stirrer = new Stirrer(stage, this.root, spec.steamY, spec.homeRadius / 0.72, k);
     if (spec.cannon) this.heroCannon = new HeroCannon(stage, this.root, spec.cannon, this.sprites, this.director, rng);
 
     const host: UnitHost = {
@@ -155,6 +159,12 @@ export class SceneRuntime {
   }
 
   syncUpgrades(owned: readonly string[]): void {
+    let pops = 0;
+    for (const id of owned) {
+      const effect = UPGRADE_BY_ID.get(id)?.effect;
+      if (effect?.kind === 'autoPops') pops += effect.perSecond;
+    }
+    this.stirrer?.setPower(pops);
     this.parts.upgradesChanged?.(owned);
   }
 
@@ -174,6 +184,7 @@ export class SceneRuntime {
       this.flavor?.update(dt, this.spec.pile.centerX, this.pile.heightAt(this.spec.pile.centerX, this.spec.pile.centerZ), this.spec.pile.centerZ);
       this.updateFountain(dt, ctx.intensity, ctx.attract);
       this.heroCannon?.update(dt, cooling);
+      this.stirrer?.update(dt, this.pile.heightAt(this.spec.pile.centerX, this.spec.pile.centerZ));
       this.flock?.update(dt);
       const tempo = 1 + Math.min(1.6, ctx.intensity * 0.28);
       for (const rig of this.rigs.values()) rig.update(dt, ctx.time, tempo);
@@ -212,7 +223,9 @@ export class SceneRuntime {
 
   /** One pop made by the stirring machine. */
   autoPop(): void {
-    if (this.director) this.popFromVessel(this.spec.pile.k);
+    if (!this.director) return;
+    this.popFromVessel(this.spec.pile.k);
+    this.stirrer?.kick();
   }
 
   setDetail(fraction: number): void {
@@ -245,6 +258,7 @@ export class SceneRuntime {
     // Only the pans are still large enough to read at miniature scale.
     for (const [kind, rig] of this.rigs) if (kind !== 'pan') rig.hide();
     this.flock?.setHidden(true);
+    this.stirrer?.hide();
     this.shovel?.hide();
     this.flavor?.hide();
     this.parts.settleAsMiniature?.();
