@@ -8,6 +8,10 @@ export interface Settings {
   master: number;
   music: number;
   effects: number;
+  /** Buttons, switches and other interface sounds. */
+  ui: number;
+  /** Vibration on devices that have it. */
+  haptics: boolean;
   quality: QualityChoice;
   /** Playback speed of long shows such as breakouts and the ending. */
   showSpeed: number;
@@ -24,6 +28,8 @@ export function defaultSettings(prefersReducedMotion = false): Settings {
     master: 0.85,
     music: 0.6,
     effects: 0.9,
+    ui: 0.7,
+    haptics: true,
     quality: 'auto',
     showSpeed: 1,
     reduceMotion: prefersReducedMotion,
@@ -51,6 +57,8 @@ export function parseSettings(text: string | null, defaults: Settings): Settings
     master: unit(raw.master, defaults.master),
     music: unit(raw.music, defaults.music),
     effects: unit(raw.effects, defaults.effects),
+    ui: unit(raw.ui, defaults.ui),
+    haptics: typeof raw.haptics === 'boolean' ? raw.haptics : defaults.haptics,
     quality: qualities.includes(raw.quality as QualityChoice) ? (raw.quality as QualityChoice) : defaults.quality,
     showSpeed: SHOW_SPEEDS.includes(raw.showSpeed as number) ? (raw.showSpeed as number) : defaults.showSpeed,
     reduceMotion: typeof raw.reduceMotion === 'boolean' ? raw.reduceMotion : defaults.reduceMotion,

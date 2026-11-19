@@ -13,7 +13,9 @@ import { World, type BreakBeat } from './render/world.ts';
 import { showIntensity } from './sim/economy.ts';
 import { Simulation } from './sim/simulation.ts';
 import { FixedStepper } from './sim/stepper.ts';
+import { feedback } from './ui/feedback.ts';
 import { Hud } from './ui/hud.ts';
+import { setMotion } from './ui/motion.ts';
 import { Menus } from './ui/menu.ts';
 
 export interface GameOptions {
@@ -128,6 +130,7 @@ export class Game {
       },
     });
     this.world.backgroundBuilds = !options.capture;
+    feedback.connect({ sound: (name, rate) => this.audio.ui(name, rate) });
     this.menus = new Menus(options.uiRoot, {
       settings: this.settings,
       settingsChanged: () => {
@@ -178,6 +181,7 @@ export class Game {
 
   private onBreakBeat(beat: BreakBeat, stage: number): void {
     const audio = this.audio;
+    if (beat === 'blast') feedback.heavy();
     if (beat === 'strain') {
       audio.effect('break-strain', 'large');
       this.hud.setSkipVisible(true);
@@ -217,6 +221,8 @@ export class Game {
   private wireSounds(): void {
     const { bus, audio } = this;
     bus.on('producer_purchased', ({ producer, owned, quantity, milestone }) => {
+      if (milestone) feedback.milestone();
+      else feedback.bought();
       audio.effect('buy', 'small', milestone ? 1.25 : 1);
       audio.effect('shovel');
       if (milestone) audio.effect('milestone', 'medium');
@@ -235,6 +241,8 @@ export class Game {
     bus.on('hopper_caught', () => audio.effect('catch', 'medium'));
     bus.on('cannon_fired', ({ result }) => {
       audio.setCharge(0, false);
+      if (result === 'perfect') feedback.milestone();
+      else feedback.heavy();
       if (result === 'overpressure') {
         audio.effect('cannon-oops', 'medium');
         return;
@@ -287,6 +295,9 @@ export class Game {
     this.audio.levels.master = s.master;
     this.audio.levels.music = s.music;
     this.audio.levels.effects = s.effects;
+    this.audio.levels.ui = s.ui;
+    feedback.setHaptics(s.haptics);
+    setMotion(document.documentElement, s.reduceMotion);
     this.audio.applyLevels();
     this.impact.prefs.screenShake = s.screenShake;
     this.impact.prefs.reduceMotion = s.reduceMotion;

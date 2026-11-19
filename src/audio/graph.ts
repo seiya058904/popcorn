@@ -5,6 +5,8 @@ export interface AudioLevels {
   master: number;
   music: number;
   effects: number;
+  /** Buttons, switches and other interface sounds. */
+  ui: number;
 }
 
 interface BedVoice {
@@ -47,6 +49,8 @@ export class MixGraph {
   readonly context: BaseAudioContext;
   readonly sfx: GainNode;
   readonly music: GainNode;
+  /** Interface sounds: dry and close, outside the room and the heap's ducking. */
+  readonly ui: GainNode;
   private readonly master: GainNode;
   private readonly bedBus: GainNode;
   private readonly bedDuck: GainNode;
@@ -68,6 +72,7 @@ export class MixGraph {
     this.master = context.createGain();
     this.sfx = context.createGain();
     this.music = context.createGain();
+    this.ui = context.createGain();
     this.bedBus = context.createGain();
     this.bedDuck = context.createGain();
     this.musicTrim = context.createGain();
@@ -77,6 +82,7 @@ export class MixGraph {
     this.roomSend = context.createGain();
 
     this.sfx.connect(this.master);
+    this.ui.connect(this.master);
     this.sfx.connect(this.roomSend);
     this.music.connect(this.musicBass).connect(this.musicTrim).connect(this.master);
     this.musicTrim.connect(this.roomSend);
@@ -94,6 +100,7 @@ export class MixGraph {
   applyLevels(levels: AudioLevels, musicDucked: boolean, time = this.context.currentTime): void {
     this.master.gain.setTargetAtTime(levels.master, time, 0.02);
     this.sfx.gain.setTargetAtTime(levels.effects, time, 0.02);
+    this.ui.gain.setTargetAtTime(levels.ui, time, 0.02);
     this.bedBus.gain.setTargetAtTime(levels.effects, time, 0.02);
     if (!musicDucked) this.music.gain.setTargetAtTime(levels.music, time, 0.02);
   }

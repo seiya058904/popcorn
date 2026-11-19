@@ -14,6 +14,8 @@ const MAX_BACKGROUND_VOICES = 7;
 /** Combo pitch climbs a major pentatonic, so fast clicking stays musical. */
 const COMBO_SCALE = [0, 2, 4, 7, 9, 12, 14, 16, 19, 21, 24];
 const MACHINE_VOLUME = 0.72;
+/** Seconds between two plays of the same interface sound. */
+const UI_MIN_GAP = 0.03;
 /** How far big moments push the heap aside. */
 const IMPACT_DUCK: Record<ImpactLevel, number> = { tap: 0, small: 0, medium: 0.18, large: 0.38, epic: 0.6 };
 
@@ -31,7 +33,9 @@ interface LoopVoice {
 
 /** Created lazily on the first gesture, as browsers require. */
 export class AudioEngine {
-  readonly levels: AudioLevels = { master: 0.85, music: 0.6, effects: 0.9 };
+  readonly levels: AudioLevels = { master: 0.85, music: 0.6, effects: 0.9, ui: 0.7 };
+  /** When each interface sound last played, so a burst of presses never stacks into noise. */
+  private readonly uiClock = new Map<string, number>();
   private context: AudioContext | null = null;
   private graph: MixGraph | null = null;
   private pops: AudioBuffer[] = [];
@@ -160,7 +164,7 @@ export class AudioEngine {
 
   // One-shots -----------------------------------------------------------------------------
 
-  private play(buffer: AudioBuffer, rate: number, volume: number, background = false): void {
+  private play(buffer: AudioBuffer, rate: number, volume: number, background = false, bus?: AudioNode): void {
     const { context, graph } = this;
     if (!context || !graph) return;
     const now = context.currentTime;
@@ -178,7 +182,7 @@ export class AudioEngine {
     source.playbackRate.value = rate;
     const gain = context.createGain();
     gain.gain.value = volume;
-    source.connect(gain).connect(graph.sfx);
+    source.connect(gain).connect(bus ?? graph.sfx);
     source.start(now);
     this.voices.push({ source, gain, ends: now + buffer.duration / rate, background });
   }
@@ -205,6 +209,17 @@ export class AudioEngine {
     if (!buffer) return;
     if (IMPACT_DUCK[level] > 0) this.graph!.duckBed(IMPACT_DUCK[level]);
     this.play(buffer, rate, IMPACTS[level].volume);
+  }
+
+  /** An interface sound: dry, close, a hair different in pitch each time. */
+  ui(name: string, rate = 1): void {
+    const { context, graph } = this;
+    const buffer = this.bank.get(name);
+    if (!context || !graph || !buffer) return;
+    const now = context.currentTime;
+    if (now - (this.uiClock.get(name) ?? -1) < UI_MIN_GAP) return;
+    this.uiClock.set(name, now);
+    this.play(buffer, rate * this.rng.range(0.97, 1.03), 1, false, graph.ui);
   }
 
   /** A machine at work: never twice at quite the same pitch, and never in the way. */

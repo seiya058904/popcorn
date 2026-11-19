@@ -23,12 +23,12 @@ test('the ending can be skipped, and a new pot starts over with its bonus', asyn
   await page.waitForTimeout(400);
   await page.evaluate((extra) => (window as unknown as QaWindow).__pop.earn(extra), LAST_THRESHOLD * 0.01);
   await expect(page.locator('.skip')).toBeVisible();
-  await page.locator('.skip').dispatchEvent('pointerdown');
+  await page.locator('.skip').click();
   const credits = page.locator('.dialog.is-credits');
   await expect(credits).toBeVisible();
   await expect(credits.locator('h2')).toHaveText('月亮是一粒玉米');
 
-  await Promise.all([page.waitForEvent('load'), credits.locator('[data-action="restart"]').dispatchEvent('pointerdown')]);
+  await Promise.all([page.waitForEvent('load'), credits.locator('[data-action="restart"]').click()]);
   await ready(page);
   const state = await qa(page, (api) => ({
     total: api.game.sim.state.totalEarned,

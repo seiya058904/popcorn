@@ -4,8 +4,11 @@ import { PRODUCERS } from '../content/producers.ts';
 import { STAGES } from '../content/stages.ts';
 import { UPGRADES, type UpgradeDef, type UpgradeGroup } from '../content/upgrades.ts';
 import type { Simulation } from '../sim/simulation.ts';
-import { deny, el, pressBounce, setClass, Text } from './dom.ts';
+import { el, setClass, Text } from './dom.ts';
 import { ICONS, UNIT_ICONS } from './icons.ts';
+import { flip, MOTION, motionPrefs, play } from './motion.ts';
+import { pressable } from './press.ts';
+import { Segmented } from './segmented.ts';
 
 type Bulk = 1 | 10 | 100 | 'max';
 const BULK_OPTIONS: ReadonlyArray<readonly [Bulk, string]> = [
@@ -32,6 +35,8 @@ interface TicketParts {
   price: Text;
   progress: HTMLElement;
   lastProgress: number;
+  /** Whether it was affordable at the last refresh, to catch the moment it becomes so. */
+  ready: boolean | null;
 }
 
 function ticket(parent: HTMLElement, icon: string, small = false): TicketParts {
@@ -54,6 +59,7 @@ function ticket(parent: HTMLElement, icon: string, small = false): TicketParts {
     price: new Text(price),
     progress,
     lastProgress: -1,
+    ready: null,
   };
 }
 
@@ -62,6 +68,23 @@ function setProgress(parts: TicketParts, value: number): void {
   if (rounded === parts.lastProgress) return;
   parts.lastProgress = rounded;
   parts.progress.style.transform = `scaleX(${rounded})`;
+}
+
+/** Ready or not; the moment a ticket becomes affordable, a gleam crosses it once. */
+function setReady(parts: TicketParts, ready: boolean): void {
+  if (parts.ready === false && ready) {
+    parts.root.classList.remove('is-shine');
+    void parts.root.offsetWidth;
+    parts.root.classList.add('is-shine');
+  }
+  parts.ready = ready;
+  setClass(parts.root, 'is-ready', ready);
+  setClass(parts.root, 'is-dim', !ready);
+}
+
+/** A number that changed gives a little hop, so the eye catches it. */
+function hop(node: HTMLElement, from = 1.28): void {
+  play(node, [{ transform: `scale(${from})` }, { transform: 'scale(1)' }], MOTION.release);
 }
 
 export class Shop {
@@ -74,66 +97,59 @@ export class Shop {
   private readonly albumCells: HTMLElement[] = [];
   private readonly upgrades = new Map<string, TicketParts>();
   private readonly noUpgrades: HTMLElement;
-  private readonly bulkButtons: HTMLButtonElement[] = [];
-  private readonly tabRow: HTMLElement;
-  private readonly bulkRow: HTMLElement;
+  private readonly tabControl: Segmented;
+  private readonly bulkControl: Segmented;
+  private readonly shownUpgrades = new Set<string>();
 
   constructor(parent: HTMLElement, sim: Simulation) {
     this.sim = sim;
     this.root = el('div', 'shop', parent);
     const head = el('div', 'shop-head', this.root);
-    // A segmented control: the thumb slides under whichever tab is chosen.
-    this.tabRow = el('div', 'seg shop-tabs', head);
-    el('i', 'seg-thumb', this.tabRow);
     const body = el('div', 'shop-body', this.root);
-    for (const label of ['设备', '口味', '升级']) {
-      const button = el('button', 'seg-item shop-tab', this.tabRow);
-      el('span', '', button, label);
+    const labels = ['设备', '口味', '升级'];
+    const sections = labels.map(() => el('section', '', body));
+    this.tabControl = new Segmented(
+      head,
+      'shop-tabs',
+      labels,
+      (index, previous) => this.showSection(index, previous),
+      (button, label) => {
+        button.classList.add('shop-tab');
+        el('span', '', button, label);
+      },
+    );
+    this.tabControl.items.forEach((button, index) => {
       const badge = el('span', 'badge num', button);
-      const section = el('section', '', body);
-      const index = this.tabs.length;
-      button.addEventListener('pointerdown', () => this.selectTab(index));
-      this.tabs.push({ button, section, badge: new Text(badge) });
-    }
-    this.tabRow.style.setProperty('--count', String(this.tabs.length));
-    this.selectTab(0);
+      this.tabs.push({ button, section: sections[index]!, badge: new Text(badge) });
+    });
+    setClass(sections[0]!, 'is-active', true);
 
-    const unitSection = this.tabs[0]!.section;
+    const unitSection = sections[0]!;
     const bulkRow = el('div', 'bulk', unitSection);
     el('span', 'bulk-label', bulkRow, '一次买');
-    this.bulkRow = el('div', 'seg is-small', bulkRow);
-    this.bulkRow.style.setProperty('--count', String(BULK_OPTIONS.length));
-    el('i', 'seg-thumb', this.bulkRow);
-    for (const [value, label] of BULK_OPTIONS) {
-      const button = el('button', 'seg-item num', this.bulkRow, label);
-      button.addEventListener('pointerdown', () => {
-        this.bulk = value;
-        pressBounce(button);
-        this.syncBulk();
-      });
-      this.bulkButtons.push(button);
-    }
-    this.syncBulk();
+    this.bulkControl = new Segmented(bulkRow, 'is-small', BULK_OPTIONS.map(([, label]) => label), (index) => {
+      this.bulk = BULK_OPTIONS[index]![0];
+      this.update();
+    });
+    for (const item of this.bulkControl.items) item.classList.add('num');
 
     for (const producer of PRODUCERS) {
       const parts = ticket(unitSection, UNIT_ICONS[producer.id]!);
       parts.root.dataset.unit = String(producer.id);
       parts.root.classList.add('is-unit');
-      parts.root.addEventListener('pointerdown', () => this.buyUnit(producer.id, parts.root));
+      // Holding a machine's ticket keeps buying it, faster and faster.
+      pressable(parts.root, { scale: 0.98, repeat: true, silentRelease: true, action: () => this.buyUnit(producer.id) });
       this.units.push(parts);
     }
 
-    const flavorSection = this.tabs[1]!.section;
+    const flavorSection = sections[1]!;
     this.flavor = ticket(flavorSection, ICONS.flavor);
     this.flavor.root.dataset.flavor = 'next';
-    this.flavor.root.addEventListener('pointerdown', () => {
-      if (this.sim.buyFlavor()) pressBounce(this.flavor.root);
-      else deny(this.flavor.root);
-    });
+    pressable(this.flavor.root, { scale: 0.98, silentRelease: true, action: () => this.sim.buyFlavor() });
     const album = el('div', 'album', flavorSection);
     for (const flavor of FLAVORS) this.albumCells.push(el('span', '', album, flavor.name));
 
-    const upgradeSection = this.tabs[2]!.section;
+    const upgradeSection = sections[2]!;
     this.noUpgrades = el('div', 'empty-note', upgradeSection, '继续爆，新的升级很快就来。');
     for (const upgrade of UPGRADES) this.addUpgrade(upgradeSection, upgrade);
   }
@@ -145,24 +161,23 @@ export class Shop {
     parts.name.set(upgrade.name);
     parts.blurb.set(upgrade.blurb);
     parts.price.set(formatAmount(upgrade.cost));
-    parts.root.addEventListener('pointerdown', () => {
-      if (this.sim.buyUpgrade(upgrade.id)) pressBounce(parts.root);
-      else deny(parts.root);
-    });
+    pressable(parts.root, { scale: 0.98, silentRelease: true, action: () => this.sim.buyUpgrade(upgrade.id) });
     this.upgrades.set(upgrade.id, parts);
   }
 
-  private selectTab(index: number): void {
-    this.tabRow.style.setProperty('--index', String(index));
-    this.tabs.forEach((tab, i) => {
-      setClass(tab.button, 'is-active', i === index);
-      setClass(tab.section, 'is-active', i === index);
-    });
-  }
-
-  private syncBulk(): void {
-    this.bulkRow.style.setProperty('--index', String(BULK_OPTIONS.findIndex(([value]) => value === this.bulk)));
-    this.bulkButtons.forEach((button, i) => setClass(button, 'is-active', BULK_OPTIONS[i]![0] === this.bulk));
+  /**
+   * The new page slides in from the side of the tab that was chosen, and the card, which is only
+   * as tall as its contents, eases to its new height instead of jumping.
+   */
+  private showSection(index: number, previous: number): void {
+    const before = this.root.getBoundingClientRect().height;
+    this.tabs.forEach((tab, i) => setClass(tab.section, 'is-active', i === index));
+    const after = this.root.getBoundingClientRect().height;
+    if (!motionPrefs.reduced && Math.abs(after - before) > 1) {
+      this.root.animate([{ height: `${before}px` }, { height: `${after}px` }], { duration: MOTION.slide.duration, easing: MOTION.slide.easing });
+    }
+    const shift = index > previous ? 1.6 : -1.6;
+    play(this.tabs[index]!.section, [{ opacity: 0, transform: `translateX(${shift}rem)` }, { opacity: 1, transform: 'none' }], MOTION.fade);
   }
 
   private quantityFor(producer: number): number {
@@ -170,10 +185,14 @@ export class Shop {
     return this.bulk;
   }
 
-  private buyUnit(producer: number, node: HTMLElement): void {
-    if (!this.sim.producerUnlocked(producer)) return;
-    if (this.sim.buyProducer(producer, this.quantityFor(producer))) pressBounce(node);
-    else deny(node);
+  private buyUnit(producer: number): boolean {
+    if (!this.sim.producerUnlocked(producer)) return false;
+    return this.sim.buyProducer(producer, this.quantityFor(producer));
+  }
+
+  private setBadge(index: number, count: number): void {
+    const badge = this.tabs[index]!.badge;
+    if (badge.set(count > 0 ? String(count) : '') && count > 0) hop(badge.element, 0.4);
   }
 
   update(): void {
@@ -195,6 +214,7 @@ export class Shop {
         parts.blurb.set(`突破「${STAGES[producer.unlockStage - 1]!.name}」后解锁`);
         parts.owned.set('');
         parts.price.set('');
+        parts.ready = null;
         setClass(parts.root, 'is-ready', false);
         setClass(parts.root, 'is-dim', true);
         setProgress(parts, 0);
@@ -209,14 +229,13 @@ export class Shop {
       const share = sim.derived.baseRate > 0 ? Math.round((sim.derived.unitRates[id]! / sim.derived.baseRate) * 100) : 0;
       // The joke greets a new machine; once it is working, the numbers matter more.
       parts.blurb.set(owned[id]! > 0 ? `每台 ${each}/秒 · 占产量 ${share}%` : `每台 ${each}/秒 · ${producer.blurb}`);
-      parts.owned.set(String(owned[id]));
+      if (parts.owned.set(String(owned[id])) && owned[id]! > 0) hop(parts.owned.element);
       parts.price.set(formatAmount(price));
-      setClass(parts.root, 'is-ready', ready);
-      setClass(parts.root, 'is-dim', !ready);
+      setReady(parts, ready);
       setClass(parts.root, 'is-next', id === 0 && ready && stats.purchases === 0);
       setProgress(parts, ready ? 0 : Math.min(1, popcorn / price));
     });
-    this.tabs[0]!.badge.set(readyUnits > 0 ? String(readyUnits) : '');
+    this.setBadge(0, readyUnits);
 
     const next = sim.nextFlavorPrice;
     const flavors = sim.state.flavors;
@@ -227,43 +246,56 @@ export class Shop {
       this.flavor.price.set('');
       setClass(this.flavor.root, 'is-ready', false);
       setProgress(this.flavor, 0);
+      this.setBadge(1, 0);
     } else {
       const def = FLAVORS[flavors]!;
       const ready = popcorn >= next;
       this.flavor.name.set(`${def.name}味`);
       this.flavor.blurb.set(`全部产量 ×${FLAVOR_MULTIPLIER}。${def.blurb}`);
-      this.flavor.owned.set(`${flavors}/12`);
+      if (this.flavor.owned.set(`${flavors}/12`) && flavors > 0) hop(this.flavor.owned.element);
       this.flavor.price.set(formatAmount(next));
-      setClass(this.flavor.root, 'is-ready', ready);
-      setClass(this.flavor.root, 'is-dim', !ready);
+      setReady(this.flavor, ready);
       setProgress(this.flavor, ready ? 0 : Math.min(1, popcorn / next));
-      this.tabs[1]!.badge.set(ready ? '1' : '');
+      this.setBadge(1, ready ? 1 : 0);
     }
-    if (next === null) this.tabs[1]!.badge.set('');
     this.albumCells.forEach((cell, index) => {
       const seen = index < Math.max(flavors, sim.state.legacy.flavorAlbum);
       if (seen && !cell.classList.contains('is-owned')) {
         cell.classList.add('is-owned');
         cell.style.background = FLAVORS[index]!.bottle;
         cell.style.color = index === 5 || index === 9 || index === 11 ? '#fff6e3' : '';
+        hop(cell, 0.6);
       }
     });
 
-    let visibleUpgrades = 0;
+    // Upgrades come and go as they unlock and sell; the list glides into its new shape.
+    const available = UPGRADES.filter((upgrade) => sim.upgradeAvailable(upgrade));
+    const changed = available.length !== this.shownUpgrades.size || available.some((upgrade) => !this.shownUpgrades.has(upgrade.id));
+    if (changed) {
+      const arriving = available.filter((upgrade) => !this.shownUpgrades.has(upgrade.id));
+      const visibleBefore = [...this.shownUpgrades].map((id) => this.upgrades.get(id)!.root);
+      flip(visibleBefore, () => {
+        for (const upgrade of UPGRADES) this.upgrades.get(upgrade.id)!.root.style.display = 'none';
+        for (const upgrade of available) this.upgrades.get(upgrade.id)!.root.style.display = '';
+      });
+      this.shownUpgrades.clear();
+      for (const upgrade of available) this.shownUpgrades.add(upgrade.id);
+      // Only animate arrivals after the first refresh, not the whole list on load.
+      if (visibleBefore.length > 0 || arriving.length < available.length) {
+        for (const upgrade of arriving) {
+          play(this.upgrades.get(upgrade.id)!.root, [{ opacity: 0, transform: 'translateY(0.8rem) scale(0.98)' }, { opacity: 1, transform: 'none' }], MOTION.appear);
+        }
+      }
+    }
     let readyUpgrades = 0;
-    for (const upgrade of UPGRADES) {
+    for (const upgrade of available) {
       const parts = this.upgrades.get(upgrade.id)!;
-      const available = sim.upgradeAvailable(upgrade);
-      parts.root.style.display = available ? '' : 'none';
-      if (!available) continue;
-      visibleUpgrades += 1;
       const ready = popcorn >= upgrade.cost;
       if (ready) readyUpgrades += 1;
-      setClass(parts.root, 'is-ready', ready);
-      setClass(parts.root, 'is-dim', !ready);
+      setReady(parts, ready);
       setProgress(parts, ready ? 0 : Math.min(1, popcorn / upgrade.cost));
     }
-    this.noUpgrades.style.display = visibleUpgrades === 0 ? '' : 'none';
-    this.tabs[2]!.badge.set(readyUpgrades > 0 ? String(readyUpgrades) : '');
+    this.noUpgrades.style.display = available.length === 0 ? '' : 'none';
+    this.setBadge(2, readyUpgrades);
   }
 }

@@ -407,6 +407,56 @@ export const SOUND_RECIPES: Record<string, () => Float32Array> = {
     [523, 784, 1047].forEach((frequency, i) => mixIn(out, tone(0.9, bell(frequency, 0.26, 0.5)), 0.3 + i * 0.07));
     return fadeEdges(normalizePeak(out, 0.48), 0, 0.1);
   },
+  // Interface sounds: one family of soft wooden clicks and small bells, short and quiet, so
+  // touching the interface feels like handling a well-made toy. Pitch varies a little per play.
+  'ui-press': () => fadeEdges(normalizePeak(knock(1150, 0.011, 81, 0.06), 0.2), 0, 0.01),
+  'ui-release': () =>
+    fadeEdges(normalizePeak(tone(0.07, (t) => Math.sin(TAU * (620 * t + 2600 * t * t)) * Math.min(1, t / 0.002) * Math.exp(-t / 0.018)), 0.15), 0, 0.01),
+  'ui-tab': () => {
+    const out = seconds(0.08);
+    mixIn(out, knock(1700, 0.009, 82, 0.06), 0);
+    mixIn(out, burstNoise(0.02, 83, new Biquad('band', 4200, 1.4), (t) => Math.exp(-t / 0.004)), 0, 0.5);
+    return fadeEdges(normalizePeak(out, 0.21), 0, 0.01);
+  },
+  'ui-switch-on': () => {
+    const out = seconds(0.16);
+    mixIn(out, knock(1500, 0.01, 84, 0.05), 0);
+    mixIn(out, tone(0.1, bell(1319, 0.035, 0.5)), 0.02);
+    mixIn(out, tone(0.1, bell(1760, 0.035, 0.45)), 0.055);
+    return fadeEdges(normalizePeak(out, 0.22), 0, 0.02);
+  },
+  'ui-switch-off': () => {
+    const out = seconds(0.16);
+    mixIn(out, knock(1300, 0.01, 85, 0.05), 0);
+    mixIn(out, tone(0.1, bell(1760, 0.035, 0.45)), 0.02);
+    mixIn(out, tone(0.1, bell(1175, 0.035, 0.5)), 0.055);
+    return fadeEdges(normalizePeak(out, 0.2), 0, 0.02);
+  },
+  'ui-tick': () => fadeEdges(normalizePeak(burstNoise(0.018, 86, new Biquad('band', 3200, 2.2), (t) => Math.exp(-t / 0.0035)), 0.12), 0, 0.004),
+  'ui-open': () => {
+    const out = seconds(0.32);
+    // Air rising through three bands reads as a sweep without a moving filter.
+    [700, 1200, 2000].forEach((hz, i) => mixIn(out, burstNoise(0.16, 87 + i, new Biquad('band', hz, 1.2), (t) => Math.sin(Math.min(1, t / 0.16) * Math.PI)), i * 0.045, 0.32));
+    mixIn(out, tone(0.18, bell(1568, 0.06, 0.4)), 0.13);
+    return fadeEdges(normalizePeak(out, 0.17), 0.005, 0.04);
+  },
+  'ui-close': () => {
+    const out = seconds(0.2);
+    [1800, 1100, 650].forEach((hz, i) => mixIn(out, burstNoise(0.1, 90 + i, new Biquad('band', hz, 1.2), (t) => Math.sin(Math.min(1, t / 0.1) * Math.PI)), i * 0.03, 0.3));
+    return fadeEdges(normalizePeak(out, 0.13), 0.004, 0.03);
+  },
+  'ui-success': () => {
+    const out = seconds(0.36);
+    mixIn(out, tone(0.25, bell(1047, 0.07, 0.55)), 0);
+    mixIn(out, tone(0.28, bell(1568, 0.08, 0.5)), 0.06);
+    return fadeEdges(normalizePeak(out, 0.24), 0, 0.04);
+  },
+  'ui-deny': () => {
+    const out = seconds(0.24);
+    mixIn(out, knock(190, 0.04, 93, 0.12), 0);
+    mixIn(out, knock(160, 0.045, 94, 0.12), 0.085);
+    return fadeEdges(normalizePeak(out, 0.3), 0, 0.03);
+  },
   catch: () => {
     const out = seconds(0.9);
     [1319, 1760, 2349, 2637, 3136].forEach((frequency, i) => mixIn(out, tone(0.5, bell(frequency, 0.13, 0.5)), i * 0.045));

@@ -6,7 +6,7 @@ type QaWindow = Window & { __pop: QaApi };
 const ready = (page: Page): Promise<unknown> => page.waitForFunction(() => Boolean((window as unknown as Partial<QaWindow>).__pop));
 const qa = <T>(page: Page, body: (api: QaApi) => T): Promise<T> =>
   page.evaluate(`(${body.toString()})(window.__pop)`) as Promise<T>;
-const press = (page: Page, selector: string): Promise<void> => page.locator(selector).first().dispatchEvent('pointerdown');
+const press = (page: Page, selector: string): Promise<void> => page.locator(selector).first().click({ force: true });
 
 test('the title screen holds the economy until the game starts', async ({ page }) => {
   await page.goto('/');
@@ -36,12 +36,12 @@ test('pause stops production and settings persist across a reload', async ({ pag
   await page.waitForTimeout(500);
   expect(await qa(page, (api) => api.game.sim.state.totalEarned)).toBe(before);
 
-  await page.locator('.menu-list .menu-item', { hasText: '设置' }).dispatchEvent('pointerdown');
+  await page.locator('.menu-list .menu-item', { hasText: '设置' }).click();
   await expect(page.locator('.menu-row', { hasText: '屏幕震动' }).locator('.switch')).toHaveAttribute('aria-checked', 'true');
-  await page.locator('.menu-row', { hasText: '屏幕震动' }).locator('.switch').dispatchEvent('pointerdown');
+  await page.locator('.menu-row', { hasText: '屏幕震动' }).locator('.switch').click();
   await expect(page.locator('.menu-row', { hasText: '屏幕震动' }).locator('.switch')).toHaveAttribute('aria-checked', 'false');
-  await page.locator('.menu-row', { hasText: '演出速度' }).locator('.menu-chip', { hasText: '2×' }).dispatchEvent('pointerdown');
-  await page.locator('.menu-row', { hasText: '画质' }).locator('.menu-chip', { hasText: '低' }).dispatchEvent('pointerdown');
+  await page.locator('.menu-row', { hasText: '演出速度' }).locator('.menu-chip', { hasText: '2×' }).click();
+  await page.locator('.menu-row', { hasText: '画质' }).locator('.menu-chip', { hasText: '低' }).click();
   expect(await qa(page, (api) => api.game.stage.quality.tier)).toBe('low');
   await page.waitForTimeout(100);
   await page.reload();
@@ -64,7 +64,7 @@ test('a save exported here can be imported into a fresh browser profile', async 
   await fresh.goto('/?play=1');
   await ready(fresh);
   await fresh.keyboard.press('Escape');
-  await fresh.locator('.menu-list .menu-item', { hasText: '存档管理' }).dispatchEvent('pointerdown');
+  await fresh.locator('.menu-list .menu-item', { hasText: '存档管理' }).click();
   await fresh.locator('.menu-text').fill('garbage');
   await press(fresh, '[data-action="import"]');
   await expect(fresh.locator('.menu-status')).toContainText('不是有效的存档');
@@ -81,7 +81,7 @@ test('a save travels from Chromium to Firefox and back', async ({ page, browser,
     await target.goto(`${baseURL}/?play=1`);
     await ready(target);
     await target.keyboard.press('Escape');
-    await target.locator('.menu-list .menu-item', { hasText: '存档管理' }).dispatchEvent('pointerdown');
+    await target.locator('.menu-list .menu-item', { hasText: '存档管理' }).click();
     await target.locator('.menu-text').fill(text);
     await Promise.all([target.waitForNavigation(), press(target, '[data-action="import"]')]);
     await ready(target);
@@ -125,10 +125,16 @@ test('wiping needs confirmation and really clears the save', async ({ page }) =>
     return api.game.saves.save();
   });
   await page.keyboard.press('Escape');
-  await page.locator('.menu-list .menu-item', { hasText: '存档管理' }).dispatchEvent('pointerdown');
+  await page.locator('.menu-list .menu-item', { hasText: '存档管理' }).click();
+  // A tap does nothing: clearing has to be held.
   await press(page, '[data-action="wipe"]');
   expect(await qa(page, (api) => api.game.sim.state.owned[0])).toBe(3);
-  await Promise.all([page.waitForNavigation(), press(page, '[data-action="wipe"]')]);
+  await page.locator('[data-action="wipe"]').hover();
+  await Promise.all([page.waitForNavigation(), (async () => {
+    await page.mouse.down();
+    await page.waitForTimeout(1500);
+    await page.mouse.up();
+  })()]);
   await ready(page);
   expect(await qa(page, (api) => api.game.sim.state.owned[0])).toBe(0);
 });

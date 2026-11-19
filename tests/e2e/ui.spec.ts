@@ -15,7 +15,7 @@ test('a new player can make the first purchase without any instructions', async 
   const unit = page.locator('[data-unit="0"]');
   await expect(unit).toHaveClass(/is-ready/);
   await expect(unit).toHaveClass(/is-next/);
-  await unit.dispatchEvent('pointerdown');
+  await unit.click();
   expect(await qa(page, (api) => api.game.sim.state.owned[0])).toBe(1);
   await expect(unit).not.toHaveClass(/is-next/);
 });

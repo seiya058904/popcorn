@@ -103,14 +103,19 @@
   font-weight: 500;
 }
 
-/* Callouts under the counter: one pill each, stepping down when several are up. */
+/*
+ * Callouts under the counter: one pill each, stepping down when several are up. Centring uses
+ * `translate`, so their bob and beat animations (on `transform`) add to it instead of replacing it.
+ * Hidden, a pill sits a little higher and smaller; it springs into place and leaves faster.
+ */
 .frenzy,
 .hopper-call,
 .hint {
   position: absolute;
   top: calc(var(--edge) + 12rem + var(--s-5));
   left: var(--hud-center);
-  transform: translateX(-50%);
+  translate: -50% -0.8rem;
+  scale: 0.94;
   display: flex;
   align-items: center;
   height: 4.6rem;
@@ -119,8 +124,24 @@
   font-size: 2.1rem;
   white-space: nowrap;
   opacity: 0;
-  transition: opacity 0.2s;
+  transition:
+    opacity var(--dur-exit, 170ms) var(--ease-exit, ease-in),
+    translate var(--dur-exit, 170ms) var(--ease-exit, ease-in),
+    scale var(--dur-exit, 170ms) var(--ease-exit, ease-in),
+    top var(--dur-slide, 350ms) var(--ease-slide, ease-out);
   pointer-events: none;
+}
+
+.frenzy.is-on,
+.hopper-call.is-on,
+.hint:not(.is-gone) {
+  translate: -50% 0;
+  scale: 1;
+  transition:
+    opacity var(--dur-fade, 190ms) var(--ease-fade, ease-out),
+    translate var(--dur-appear, 400ms) var(--ease-appear, ease-out),
+    scale var(--dur-appear, 400ms) var(--ease-appear, ease-out),
+    top var(--dur-slide, 350ms) var(--ease-slide, ease-out);
 }
 
 .frenzy {
@@ -135,7 +156,7 @@
 }
 
 @keyframes frenzy-beat {
-  to { transform: translateX(-50%) scale(1.06); }
+  to { transform: scale(1.06); }
 }
 
 .hopper-call {
@@ -163,7 +184,19 @@
 }
 
 @keyframes hint-bob {
-  to { transform: translate(-50%, 0.5rem); }
+  to { transform: translateY(0.5rem); }
+}
+
+/* Reduced motion: things still appear and change, but nothing bobs, beats or slides. */
+:root[data-motion='reduced'] :is(.frenzy, .hopper-call, .hint),
+:root[data-motion='reduced'] .ticket.is-next::after {
+  animation: none;
+}
+
+:root[data-motion='reduced'] :is(.frenzy, .hopper-call, .hint) {
+  translate: -50% 0;
+  scale: 1;
+  transition: opacity var(--dur-fade, 190ms) var(--ease-fade, ease-out);
 }
 
 .frenzy.is-on ~ .hopper-call,
@@ -1176,6 +1209,107 @@
   font-size: 1.7rem;
 }
 
+/* Interaction states (docs/INTERACTION.md, 2.3) -------------------------------- */
+
+/* Held: a touch darker; the press script handles the sink and the spring back. */
+.btn.is-pressed,
+.corner button.is-pressed,
+.menu-button.is-pressed,
+.skip.is-pressed {
+  filter: brightness(0.92);
+}
+
+.ticket.is-pressed .ticket-paper {
+  filter: brightness(0.96);
+}
+
+.seg-item.is-pressed {
+  opacity: 0.62;
+}
+
+@media (hover: hover) {
+  .btn:hover:not(.is-pressed),
+  .corner button:hover:not(.is-pressed),
+  .menu-button:hover:not(.is-pressed),
+  .skip:hover:not(.is-pressed) {
+    filter: brightness(1.06);
+  }
+
+  .seg-item:not(.is-active):hover {
+    color: var(--ink);
+  }
+}
+
+.btn,
+.corner button,
+.menu-button,
+.skip,
+.seg-item {
+  transition: filter 0.12s, opacity 0.12s, color 0.15s;
+}
+
+/*
+ * Every target is at least 44 px tall at 1080p. Controls drawn smaller than that reach a little
+ * further than they look, upward and downward only, so neighbours never overlap.
+ */
+.seg.is-small .seg-item::after,
+.switch::after {
+  content: '';
+  position: absolute;
+  inset: -0.5rem 0;
+}
+
+/* The moment something becomes affordable, a gleam crosses its ticket, once. */
+.ticket-paper::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg, transparent 35%, rgb(255 255 255 / 75%) 50%, transparent 65%) -150% 0 / 60% 100% no-repeat;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.ticket.is-shine .ticket-paper::after {
+  animation: gleam 0.9s cubic-bezier(0.3, 0, 0.2, 1) 1;
+}
+
+@keyframes gleam {
+  0% { opacity: 1; background-position: -150% 0; }
+  100% { opacity: 1; background-position: 250% 0; }
+}
+
+/* Holding a ticket to keep buying: it glows while the purchases roll. */
+.ticket.is-repeating {
+  filter: drop-shadow(0 0 0.8rem rgb(255 190 60 / 70%)) drop-shadow(0 0.4rem 0.8rem rgb(90 50 30 / 12%));
+}
+
+/* Rolling digits of the main counter. */
+.odometer {
+  display: inline-flex;
+  justify-content: center;
+}
+
+.odo-digit {
+  display: inline-block;
+  height: 1em;
+  overflow: hidden;
+  /* The glow of the counter text spills a little past each column. */
+  padding: 0 0.01em;
+}
+
+.odo-strip {
+  display: block;
+  white-space: pre;
+  line-height: 1;
+  transition: transform 0.24s cubic-bezier(0.2, 0.75, 0.2, 1);
+  will-change: transform;
+}
+
+.odo-char {
+  display: inline-block;
+  line-height: 1;
+}
+
 /*
  * Continuous-curvature corners where the browser has them, as on iOS. A squircle reads tighter
  * than a circle of the same radius, so the radius grows to keep the same feel.
@@ -1237,7 +1371,11 @@
 
 /* Whole-screen states ------------------------------------------------------- */
 
-#ui > * {
+/*
+ * The slow fade for whole-screen states is only a default: `:where` gives it no weight, so any
+ * element with transitions of its own (buttons, callouts) keeps them.
+ */
+:where(#ui) > * {
   transition: opacity 0.9s ease;
 }
 

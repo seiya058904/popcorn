@@ -50,7 +50,7 @@ test('a player can start, pop, buy, and come back to the same game', async ({ pa
 
   await page.keyboard.press('Escape');
   await expect(page.locator('.dialog.menu h2')).toHaveText('暂停一下');
-  await press(page, page.locator('.menu-list .btn', { hasText: '继续' }));
+  await press(page, page.locator('.menu-resume'));
   await page.waitForTimeout(300);
 
   await page.reload();

@@ -12,6 +12,10 @@ import { el, setClass, Text } from './dom.ts';
 import './game.css';
 import { CannonGauge, type GaugeHooks } from './gauge.ts';
 import { ICONS, UNIT_ICONS } from './icons.ts';
+import { flip, MOTION, play } from './motion.ts';
+import { Odometer } from './odometer.ts';
+import { pressable } from './press.ts';
+import { closeSheet, openSheet } from './sheet.ts';
 import { Shop } from './shop.ts';
 
 const FLOAT_POOL = 24;
@@ -32,7 +36,7 @@ export class Hud {
   private readonly sim: Simulation;
   private readonly root: HTMLElement;
   private readonly countNode: HTMLElement;
-  private readonly count: Text;
+  private readonly count: Odometer;
   private readonly rate: Text;
   private readonly frenzy: HTMLElement;
   private readonly hopperCall: HTMLElement;
@@ -67,7 +71,7 @@ export class Hud {
     const marquee = el('div', 'marquee', root);
     this.countNode = el('span', 'marquee-count num', marquee);
     this.countNode.dataset.counter = 'popcorn';
-    this.count = new Text(this.countNode);
+    this.count = new Odometer(this.countNode);
     const rateRow = el('div', 'marquee-rate', marquee);
     el('span', '', rateRow, '爆米花 · 每秒');
     this.rate = new Text(el('span', 'num', rateRow));
@@ -95,7 +99,7 @@ export class Hud {
     const trophy = el('button', '', corner);
     trophy.innerHTML = ICONS.trophy;
     trophy.setAttribute('aria-label', '成就');
-    trophy.addEventListener('pointerdown', () => this.showAchievements());
+    pressable(trophy, { scale: 0.9, action: () => this.showAchievements() });
 
     this.news = el('div', 'news', root);
     const screen = el('div', 'news-screen', this.news);
@@ -105,15 +109,19 @@ export class Hud {
     el('i', 'news-knob is-low', this.news);
     this.slate = el('div', 'slate', root);
     this.skip = el('button', 'skip', root, '跳过 ▶');
-    this.skip.addEventListener('pointerdown', (event) => {
-      event.stopPropagation();
-      this.onSkip?.();
-    });
+    this.skip.addEventListener('pointerdown', (event) => event.stopPropagation());
+    pressable(this.skip, { action: () => this.onSkip?.() });
 
     this.veil = el('div', 'dialog-veil', root);
     this.dialog = el('div', 'dialog', this.veil);
     this.veil.addEventListener('pointerdown', (event) => {
       if (event.target === this.veil) this.closeDialog();
+    });
+    this.veil.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') {
+        event.stopPropagation();
+        this.closeDialog();
+      }
     });
 
     bus.on('achievement_unlocked', ({ id }) => {
@@ -168,23 +176,22 @@ export class Hud {
   }
 
   toast(icon: string, title: string, body: string): void {
-    while (this.toasts.childElementCount >= MAX_TOASTS) this.toasts.firstElementChild!.remove();
+    // The oldest gives way at once when the stack is full; the rest glide up into the gap.
+    const current = [...this.toasts.children] as HTMLElement[];
+    if (current.length >= MAX_TOASTS) flip(current, () => current.slice(0, current.length - MAX_TOASTS + 1).forEach((old) => old.remove()));
     const toast = el('div', 'toast', this.toasts);
     el('span', 'toast-icon', toast).innerHTML = icon;
     const text = el('div', '', toast);
     el('b', '', text, title);
     el('small', '', text, body);
-    toast.animate(
-      [
-        { transform: 'translateX(-40rem)' },
-        { transform: 'translateX(1rem)', offset: 0.75 },
-        { transform: 'translateX(0)' },
-      ],
-      { duration: 340, easing: 'cubic-bezier(.2,.8,.3,1)' },
-    );
+    play(toast, [{ opacity: 0, transform: 'translateX(-110%)' }, { opacity: 1, transform: 'none' }], MOTION.appear);
     window.setTimeout(() => {
-      const out = toast.animate([{ opacity: 1 }, { opacity: 0, transform: 'translateX(-4rem)' }], { duration: 220 });
-      out.onfinish = () => toast.remove();
+      if (!toast.isConnected) return;
+      const out = toast.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateX(-3rem)' }], { duration: MOTION.exit.duration, easing: MOTION.exit.easing, fill: 'forwards' });
+      out.onfinish = () => {
+        const rest = ([...this.toasts.children] as HTMLElement[]).filter((node) => node !== toast);
+        flip(rest, () => toast.remove());
+      };
     }, TOAST_MS);
   }
 
@@ -223,12 +230,19 @@ export class Hud {
   private openDialog(narrow: boolean): HTMLElement {
     this.dialog.className = `dialog${narrow ? ' is-narrow' : ''}`;
     this.dialog.replaceChildren();
-    this.veil.classList.add('is-open');
+    openSheet(this.veil, this.dialog);
     return this.dialog;
   }
 
   closeDialog(): void {
-    this.veil.classList.remove('is-open');
+    closeSheet(this.veil, this.dialog);
+  }
+
+  /** A dialog button: pressed like every other, it acts on release. */
+  private button(parent: HTMLElement, className: string, label: string, action: () => void): HTMLButtonElement {
+    const button = el('button', className, parent, label);
+    pressable(button, { action });
+    return button;
   }
 
   showOffline(seconds: number, gained: number): void {
@@ -237,7 +251,7 @@ export class Hud {
     el('p', '', dialog, `你离开的 ${formatDuration(seconds)}里，锅一直没停。`);
     el('p', 'big num', dialog, `+${formatAmount(gained)}`);
     const actions = el('div', 'dialog-actions', dialog);
-    el('button', 'btn', actions, '收下').addEventListener('pointerdown', () => this.closeDialog());
+    this.button(actions, 'btn', '收下', () => this.closeDialog());
   }
 
   showCredits(onRestart: () => void): void {
@@ -256,10 +270,8 @@ export class Hud {
     for (const text of [`用时 ${minutes} 分钟`, `点击 ${formatAmount(s.stats.clicks)} 次`, `累计爆出 ${formatAmount(s.totalEarned)}`]) el('span', '', stats, text);
     el('p', 'credits-note', dialog, '再来一锅：从头开始，永久产量 +25%，图鉴和成就保留，并解锁一口新的锅。');
     const actions = el('div', 'dialog-actions', dialog);
-    const restart = el('button', 'btn', actions, '再来一锅');
-    restart.dataset.action = 'restart';
-    restart.addEventListener('pointerdown', () => onRestart());
-    el('button', 'btn is-glass', actions, '再看一会儿').addEventListener('pointerdown', () => this.closeDialog());
+    this.button(actions, 'btn', '再来一锅', () => onRestart()).dataset.action = 'restart';
+    this.button(actions, 'btn is-glass', '再看一会儿', () => this.closeDialog());
   }
 
   showNotice(title: string, body: string): void {
@@ -267,7 +279,7 @@ export class Hud {
     el('h2', '', dialog, title);
     el('p', '', dialog, body);
     const actions = el('div', 'dialog-actions', dialog);
-    el('button', 'btn', actions, '知道了').addEventListener('pointerdown', () => this.closeDialog());
+    this.button(actions, 'btn', '知道了', () => this.closeDialog());
   }
 
   showAchievements(): void {
@@ -287,7 +299,7 @@ export class Hud {
       el('small', '', text, got ? def.blurb : '还没发生。');
     }
     const actions = el('div', 'dialog-actions', dialog);
-    el('button', 'btn is-quiet', actions, '关闭').addEventListener('pointerdown', () => this.closeDialog());
+    this.button(actions, 'btn is-quiet', '关闭', () => this.closeDialog());
   }
 
   update(deltaSeconds: number, pendingGain: number): void {

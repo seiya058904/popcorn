@@ -20,10 +20,16 @@ export class Text {
     this.node = node;
   }
 
-  set(value: string): void {
-    if (value === this.value) return;
+  /** Returns true when the text actually changed. */
+  set(value: string): boolean {
+    if (value === this.value) return false;
     this.value = value;
     this.node.textContent = value;
+    return true;
+  }
+
+  get element(): HTMLElement {
+    return this.node;
   }
 }
 
@@ -31,27 +37,3 @@ export function setClass(node: HTMLElement, name: string, on: boolean): void {
   if (node.classList.contains(name) !== on) node.classList.toggle(name, on);
 }
 
-/** The press-and-rebound every interactive element shares. */
-export function pressBounce(node: HTMLElement, scale = 0.95): void {
-  node.animate(
-    [
-      { transform: `scale(${scale}) translateY(0.2rem)` },
-      { transform: 'scale(1.025) translateY(-0.1rem)', offset: 0.55 },
-      { transform: 'scale(1) translateY(0)' },
-    ],
-    { duration: 220, easing: 'cubic-bezier(.2,.8,.3,1)' },
-  );
-}
-
-export function deny(node: HTMLElement): void {
-  node.animate(
-    [
-      { transform: 'translateX(0)' },
-      { transform: 'translateX(-0.5rem)' },
-      { transform: 'translateX(0.4rem)' },
-      { transform: 'translateX(-0.2rem)' },
-      { transform: 'translateX(0)' },
-    ],
-    { duration: 200, easing: 'ease-out' },
-  );
-}

@@ -146,7 +146,7 @@ try {
         return found;
       };
       const pops = Array.from({ length: 8 }, (_, i) => pop(i));
-      const levels = { master: 0.85, music: 0.6, effects: 0.9 };
+      const levels = { master: 0.85, music: 0.6, effects: 0.9, ui: 0.7 };
       const scale = [0, 2, 4, 7, 9, 12, 14, 16, 19, 21, 24];
       const out: Record<string, string[]> = {};
       for (const spec of specs) {

@@ -121,9 +121,60 @@
   justify-self: end;
 }
 
+/* Settings choices can be words, not just ×10: give the longer ones room inside their pill. */
+.menu-chips .seg-item {
+  padding: 0 var(--s-3);
+}
+
+.menu-item {
+  transition: background 0.12s;
+}
+
+/* A list row darkens under the finger instead of shrinking. */
+.menu-item.is-pressed,
+.menu-back.is-pressed {
+  background: rgb(110 74 58 / 8%);
+}
+
+@media (hover: hover) {
+  .menu-item:hover:not(.is-pressed) {
+    background: rgb(110 74 58 / 4%);
+  }
+}
+
+.slider-wrap {
+  --value: 50%;
+  --fraction: 0.5;
+  position: relative;
+  display: block;
+}
+
+/* The value rides above the thumb while it is being dragged. */
+.slider-bubble {
+  position: absolute;
+  bottom: calc(100% - 0.4rem);
+  /* Follows the thumb centre, which travels between the thumb's half-widths. */
+  left: calc(1.4rem + (100% - 2.8rem) * var(--fraction));
+  min-width: 4.4rem;
+  padding: 0.3rem var(--s-2);
+  border-radius: var(--r-pill);
+  background: var(--ink);
+  color: var(--paper);
+  font-size: 1.6rem;
+  text-align: center;
+  transform: translate(-50%, 0.6rem) scale(0.7);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s, transform 0.22s cubic-bezier(0.3, 1.4, 0.5, 1);
+}
+
+.slider-wrap.is-dragging .slider-bubble {
+  opacity: 1;
+  transform: translate(-50%, 0) scale(1);
+}
+
 /* Sliders: a thin track filled up to the value, with a round thumb that stands out. */
 .slider {
-  --value: 50%;
   width: 100%;
   height: 4.4rem;
   margin: 0;
@@ -152,6 +203,16 @@
   background: #fff;
   box-shadow: 0 0.1rem 0.2rem rgb(70 30 20 / 25%), 0 0.4rem 1rem rgb(70 30 20 / 20%);
   appearance: none;
+  transition: transform 0.18s cubic-bezier(0.3, 1.4, 0.5, 1);
+}
+
+/* The thumb grows under the finger. */
+.slider:active::-webkit-slider-thumb {
+  transform: scale(1.18);
+}
+
+.slider:active::-moz-range-thumb {
+  transform: scale(1.18);
 }
 
 .slider::-moz-range-thumb {
@@ -173,8 +234,49 @@
   box-shadow: inset 0 0.1rem 0.25rem rgb(110 74 58 / 22%);
 }
 
+.switch {
+  transition: background 0.22s;
+}
+
 .switch.is-on {
   background: #3fc48f;
+}
+
+/* Held: the thumb stretches a little, as on iOS. */
+.switch.is-pressed .switch-thumb {
+  width: 3.8rem;
+}
+
+.switch.is-on.is-pressed .switch-thumb {
+  transform: translateX(1.8rem);
+}
+
+.switch-thumb {
+  transition: width 0.18s cubic-bezier(0.3, 1.2, 0.5, 1);
+}
+
+/* Working on it: faded and not pressable until it is done. */
+.btn[aria-busy='true'] {
+  opacity: 0.55;
+  cursor: progress;
+}
+
+/* Hold to clear: red fills the button from the left as it is held. */
+.btn.is-hold {
+  --hold: 0;
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.btn.is-hold::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: rgb(226 56 63 / 22%);
+  transform: scaleX(var(--hold));
+  transform-origin: 0 50%;
 }
 
 .switch-thumb {

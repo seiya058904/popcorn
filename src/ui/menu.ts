@@ -1,6 +1,11 @@
 import { SHOW_SPEEDS, type QualityChoice, type Settings } from '../platform/settings.ts';
 import type { LoadError } from '../sim/save.ts';
 import { el, setClass } from './dom.ts';
+import { feedback } from './feedback.ts';
+import { glide, MOTION, motionPrefs, play } from './motion.ts';
+import { pressable } from './press.ts';
+import { Segmented } from './segmented.ts';
+import { closeSheet, isSheetOpen, openSheet } from './sheet.ts';
 import './menu.css';
 
 export interface MenuHost {
@@ -31,6 +36,13 @@ const QUALITY_LABELS: ReadonlyArray<readonly [QualityChoice, string]> = [
   ['ultra', '极高'],
 ];
 
+const CHEVRON_BACK = '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>';
+const CHEVRON = '<svg class="menu-chevron" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>';
+/** How long "clear save" has to be held, so it never happens by accident. */
+const WIPE_HOLD_MS = 1200;
+
+type Direction = 'push' | 'pop';
+
 /** Title screen, pause menu, settings and save management. */
 export class Menus {
   private readonly host: MenuHost;
@@ -46,21 +58,24 @@ export class Menus {
       if (event.target === this.veil) this.close();
     });
     window.addEventListener('keydown', (event) => {
-      if (event.key === 'Escape' && this.playing) {
+      if (event.key !== 'Escape') return;
+      if (this.isOpen) {
         event.preventDefault();
-        if (this.isOpen) this.close();
-        else this.showPause();
+        this.close();
+      } else if (this.playing) {
+        event.preventDefault();
+        this.showPause();
       }
     });
     const button = el('button', 'menu-button', root);
     button.setAttribute('aria-label', '菜单');
     button.dataset.action = 'menu';
     button.innerHTML = '<svg viewBox="0 0 48 48" stroke="currentColor" stroke-width="4" stroke-linecap="round" fill="none"><path d="M10 14h28M10 24h28M10 34h28"/></svg>';
-    button.addEventListener('pointerdown', () => this.showPause());
+    pressable(button, { scale: 0.9, action: () => this.showPause() });
   }
 
   get isOpen(): boolean {
-    return this.veil.classList.contains('is-open');
+    return isSheetOpen(this.veil);
   }
 
   /** Resolves when the player chooses to start. */
@@ -83,8 +98,8 @@ export class Menus {
       const start = el('button', 'btn is-large title-start', stack, hasProgress ? '继续这一锅' : '开锅');
       start.dataset.action = 'start';
       const row = el('div', 'title-row', stack);
-      el('button', 'btn is-glass', row, '设置').addEventListener('pointerdown', () => this.showSettings(false));
-      el('button', 'btn is-glass', row, '存档').addEventListener('pointerdown', () => this.showSaves(false));
+      pressable(el('button', 'btn is-glass', row, '设置'), { action: () => this.showSettings(false) });
+      pressable(el('button', 'btn is-glass', row, '存档'), { action: () => this.showSaves(false) });
       // The controls, each with the key or action it needs shown as a little key cap.
       const hints = el('div', 'title-hints', stack);
       for (const [key, text] of [
@@ -96,20 +111,26 @@ export class Menus {
         el('kbd', '', hint, key);
         el('span', '', hint, text);
       }
-      start.addEventListener('pointerdown', () => {
-        this.host.unlockAudio();
-        this.playing = true;
-        // The fading title must not swallow the player's first clicks.
-        title.inert = true;
-        const out = title.animate(
-          [
-            { opacity: 1, transform: 'scale(1)' },
-            { opacity: 0, transform: 'scale(1.08)' },
-          ],
-          { duration: 320, easing: 'ease-in', fill: 'forwards' },
-        );
-        out.onfinish = () => title.remove();
-        resolve();
+      // The entrance: the column rises in after the logo letters have landed.
+      for (const [index, node] of [stack.querySelector('.title-line'), start, row, hints].entries()) {
+        play(node as HTMLElement, [{ opacity: 0, transform: 'translateY(1.2rem)' }, { opacity: 1, transform: 'none' }], { ...MOTION.appear, duration: MOTION.appear.duration + index * 90 });
+      }
+      pressable(start, {
+        action: () => {
+          this.host.unlockAudio();
+          this.playing = true;
+          // The fading title must not swallow the player's first clicks.
+          title.inert = true;
+          const out = title.animate(
+            [
+              { opacity: 1, transform: 'scale(1)' },
+              { opacity: 0, transform: motionPrefs.reduced ? 'scale(1)' : 'scale(1.06)' },
+            ],
+            { duration: 360, easing: 'cubic-bezier(0.4, 0, 0.6, 1)', fill: 'forwards' },
+          );
+          out.onfinish = () => title.remove();
+          resolve();
+        },
       });
     });
   }
@@ -119,14 +140,35 @@ export class Menus {
     this.playing = true;
   }
 
-  private open(): void {
+  /**
+   * Shows a page. Opening rises in; moving between pages slides the new one in from the right
+   * (going deeper) or the left (going back), while the card eases to its new height.
+   */
+  private page(direction: Direction, build: () => void): void {
+    const wasOpen = this.isOpen;
+    const before = wasOpen ? this.panel.getBoundingClientRect().height : 0;
     this.panel.replaceChildren();
-    this.veil.classList.add('is-open');
+    build();
+    openSheet(this.veil, this.panel);
     if (this.playing) this.host.setPaused(true);
+    if (!wasOpen) return;
+    feedback.select();
+    if (motionPrefs.reduced) {
+      play(this.panel, [{ opacity: 0.4 }, { opacity: 1 }], MOTION.fade);
+      return;
+    }
+    const after = this.panel.getBoundingClientRect().height;
+    if (Math.abs(after - before) > 1) {
+      this.panel.animate([{ height: `${before}px`, overflow: 'hidden' }, { height: `${after}px`, overflow: 'hidden' }], { duration: MOTION.slide.duration, easing: MOTION.slide.easing });
+    }
+    const shift = direction === 'push' ? 4 : -4;
+    for (const child of this.panel.children) {
+      play(child as HTMLElement, [{ opacity: 0, transform: `translateX(${shift}rem)` }, { opacity: 1, transform: 'none' }], MOTION.fade);
+    }
   }
 
   close(): void {
-    this.veil.classList.remove('is-open');
+    closeSheet(this.veil, this.panel);
     if (this.playing) this.host.setPaused(false);
   }
 
@@ -135,9 +177,9 @@ export class Menus {
     const head = el('div', 'menu-head', this.panel);
     if (back) {
       const button = el('button', 'menu-back', head);
-      button.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>';
+      button.innerHTML = CHEVRON_BACK;
       el('span', '', button, back.label);
-      button.addEventListener('pointerdown', back.action);
+      pressable(button, { scale: 0.94, action: back.action });
     } else {
       el('span', 'menu-back is-empty', head);
     }
@@ -146,7 +188,7 @@ export class Menus {
   }
 
   private back(fromPause: boolean): { label: string; action: () => void } {
-    return fromPause ? { label: '返回', action: () => this.showPause() } : { label: '关闭', action: () => this.close() };
+    return fromPause ? { label: '返回', action: () => this.showPause('pop') } : { label: '关闭', action: () => this.close() };
   }
 
   /** A titled group of rows, like a section of a settings screen. */
@@ -155,156 +197,197 @@ export class Menus {
     return el('div', 'menu-group', this.panel);
   }
 
-  showPause(): void {
-    this.open();
-    this.head('暂停一下', null);
-    el('p', 'menu-sub', this.panel, '锅还在，爆米花也不会跑。');
-    el('button', 'btn is-large menu-resume', this.panel, '继续').addEventListener('pointerdown', () => this.close());
-    const list = this.group(null);
-    list.classList.add('menu-list');
-    const add = (label: string, action: () => void): void => {
-      const item = el('button', 'menu-item', list);
-      el('span', '', item, label);
-      item.insertAdjacentHTML('beforeend', '<svg class="menu-chevron" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>');
-      item.addEventListener('pointerdown', action);
-    };
-    add('成就', () => {
-      this.close();
-      this.host.showAchievements();
+  showPause(direction: Direction = 'pop'): void {
+    this.page(direction, () => {
+      this.head('暂停一下', null);
+      el('p', 'menu-sub', this.panel, '锅还在，爆米花也不会跑。');
+      pressable(el('button', 'btn is-large menu-resume', this.panel, '继续'), { scale: 0.98, action: () => this.close() });
+      const list = this.group(null);
+      list.classList.add('menu-list');
+      const add = (label: string, action: () => void): void => {
+        const item = el('button', 'menu-item', list);
+        el('span', '', item, label);
+        item.insertAdjacentHTML('beforeend', CHEVRON);
+        // A row darkens under the finger rather than shrinking, as list rows do.
+        pressable(item, { scale: 1, action });
+      };
+      add('成就', () => {
+        this.close();
+        this.host.showAchievements();
+      });
+      add('设置', () => this.showSettings(true));
+      add('存档管理', () => this.showSaves(true));
     });
-    add('设置', () => this.showSettings(true));
-    add('存档管理', () => this.showSaves(true));
   }
 
+  /** A slider: the thumb grows under the finger, a bubble shows the value, and each tenth ticks. */
   private slider(parent: HTMLElement, label: string, get: () => number, set: (value: number) => void): void {
     const row = el('label', 'menu-row', parent);
     el('span', 'menu-label', row, label);
-    const input = el('input', 'slider', row);
+    const wrap = el('span', 'slider-wrap', row);
+    const input = el('input', 'slider', wrap);
+    const bubble = el('span', 'slider-bubble num', wrap);
     input.type = 'range';
     input.min = '0';
     input.max = '100';
     input.value = String(Math.round(get() * 100));
     input.setAttribute('aria-label', label);
-    const paint = (): void => input.style.setProperty('--value', `${input.value}%`);
+    let tenth = Math.floor(Number(input.value) / 10);
+    const paint = (): void => {
+      wrap.style.setProperty('--value', `${input.value}%`);
+      wrap.style.setProperty('--fraction', String(Number(input.value) / 100));
+      bubble.textContent = input.value;
+    };
     paint();
     input.addEventListener('input', () => {
       set(Number(input.value) / 100);
       paint();
+      const now = Math.floor(Number(input.value) / 10);
+      if (now !== tenth) {
+        tenth = now;
+        feedback.tick(Number(input.value) / 100);
+      }
       this.host.settingsChanged();
     });
+    const lift = (on: boolean) => () => setClass(wrap, 'is-dragging', on);
+    input.addEventListener('pointerdown', lift(true));
+    for (const type of ['pointerup', 'pointercancel', 'blur'] as const) input.addEventListener(type, lift(false));
   }
 
   private chips<T>(parent: HTMLElement, label: string, options: ReadonlyArray<readonly [T, string]>, get: () => T, set: (value: T) => void): void {
     const row = el('div', 'menu-row', parent);
     el('span', 'menu-label', row, label);
-    const group = el('div', 'seg is-small menu-chips', row);
-    group.style.setProperty('--count', String(options.length));
-    el('i', 'seg-thumb', group);
-    const buttons = options.map(([value, text]) => {
-      const button = el('button', 'seg-item menu-chip', group, text);
-      button.addEventListener('pointerdown', () => {
-        set(value);
+    const control = new Segmented(
+      row,
+      'is-small menu-chips',
+      options.map(([, text]) => text),
+      (index) => {
+        set(options[index]![0]);
         this.host.settingsChanged();
-        refresh();
-      });
-      return { button, value };
-    });
-    const refresh = (): void => {
-      group.style.setProperty('--index', String(Math.max(0, options.findIndex(([value]) => value === get()))));
-      buttons.forEach(({ button, value }) => setClass(button, 'is-active', value === get()));
-    };
-    refresh();
+      },
+      (button, text) => {
+        button.classList.add('menu-chip');
+        button.textContent = text;
+      },
+    );
+    control.select(Math.max(0, options.findIndex(([value]) => value === get())), false);
   }
 
-  /** An on/off switch: the thumb sits on the right, on a green track, when it is on. */
+  /** An on/off switch: the thumb slides on a spring, the track turns green, and it clicks. */
   private toggle(parent: HTMLElement, label: string, get: () => boolean, set: (value: boolean) => void): void {
     const row = el('div', 'menu-row', parent);
     el('span', 'menu-label', row, label);
     const button = el('button', 'switch', row);
     button.setAttribute('role', 'switch');
     button.setAttribute('aria-label', label);
-    el('i', 'switch-thumb', button);
+    const thumb = el('i', 'switch-thumb', button);
     const refresh = (): void => {
       button.setAttribute('aria-checked', String(get()));
       setClass(button, 'is-on', get());
     };
-    button.addEventListener('pointerdown', () => {
-      set(!get());
-      this.host.settingsChanged();
-      refresh();
+    pressable(button, {
+      quiet: true,
+      scale: 0.94,
+      action: () => {
+        set(!get());
+        feedback.toggle(get());
+        glide(thumb, refresh);
+        this.host.settingsChanged();
+      },
     });
     refresh();
   }
 
   showSettings(fromPause: boolean): void {
-    this.open();
-    const s = this.host.settings;
-    this.head('设置', this.back(fromPause));
-    const sound = this.group('声音');
-    this.slider(sound, '总音量', () => s.master, (v) => (s.master = v));
-    this.slider(sound, '音乐', () => s.music, (v) => (s.music = v));
-    this.slider(sound, '音效', () => s.effects, (v) => (s.effects = v));
-    const picture = this.group('画面');
-    this.chips(picture, '画质', QUALITY_LABELS, () => s.quality, (v) => (s.quality = v));
-    this.chips(picture, '演出速度', SHOW_SPEEDS.map((v) => [v, `${v}×`] as const), () => s.showSpeed, (v) => (s.showSpeed = v));
-    const comfort = this.group('舒适');
-    this.toggle(comfort, '减少镜头运动', () => s.reduceMotion, (v) => (s.reduceMotion = v));
-    this.toggle(comfort, '屏幕震动', () => s.screenShake, (v) => (s.screenShake = v));
-    const language = this.group('语言');
-    this.chips(language, '语言', [['zh-CN', '简体中文']] as const, () => s.language, (v) => (s.language = v));
+    this.page('push', () => {
+      const s = this.host.settings;
+      this.head('设置', this.back(fromPause));
+      const sound = this.group('声音');
+      this.slider(sound, '总音量', () => s.master, (v) => (s.master = v));
+      this.slider(sound, '音乐', () => s.music, (v) => (s.music = v));
+      this.slider(sound, '音效', () => s.effects, (v) => (s.effects = v));
+      this.slider(sound, '界面音效', () => s.ui, (v) => (s.ui = v));
+      const picture = this.group('画面');
+      this.chips(picture, '画质', QUALITY_LABELS, () => s.quality, (v) => (s.quality = v));
+      this.chips(picture, '演出速度', SHOW_SPEEDS.map((v) => [v, `${v}×`] as const), () => s.showSpeed, (v) => (s.showSpeed = v));
+      const comfort = this.group('舒适');
+      this.toggle(comfort, '减少镜头运动', () => s.reduceMotion, (v) => (s.reduceMotion = v));
+      this.toggle(comfort, '屏幕震动', () => s.screenShake, (v) => (s.screenShake = v));
+      this.toggle(comfort, '触感反馈', () => s.haptics, (v) => (s.haptics = v));
+      const language = this.group('语言');
+      this.chips(language, '语言', [['zh-CN', '简体中文']] as const, () => s.language, (v) => (s.language = v));
+    });
   }
 
   showSaves(fromPause: boolean): void {
-    this.open();
-    this.head('存档管理', this.back(fromPause));
-    el('p', 'menu-sub', this.panel, '游戏会自动保存。导出的文本可以在其他浏览器里导入。');
-    const box = el('textarea', 'menu-text', this.panel);
-    box.spellcheck = false;
-    box.placeholder = '在这里粘贴存档文本，然后点“导入”。';
-    box.setAttribute('aria-label', '存档文本');
-    const status = el('p', 'menu-status', this.panel);
-    const row = el('div', 'menu-actions', this.panel);
-    const add = (label: string, quiet: boolean, action: () => void): HTMLButtonElement => {
-      const button = el('button', `btn${quiet ? ' is-quiet' : ''}`, row, label);
-      button.addEventListener('pointerdown', action);
-      return button;
-    };
-    add('导出', false, () => {
-      box.value = this.host.exportSave();
-      box.select();
-      void navigator.clipboard?.writeText(box.value).then(
-        () => (status.textContent = '存档已复制到剪贴板。'),
-        () => (status.textContent = '存档已显示在上方，可以手动复制。'),
-      );
-      status.textContent = '存档已显示在上方。';
-    }).dataset.action = 'export';
-    add('下载文件', true, () => {
-      const url = URL.createObjectURL(new Blob([this.host.exportSave()], { type: 'text/plain' }));
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = 'popcorn-save.txt';
-      link.click();
-      URL.revokeObjectURL(url);
-    });
-    add('导入', true, () => {
-      void this.host.importSave(box.value).then((error) => {
-        if (error) status.textContent = LOAD_ERRORS[error];
-        else this.host.reload();
+    this.page('push', () => {
+      this.head('存档管理', this.back(fromPause));
+      el('p', 'menu-sub', this.panel, '游戏会自动保存。导出的文本可以在其他浏览器里导入。');
+      const box = el('textarea', 'menu-text', this.panel);
+      box.spellcheck = false;
+      box.placeholder = '在这里粘贴存档文本，然后点“导入”。';
+      box.setAttribute('aria-label', '存档文本');
+      const status = el('p', 'menu-status', this.panel);
+      const say = (text: string): void => {
+        status.textContent = text;
+        play(status, [{ opacity: 0, transform: 'translateY(-0.4rem)' }, { opacity: 1, transform: 'none' }], MOTION.fade);
+      };
+      const row = el('div', 'menu-actions', this.panel);
+      const add = (label: string, quiet: boolean, action: () => boolean | void): HTMLButtonElement => {
+        const button = el('button', `btn${quiet ? ' is-quiet' : ''}`, row, label);
+        pressable(button, { action });
+        return button;
+      };
+      add('导出', false, () => {
+        box.value = this.host.exportSave();
+        box.select();
+        say('存档已显示在上方。');
+        void navigator.clipboard?.writeText(box.value).then(
+          () => say('存档已复制到剪贴板。'),
+          () => say('存档已显示在上方，可以手动复制。'),
+        );
+      }).dataset.action = 'export';
+      add('下载文件', true, () => {
+        const url = URL.createObjectURL(new Blob([this.host.exportSave()], { type: 'text/plain' }));
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'popcorn-save.txt';
+        link.click();
+        URL.revokeObjectURL(url);
       });
-    }).dataset.action = 'import';
-    // The one thing here that cannot be undone sits apart, in red.
-    const danger = el('div', 'menu-danger', this.panel);
-    let armed = false;
-    const wipe = el('button', 'btn is-quiet is-danger', danger, '清空存档');
-    wipe.addEventListener('pointerdown', () => {
-      if (!armed) {
-        armed = true;
-        wipe.textContent = '再点一次确认清空';
-        status.textContent = '清空后无法恢复，包括成就和图鉴。';
-        return;
-      }
-      void this.host.wipeSave().then(() => this.host.reload());
+      const importButton = add('导入', true, () => {
+        if (!box.value.trim()) {
+          say('先把存档文本粘贴到上面。');
+          return false;
+        }
+        // Busy until the save is checked, so a second press cannot start a second import.
+        importButton.disabled = true;
+        importButton.setAttribute('aria-busy', 'true');
+        void this.host.importSave(box.value).then((error) => {
+          if (error) {
+            importButton.disabled = false;
+            importButton.removeAttribute('aria-busy');
+            say(LOAD_ERRORS[error]);
+            feedback.deny();
+          } else this.host.reload();
+        });
+      });
+      importButton.dataset.action = 'import';
+      // The one thing here that cannot be undone sits apart, in red, and has to be held.
+      const danger = el('div', 'menu-danger', this.panel);
+      const wipe = el('button', 'btn is-quiet is-danger is-hold', danger, '按住清空存档');
+      wipe.dataset.action = 'wipe';
+      pressable(wipe, {
+        holdMs: WIPE_HOLD_MS,
+        action: () => {
+          feedback.heavy();
+          void this.host.wipeSave().then(() => this.host.reload());
+        },
+        onHoldProgress: (progress) => {
+          wipe.style.setProperty('--hold', String(progress));
+          if (progress > 0 && progress < 1) status.textContent = '清空后无法恢复，包括成就和图鉴。';
+        },
+      });
     });
-    wipe.dataset.action = 'wipe';
   }
 }
