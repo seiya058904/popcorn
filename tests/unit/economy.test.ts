@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { ACHIEVEMENTS } from '../../src/content/achievements.ts';
 import { FLAVORS } from '../../src/content/flavors.ts';
 import { PRODUCERS } from '../../src/content/producers.ts';
-import { CANNON, HOPPER, OFFLINE } from '../../src/content/skills.ts';
+import { CANNON, CLICK, HOPPER, OFFLINE, POT } from '../../src/content/skills.ts';
 import { STAGES } from '../../src/content/stages.ts';
 import { UPGRADES } from '../../src/content/upgrades.ts';
 import { EventBus } from '../../src/events/bus.ts';
@@ -32,12 +32,12 @@ const rich = (sim: Simulation, amount = 1e15): void => {
 
 describe('content tables', () => {
   it('has the promised amount of content', () => {
-    expect(PRODUCERS).toHaveLength(6);
+    expect(PRODUCERS).toHaveLength(10);
     expect(FLAVORS).toHaveLength(12);
     expect(STAGES).toHaveLength(5);
-    expect(ACHIEVEMENTS).toHaveLength(24);
-    expect(UPGRADES.length).toBeGreaterThanOrEqual(18);
-    expect(UPGRADES.length).toBeLessThanOrEqual(24);
+    expect(ACHIEVEMENTS).toHaveLength(30);
+    expect(UPGRADES.length).toBeGreaterThanOrEqual(55);
+    expect(UPGRADES.length).toBeLessThanOrEqual(65);
   });
 
   it('uses unique ids and resolvable prerequisites', () => {
@@ -49,22 +49,29 @@ describe('content tables', () => {
 });
 
 describe('prices', () => {
-  it('follows base × 1.15^owned', () => {
-    expect(producerPrice(0, 0)).toBe(15);
-    expect(producerPrice(0, 1)).toBe(18);
-    expect(producerPrice(0, 10)).toBe(Math.ceil(15 * 1.15 ** 10));
+  it('follows base × 1.19^owned', () => {
+    expect(producerPrice(0, 0)).toBe(10);
+    expect(producerPrice(0, 1)).toBe(12);
+    expect(producerPrice(0, 10)).toBe(Math.ceil(10 * 1.19 ** 10));
+  });
+
+  it('makes each generation cost more and produce more than the last', () => {
+    for (let i = 1; i < PRODUCERS.length; i += 1) {
+      expect(PRODUCERS[i]!.baseCost).toBeGreaterThan(PRODUCERS[i - 1]!.baseCost * 5);
+      expect(PRODUCERS[i]!.baseRate).toBeGreaterThan(PRODUCERS[i - 1]!.baseRate * 5);
+    }
   });
 
   it('sums bulk purchases exactly and agrees with the affordability check', () => {
-    expect(bulkPrice(0, 0, 3)).toBe(15 + 18 + 20);
+    expect(bulkPrice(0, 0, 3)).toBe(10 + 12 + 15);
     const budget = bulkPrice(1, 4, 10);
     expect(affordableCount(1, 4, budget)).toBe(10);
     expect(affordableCount(1, 4, budget - 1)).toBe(9);
   });
 
-  it('prices flavors at 300 × 4^n', () => {
-    expect(flavorPrice(0)).toBe(300);
-    expect(flavorPrice(3)).toBe(300 * 64);
+  it('prices flavors at 400 × 28^n', () => {
+    expect(flavorPrice(0)).toBe(400);
+    expect(flavorPrice(3)).toBe(400 * 28 ** 3);
   });
 });
 
@@ -76,9 +83,9 @@ describe('multipliers', () => {
   it('applies milestones and flavors to production', () => {
     const state = createState();
     state.owned[0] = 25;
-    expect(derive(state).baseRate).toBeCloseTo(25 * 0.2 * 2);
+    expect(derive(state).baseRate).toBeCloseTo(POT.idleRate + 25 * 0.5 * 2);
     state.flavors = 2;
-    expect(derive(state).baseRate).toBeCloseTo(25 * 0.2 * 2 * 1.4 ** 2);
+    expect(derive(state).baseRate).toBeCloseTo((POT.idleRate + 25 * 0.5 * 2) * 1.35 ** 2);
   });
 
   it('adds click upgrades without multiplying the production share', () => {
@@ -86,13 +93,19 @@ describe('multipliers', () => {
     sim.state.owned[1] = 10;
     sim.invalidate();
     const rate = sim.perSecond;
-    expect(sim.clickValue).toBeCloseTo(1 + rate * 0.01);
+    expect(sim.clickValue).toBeCloseTo(1 + rate * CLICK.rateShare);
     sim.state.upgrades.push('pop3');
     sim.invalidate();
-    expect(sim.clickValue).toBeCloseTo(3 + rate * 0.01);
+    expect(sim.clickValue).toBeCloseTo(3 + rate * CLICK.rateShare);
     const { count, gainEach } = sim.click();
     expect(count).toBe(3);
-    expect(gainEach * count).toBeCloseTo(3 + rate * 0.01);
+    expect(gainEach * count).toBeCloseTo(3 + rate * CLICK.rateShare);
+  });
+
+  it('earns a little with no machines at all, so nobody is stuck without clicking', () => {
+    const { sim } = setup();
+    for (let i = 0; i < 100; i += 1) sim.step(0.1);
+    expect(sim.state.popcorn).toBeCloseTo(POT.idleRate * 10);
   });
 });
 
@@ -111,7 +124,7 @@ describe('purchases', () => {
     sim.state.popcorn = 100;
     sim.state.totalEarned = 100;
     expect(sim.buyProducer(0)).toBe(true);
-    expect(sim.state.popcorn).toBe(85);
+    expect(sim.state.popcorn).toBe(90);
     expect(sim.state.totalEarned).toBe(100);
   });
 
@@ -140,10 +153,59 @@ describe('purchases', () => {
 
   it('caps flavors at twelve', () => {
     const { sim } = setup();
-    rich(sim, 1e18);
+    rich(sim, 1e21);
     for (let i = 0; i < 20; i += 1) sim.buyFlavor();
     expect(sim.state.flavors).toBe(12);
     expect(sim.nextFlavorPrice).toBeNull();
+  });
+});
+
+describe('automation', () => {
+  it('offers a unit upgrade only once enough of that unit are owned', () => {
+    const { sim } = setup();
+    rich(sim);
+    sim.state.totalEarned = 1e12;
+    expect(sim.buyUpgrade('unit-0-1')).toBe(false);
+    sim.state.owned[0] = 10;
+    expect(sim.buyUpgrade('unit-0-1')).toBe(true);
+    expect(sim.buyUpgrade('unit-0-2')).toBe(false);
+  });
+
+  it('makes clicks on its own once the stirrer is bought', () => {
+    const { sim, bus } = setup();
+    const popped = vi.fn();
+    bus.on('auto_popped', popped);
+    sim.state.upgrades.push('auto1');
+    sim.invalidate();
+    for (let i = 0; i < 31; i += 1) sim.step(0.1);
+    expect(popped).toHaveBeenCalledTimes(3);
+    expect(sim.state.stats.clicks).toBe(0);
+  });
+
+  it('fires the cannon by itself, but never while the player is charging it', () => {
+    const { sim, bus } = setup();
+    const fired = vi.fn();
+    bus.on('cannon_fired', fired);
+    sim.state.stage = 1;
+    sim.state.upgrades.push('auto-cannon');
+    sim.invalidate();
+    sim.cannonHeld = true;
+    for (let i = 0; i < (CANNON.autoFireDelay + 1) * 10; i += 1) sim.step(0.1);
+    expect(fired).not.toHaveBeenCalled();
+    sim.cannonHeld = false;
+    for (let i = 0; i < (CANNON.autoFireDelay + 1) * 10; i += 1) sim.step(0.1);
+    expect(fired).toHaveBeenCalledOnce();
+    expect(fired.mock.calls[0]![0].result).toBe('normal');
+  });
+
+  it('catches the hopping kernel by itself after a moment', () => {
+    const { sim } = setup();
+    sim.state.upgrades.push('auto-hopper');
+    sim.invalidate();
+    sim.state.hopperTimer = 0.05;
+    for (let i = 0; i < (HOPPER.autoCatchSeconds + 1) * 10; i += 1) sim.step(0.1);
+    expect(sim.state.stats.hoppersCaught).toBe(1);
+    expect(sim.state.frenzy).toBeGreaterThan(0);
   });
 });
 
@@ -281,9 +343,9 @@ describe('saves', () => {
     const state = createState();
     state.popcorn = 1234.5;
     state.totalEarned = 98765;
-    state.owned = [12, 3, 1, 0, 0, 0];
+    state.owned = [12, 3, 1, 0, 0, 0, 0, 0, 0, 0];
     state.flavors = 4;
-    state.upgrades = ['pop3', 'pan2'];
+    state.upgrades = ['pop3', 'unit-0-1'];
     state.stage = 2;
     state.legacy.achievements = ['first-pop'];
     return state;
@@ -296,17 +358,38 @@ describe('saves', () => {
     if (result.ok) expect(result.state).toEqual(state);
   });
 
-  it('migrates a version 1 prototype save', () => {
-    const body = JSON.stringify({ version: 1, popcorn: 500, totalEarned: 800, owned: [3, 0, 0, 0, 0, 0], clicks: 90 });
-    const text = JSON.stringify({ format: 'pop-popcorn-save', version: 1, sum: checksum(body), body });
-    const result = parseSave(text);
+  const wrap = (raw: unknown): string => {
+    const body = JSON.stringify(raw);
+    return JSON.stringify({ format: 'pop-popcorn-save', version: 1, sum: checksum(body), body });
+  };
+
+  it('starts a version 1 prototype save over, keeping its lifetime total', () => {
+    const result = parseSave(wrap({ version: 1, popcorn: 500, totalEarned: 800, owned: [3, 0, 0, 0, 0, 0], clicks: 90 }));
     expect(result).toMatchObject({ ok: true, migratedFrom: 1 });
     if (result.ok) {
-      expect(result.state.version).toBe(2);
-      expect(result.state.popcorn).toBe(500);
-      expect(result.state.owned[0]).toBe(3);
-      expect(result.state.stats.clicks).toBe(90);
+      expect(result.state.version).toBe(3);
+      expect(result.state.popcorn).toBe(0);
+      expect(result.state.owned).toEqual(PRODUCERS.map(() => 0));
       expect(result.state.legacy.lifetimeEarned).toBe(800);
+    }
+  });
+
+  it('starts a version 2 run over, keeping what was collected across runs', () => {
+    const old = {
+      ...createState(),
+      version: 2,
+      popcorn: 5000,
+      totalEarned: 9e9,
+      stage: 3,
+      owned: [40, 20, 10, 5, 2, 1],
+      upgrades: ['pop3'],
+      legacy: { runs: 2, lifetimeEarned: 3e10, flavorAlbum: 9, potSkin: 2, achievements: ['first-pop', 'moon'] },
+    };
+    const result = parseSave(wrap(old));
+    expect(result).toMatchObject({ ok: true, migratedFrom: 2 });
+    if (result.ok) {
+      expect(result.state).toMatchObject({ version: 3, popcorn: 0, totalEarned: 0, stage: 0, upgrades: [], ended: false });
+      expect(result.state.legacy).toEqual(old.legacy);
     }
   });
 
@@ -332,7 +415,7 @@ describe('saves', () => {
     state.upgrades = ['pop3', 'pop3', 'no-such-upgrade', 5];
     state.owned = [1.9, 'x', null, -4, 0, 0];
     const body = JSON.stringify(state);
-    const result = parseSave(JSON.stringify({ format: 'pop-popcorn-save', version: 2, sum: checksum(body), body }));
+    const result = parseSave(JSON.stringify({ format: 'pop-popcorn-save', version: 3, sum: checksum(body), body }));
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.state.popcorn).toBe(0);
@@ -360,7 +443,7 @@ describe('new game plus', () => {
     expect(sim.state.legacy).toMatchObject({ runs: 1, flavorAlbum: 9, achievements: ['first-pop'], potSkin: 1 });
     sim.state.owned[0] = 10;
     sim.invalidate();
-    expect(sim.perSecond).toBeCloseTo(10 * 0.2 * 1.25);
+    expect(sim.perSecond).toBeCloseTo((POT.idleRate + 10 * 0.5) * 1.25);
   });
 });
 
@@ -368,18 +451,28 @@ describe('balance gates', () => {
   const reports = BOT_PROFILES.map((profile) => runBot(profile));
   const [active, idle] = reports;
 
-  it('hits every stage within 20% for the active player', () => {
-    [3, 12, 35, 80, 150].forEach((target, index) => {
-      expect(Math.abs(active!.stageMinutes[index]! - target)).toBeLessThanOrEqual(target * 0.2);
+  it('hits every stage within 15% for the active player', () => {
+    [1.5, 10, 35, 85, 150].forEach((target, index) => {
+      expect(Math.abs(active!.stageMinutes[index]! - target)).toBeLessThanOrEqual(target * 0.15);
     });
   });
 
   it('keeps waits short', () => {
-    expect(active!.longestWaitMinutes).toBeLessThanOrEqual(3);
+    expect(active!.longestWaitMinutes).toBeLessThanOrEqual(2);
     expect(idle!.longestWaitMinutes).toBeLessThanOrEqual(5);
   });
 
-  it('lets every player type finish, buying all six units until late', () => {
+  it('lets a player who never clicks finish in about three and a half hours', () => {
+    expect(idle!.finished).toBe(true);
+    expect(idle!.endMinutes).toBeLessThanOrEqual(210);
+  });
+
+  it('reaches numbers in the tens of quadrillions', () => {
+    expect(active!.total).toBeGreaterThanOrEqual(3e16);
+    expect(active!.total).toBeLessThanOrEqual(3e17);
+  });
+
+  it('lets every player type finish, buying all ten units until late', () => {
     for (const report of reports) {
       expect(report.finished).toBe(true);
       report.owned.forEach((count) => expect(count).toBeGreaterThan(0));
@@ -388,8 +481,10 @@ describe('balance gates', () => {
     }
   });
 
-  it('gives a first purchase and a first automatic unit within a minute', () => {
-    expect(active!.firstPurchaseSeconds).toBeLessThanOrEqual(60);
-    expect(active!.firstUnitSeconds).toBeLessThanOrEqual(60);
+  it('gets the player buying within seconds, and into a second machine within 45', () => {
+    expect(active!.firstPurchaseSeconds).toBeLessThanOrEqual(5);
+    expect(active!.secondKindSeconds).toBeLessThanOrEqual(45);
+    const gaps = [...active!.purchaseGapsEarly].sort((a, b) => a - b);
+    expect(gaps[Math.floor(gaps.length / 2)]!).toBeLessThanOrEqual(10);
   });
 });

@@ -109,4 +109,4 @@ export interface SceneSpec {
   build(stage: Stage, root: THREE.Group): SceneParts;
 }
 
-export type UnitKindName = 'pan' | 'cart' | 'cannon' | 'cinema' | 'factory' | 'volcano';
+export type UnitKindName = 'pan' | 'microwave' | 'cart' | 'cannon' | 'cinema' | 'truck' | 'factory' | 'airship' | 'volcano' | 'orbital';

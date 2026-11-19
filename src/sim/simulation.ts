@@ -34,6 +34,10 @@ export class Simulation {
   private readonly bus: EventBus<GameEvents>;
   private cached: Derived | null = null;
   private stepsUntilCheck = 0;
+  private autoPopBudget = 0;
+  private cannonIdleSeconds = 0;
+  /** True while the player is charging the cannon, so the automatic fuse keeps its hands off. */
+  cannonHeld = false;
 
   constructor(bus: EventBus<GameEvents>, state: GameState = createState()) {
     this.bus = bus;
@@ -118,7 +122,9 @@ export class Simulation {
     const s = this.state;
     s.stats.playSeconds += seconds;
     this.earn(this.perSecond * seconds);
+    this.stepAutoPops(seconds);
     s.cannonCooldown = Math.max(0, s.cannonCooldown - seconds);
+    this.stepAutoCannon(seconds);
 
     if (s.frenzy > 0) {
       s.frenzy = Math.max(0, s.frenzy - seconds);
@@ -134,10 +140,36 @@ export class Simulation {
     }
   }
 
+  private stepAutoPops(seconds: number): void {
+    this.autoPopBudget += this.derived.autoPops * seconds;
+    while (this.autoPopBudget >= 1) {
+      this.autoPopBudget -= 1;
+      const gained = this.clickValue;
+      this.earn(gained);
+      this.bus.emit('auto_popped', { gained });
+    }
+  }
+
+  private stepAutoCannon(seconds: number): void {
+    if (!this.derived.autoCannon || !this.cannonReady || this.cannonHeld) {
+      this.cannonIdleSeconds = 0;
+      return;
+    }
+    this.cannonIdleSeconds += seconds;
+    if (this.cannonIdleSeconds >= CANNON.autoFireDelay) {
+      this.cannonIdleSeconds = 0;
+      this.fireCannon(CANNON.minHoldSeconds);
+    }
+  }
+
   private stepHopper(seconds: number): void {
     const s = this.state;
     if (s.hopperVisible > 0) {
       s.hopperVisible -= seconds;
+      if (this.derived.autoHopper && s.hopperVisible > 0 && s.hopperVisible <= HOPPER.visibleSeconds - HOPPER.autoCatchSeconds) {
+        this.catchHopper();
+        return;
+      }
       if (s.hopperVisible <= 0) {
         s.hopperVisible = 0;
         s.stats.hoppersMissed += 1;
@@ -233,6 +265,7 @@ export class Simulation {
     const s = this.state;
     if (hasUpgrade(s, upgrade.id) || s.totalEarned < upgrade.showAt) return false;
     if (upgrade.requires && !hasUpgrade(s, upgrade.requires)) return false;
+    if (upgrade.ownedAtLeast && s.owned[upgrade.ownedAtLeast.unit]! < upgrade.ownedAtLeast.count) return false;
     return s.stage >= (upgrade.unlockStage ?? 0);
   }
 

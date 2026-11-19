@@ -1,4 +1,4 @@
-import { FLAVORS } from '../content/flavors.ts';
+import { FLAVOR_MULTIPLIER, FLAVORS } from '../content/flavors.ts';
 import { formatAmount } from '../content/format.ts';
 import { PRODUCERS } from '../content/producers.ts';
 import { STAGES } from '../content/stages.ts';
@@ -108,6 +108,7 @@ export class Shop {
     for (const producer of PRODUCERS) {
       const parts = ticket(unitSection, UNIT_ICONS[producer.id]!);
       parts.root.dataset.unit = String(producer.id);
+      parts.root.classList.add('is-unit');
       parts.root.addEventListener('pointerdown', () => this.buyUnit(producer.id, parts.root));
       this.units.push(parts);
     }
@@ -192,7 +193,10 @@ export class Shop {
       const ready = popcorn >= price;
       if (ready) readyUnits += 1;
       parts.name.set(quantity > 1 ? `${producer.name} ×${quantity}` : producer.name);
-      parts.blurb.set(producer.blurb);
+      const each = formatAmount(sim.derived.unitEach[id]!);
+      const share = sim.derived.baseRate > 0 ? Math.round((sim.derived.unitRates[id]! / sim.derived.baseRate) * 100) : 0;
+      // The joke greets a new machine; once it is working, the numbers matter more.
+      parts.blurb.set(owned[id]! > 0 ? `每台 ${each}/秒 · 占产量 ${share}%` : `每台 ${each}/秒 · ${producer.blurb}`);
       parts.owned.set(String(owned[id]));
       parts.price.set(formatAmount(price));
       setClass(parts.root, 'is-ready', ready);
@@ -215,7 +219,7 @@ export class Shop {
       const def = FLAVORS[flavors]!;
       const ready = popcorn >= next;
       this.flavor.name.set(`${def.name}味`);
-      this.flavor.blurb.set(`全部产量 ×1.4。${def.blurb}`);
+      this.flavor.blurb.set(`全部产量 ×${FLAVOR_MULTIPLIER}。${def.blurb}`);
       this.flavor.owned.set(`${flavors}/12`);
       this.flavor.price.set(formatAmount(next));
       setClass(this.flavor.root, 'is-ready', ready);

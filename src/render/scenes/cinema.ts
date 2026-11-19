@@ -463,6 +463,7 @@ export const cinemaSpec: SceneSpec = {
   slots: {
     pan: [stageSlot(2.5, 11.5, 2.2), stageSlot(0.7, 11.5, 2.2), stageSlot(3.3, 11.8, 2.2), stageSlot(-0.1, 11.8, 2.2), stageSlot(2.0, 8.6, 2), stageSlot(1.15, 8.6, 2)],
     cart: [floorSlot(-24, 8, 0.6, 4), floorSlot(24, 8, -0.6, 4), floorSlot(-33, 14, 0.9, 4), floorSlot(33, 14, -0.9, 4)],
+    truck: [floorSlot(-21, -7, 0.9, 2.3), floorSlot(21, -12, 2.3, 2.3), floorSlot(-40, 0, 0.5, 2.4), floorSlot(41, -2, 2.65, 2.4)],
     cinema: [floorSlot(-16, -26, 0.25, 3.6), floorSlot(16, -26, -0.25, 3.6), floorSlot(-28, -22, 0.4, 3.6), floorSlot(28, -22, -0.4, 3.6), floorSlot(-36, 2, 0.8, 3.8), floorSlot(38, 2, -0.8, 3.8), floorSlot(-6, -30, 0.1, 3.4), floorSlot(6, -30, -0.1, 3.4)],
   },
   cannon: { position: new THREE.Vector3(20, GROUND, 5), rotation: Math.PI - 0.25, scale: 5 },

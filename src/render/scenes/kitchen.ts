@@ -482,14 +482,18 @@ export const kitchenSpec: SceneSpec = {
   nest: { position: new THREE.Vector3(-41.2, -2.4, -4.9), scale: 0.16, rise: 0.62 },
   slots: {
     pan: [
-      onCounter(4.8, -14.6, 0.4),
-      onCounter(15.2, -14.8, 1.6),
-      onCounter(18.6, -14.5, 2.9),
-      onCounter(21.8, -14.8, 4.2),
-      onCounter(25, -14.5, 5.5),
-      onCounter(28.2, -14.8, 0.9),
+      onCounter(3.9, -14.6, 0.4),
+      onCounter(6.2, -14.8, 1.6),
+      onCounter(26.5, -14.5, 2.9),
+      onCounter(29.5, -14.8, 4.2),
+      onCounter(32.5, -14.5, 5.5),
       { x: 21, y: 9.65, z: -15.8, rotation: 2.2, scale: 1.1 },
       { x: 24.6, y: 9.65, z: -15.8, rotation: 4.1, scale: 1.1 },
+    ],
+    microwave: [
+      { x: 15.2, y: COUNTER_TOP + 0.03, z: -15, rotation: -0.1, scale: 1.75 },
+      { x: 19.4, y: COUNTER_TOP + 0.03, z: -15, rotation: 0.05, scale: 1.75 },
+      { x: 23.6, y: COUNTER_TOP + 0.03, z: -15, rotation: -0.05, scale: 1.75 },
     ],
     cart: [
       onFloor(-12.5, -2, 0.55, 2.4),

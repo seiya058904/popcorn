@@ -6,6 +6,7 @@ import { clamp01, easeInOutCubic, lerp } from '../motion/ease.ts';
 import type { ImpactDirector } from '../motion/impact.ts';
 import { Rng } from '../motion/rng.ts';
 import { tuning } from '../motion/tuning.ts';
+import { showIntensity } from '../sim/economy.ts';
 import type { Simulation } from '../sim/simulation.ts';
 import { applyLightRig, globals, type LightRig } from './core/globals.ts';
 import { QUALITY } from './core/quality.ts';
@@ -37,6 +38,9 @@ const ZOOM_START = 0.86;
 const ZOOM_END = 2.55;
 const TRANSITION_END = 2.7;
 const HOPPER_HIT_RADIUS_REM = 5.2;
+/** How many camera positions are tried when fitting the machines into the picture. */
+const FRAMING_STEPS = 12;
+const FRAMING_MARGIN = 0.05;
 
 const ndc = new THREE.Vector2();
 const v = new THREE.Vector3();
@@ -140,6 +144,11 @@ export class World {
   private cameraLocked = false;
   private intensity = 0;
   private shownInset = 0.2;
+  /** How far the camera has opened to keep the machines in view, 0 close to 1 wide. */
+  private frameOpen = 0;
+  private wantedOpen = 0;
+  private framedInset = Number.NaN;
+  private readonly framingCamera = new THREE.PerspectiveCamera();
 
   constructor(stage: Stage, sim: Simulation, bus: EventBus<GameEvents>, impact: ImpactDirector, hooks: WorldHooks) {
     this.stage = stage;
@@ -163,8 +172,10 @@ export class World {
       onMachineCannon: () => this.hooks.onMachineCannon(),
     };
 
+    bus.on('auto_popped', () => this.current?.autoPop());
     bus.on('producer_purchased', ({ spent }) => {
       this.current?.syncUnits(this.sim.state.owned, true);
+      this.updateFraming();
       this.scoopPayment(spent);
     });
     bus.on('upgrade_purchased', ({ spent }) => {
@@ -256,8 +267,44 @@ export class World {
     runtime.syncUnits(this.sim.state.owned, false);
     runtime.syncUpgrades(this.sim.state.upgrades);
     runtime.flavor?.sync(this.sim.state.flavors);
+    this.updateFraming();
+    this.frameOpen = this.wantedOpen;
     this.applyRest(1);
     this.prepareNext();
+  }
+
+  /** Finds the closest camera position that still shows every machine the player owns. */
+  private updateFraming(): void {
+    const runtime = this.current;
+    this.framedInset = this.uiInset;
+    this.wantedOpen = 0;
+    if (!runtime) return;
+    const points = runtime.machinePoints();
+    if (points.length === 0) return;
+    const camera = this.framingCamera;
+    camera.copy(this.stage.camera);
+    const left = -1 + FRAMING_MARGIN;
+    const right = 1 - 2 * Math.max(0, this.uiInset) - FRAMING_MARGIN;
+    const limitY = 1 - FRAMING_MARGIN * 2;
+    const aim = (open: number): void => {
+      const pose = this.restPose(runtime.spec, 0, open);
+      camera.position.copy(pose.position);
+      camera.lookAt(pose.target);
+      camera.updateMatrixWorld();
+    };
+    const inFrame = (point: THREE.Vector3): boolean => {
+      v.copy(point).project(camera);
+      return v.x >= left && v.x <= right && Math.abs(v.y) <= limitY;
+    };
+    // Machines that do not fit even in the widest shot must not hold the camera open.
+    aim(1);
+    const reachable = points.filter(inFrame);
+    for (let step = 0; step <= FRAMING_STEPS; step += 1) {
+      const open = step / FRAMING_STEPS;
+      aim(open);
+      this.wantedOpen = open;
+      if (reachable.every(inFrame)) return;
+    }
   }
 
   /** Places the framing at once, without the usual glide. */
@@ -439,6 +486,8 @@ export class World {
     this.runtimes[SCENES.indexOf(from.spec) - 1]?.root.removeFromParent();
     this.currentIndex = SCENES.indexOf(tr.to.spec);
     tr.to.syncUnits(this.sim.state.owned, false);
+    this.updateFraming();
+    this.frameOpen = this.wantedOpen;
     tr.to.syncUpgrades(this.sim.state.upgrades);
     tr.to.flavor?.sync(this.sim.state.flavors);
     tr.to.setFlockHidden(true);
@@ -506,7 +555,7 @@ export class World {
   update(deltaSeconds: number): void {
     const dt = deltaSeconds;
     this.time += dt;
-    this.intensity = Math.log10(1 + this.sim.perSecond);
+    this.intensity = showIntensity(this.sim.perSecond);
 
     const wanted = this.sceneIndexForStage(this.sim.state.stage);
     if (!this.transition && wanted !== this.currentIndex) this.showScene(wanted);
@@ -546,6 +595,8 @@ export class World {
     if (this.finaleTime >= 0) this.updateFinale(dt);
     // The framing glides when the interface comes or goes.
     this.shownInset += (this.uiInset - this.shownInset) * (1 - Math.exp(-dt * 3));
+    if (Math.abs(this.uiInset - this.framedInset) > 0.01) this.updateFraming();
+    this.frameOpen += (this.wantedOpen - this.frameOpen) * (1 - Math.exp(-dt * 1.6));
     this.applyView(dt);
   }
 
@@ -553,8 +604,8 @@ export class World {
   /** -1 before the ending, -2 after it, otherwise seconds into the closing show. */
   private finaleTime = -1;
 
-  private restPose(spec: SceneSpec, level: number): Pose {
-    const t = smoothstep(level, 0.3, 0.92);
+  private restPose(spec: SceneSpec, level: number, open = this.frameOpen): Pose {
+    const t = Math.max(smoothstep(level, 0.3, 0.92), open);
     const near = 1 - (1 - spec.close.distance) * (1 - t);
     const target = spec.close.target.clone().lerp(spec.camera.target, t);
     const position = spec.camera.position.clone().sub(spec.camera.target).multiplyScalar(near).add(target);

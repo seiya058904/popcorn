@@ -10,6 +10,8 @@ export interface LoadOutcome {
   source: 'new' | 'main' | 'backup';
   /** The main save existed but could not be used. */
   recovered: boolean;
+  /** The save came from an older version whose run could not continue. */
+  migrated: boolean;
   offline: OfflineReport | null;
 }
 
@@ -34,21 +36,21 @@ export class SaveManager {
     const rescue = rescueText === null ? null : parseSave(rescueText);
     if (rescue?.ok && (!parsedMain?.ok || rescue.state.savedAt >= parsedMain.state.savedAt)) {
       this.sim.load(rescue.state);
-      return { source: 'main', recovered: false, offline: this.collectOffline(now) };
+      return { source: 'main', recovered: false, migrated: rescue.migratedFrom !== null, offline: this.collectOffline(now) };
     }
     if (parsedMain?.ok) {
       this.sim.load(parsedMain.state);
-      return { source: 'main', recovered: false, offline: this.collectOffline(now) };
+      return { source: 'main', recovered: false, migrated: parsedMain.migratedFrom !== null, offline: this.collectOffline(now) };
     }
     const backup = await this.store.read('backup');
     if (backup !== null) {
       const parsed = parseSave(backup);
       if (parsed.ok) {
         this.sim.load(parsed.state);
-        return { source: 'backup', recovered: main !== null, offline: this.collectOffline(now) };
+        return { source: 'backup', recovered: main !== null, migrated: parsed.migratedFrom !== null, offline: this.collectOffline(now) };
       }
     }
-    return { source: 'new', recovered: main !== null, offline: null };
+    return { source: 'new', recovered: main !== null, migrated: false, offline: null };
   }
 
   private collectOffline(now: number): OfflineReport | null {

@@ -1,4 +1,5 @@
 import { AudioEngine } from './audio/engine.ts';
+import { HOLD_POP } from './content/skills.ts';
 import { EventBus } from './events/bus.ts';
 import type { GameEvents } from './events/game-events.ts';
 import { ImpactDirector } from './motion/impact.ts';
@@ -9,6 +10,7 @@ import type { QualityTier } from './render/core/quality.ts';
 import { Stage } from './render/core/stage.ts';
 import type { FinaleBeat } from './render/scenes/types.ts';
 import { World, type BreakBeat } from './render/world.ts';
+import { showIntensity } from './sim/economy.ts';
 import { Simulation } from './sim/simulation.ts';
 import { FixedStepper } from './sim/stepper.ts';
 import { Hud } from './ui/hud.ts';
@@ -70,6 +72,8 @@ export class Game {
   private lastTimestamp = 0;
   private running = false;
   private clickActivity = 0;
+  /** Where the mouse is being held down, and how long until the next pop. */
+  private hold: { x: number; y: number; wait: number } | null = null;
   private perfSum = 0;
   private perfFrames = 0;
   private slowWindows = 0;
@@ -136,7 +140,18 @@ export class Game {
       event.preventDefault();
       this.audio.unlock();
       this.world.click(event.clientX, event.clientY);
+      this.hold = { x: event.clientX, y: event.clientY, wait: HOLD_POP.firstDelay };
     });
+    window.addEventListener('pointermove', (event) => {
+      if (!this.hold) return;
+      if (event.target !== options.canvas) {
+        this.hold = null;
+        return;
+      }
+      this.hold.x = event.clientX;
+      this.hold.y = event.clientY;
+    });
+    for (const type of ['pointerup', 'pointercancel', 'blur'] as const) window.addEventListener(type, () => (this.hold = null));
     options.uiRoot.addEventListener('pointerdown', () => this.audio.unlock());
 
     for (const type of ['stage_broken', 'flavor_unlocked', 'upgrade_purchased', 'ending_reached', 'run_restarted'] as const) {
@@ -237,7 +252,9 @@ export class Game {
     this.audio.setTrack(this.sim.state.stage >= WORLD_MUSIC_STAGE ? 'world' : 'home');
     // Warming up front keeps the first click from stalling on shader or buffer work.
     this.stage.preload(this.stage.scene);
-    if (outcome.offline) this.hud.showOffline(outcome.offline.seconds, outcome.offline.gained);
+    if (outcome.migrated) {
+      this.hud.showNotice('配方大改版', '这一版的数值全部重做，这一锅要从头开始。成就、口味图鉴和再来一锅的记录都还在。');
+    } else if (outcome.offline) this.hud.showOffline(outcome.offline.seconds, outcome.offline.gained);
     else if (outcome.recovered) {
       this.hud.showNotice(
         '存档出了点状况',
@@ -322,6 +339,7 @@ export class Game {
         this.simSteps += 1;
       });
       this.saves?.tick(delta);
+      this.stepHold(delta);
     }
 
     const visualDelta = delta * this.impact.timeScale(delta);
@@ -334,10 +352,21 @@ export class Game {
     this.hud.setHidden(this.attract);
     this.hud.update(delta, this.world.pendingGain);
     this.clickActivity = Math.max(0, this.clickActivity - delta * 0.12);
-    this.audio.update(Math.log10(1 + this.sim.perSecond), this.clickActivity);
+    this.audio.update(showIntensity(this.sim.perSecond), this.clickActivity);
     this.stage.render(this.visualTime);
     this.lastFrameCpuMs = performance.now() - startedAt;
     for (const listener of this.frameListeners) listener(delta);
+  }
+
+  /** Holding the mouse down keeps popping, so nobody has to hammer the button. */
+  private stepHold(delta: number): void {
+    const hold = this.hold;
+    if (!hold || this.paused) return;
+    hold.wait -= delta;
+    while (hold.wait <= 0) {
+      hold.wait += HOLD_POP.interval;
+      this.world.click(hold.x, hold.y);
+    }
   }
 
   /** Steps quality down when frames stay slow, and never fights an explicit choice. */

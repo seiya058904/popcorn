@@ -45,6 +45,13 @@ const MIGRATIONS: Record<number, (raw: Json) => Json> = {
       version: 2,
     };
   },
+  // Version 3 rebuilt the economy around ten units, so an old run cannot continue.
+  // What the player collected across runs is kept.
+  2: (raw) => ({
+    ...createState(),
+    legacy: { ...createLegacy(), ...(isObject(raw.legacy) ? raw.legacy : {}) },
+    version: 3,
+  }),
 };
 
 const finite = (value: unknown, fallback: number, min = 0, max = Number.MAX_VALUE): number =>

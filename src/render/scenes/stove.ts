@@ -57,6 +57,13 @@ const PAN_SLOTS: UnitSlot[] = [
 ];
 const BURNER_PANS = 4;
 
+const MICROWAVE_SLOTS: UnitSlot[] = [
+  // On the window sill, where a growing heap cannot hide them.
+  { x: -4.85, y: 2.24, z: -3.12, rotation: 0.08, scale: 0.62 },
+  { x: -3.05, y: 2.24, z: -3.12, rotation: -0.08, scale: 0.62 },
+  { x: 1.9, y: PAN_Y_TOP, z: -2.65, rotation: -0.08, scale: 0.92 },
+];
+
 const BURNERS: THREE.Vector3Tuple[] = [
   [0, 0.03, 0],
   ...PAN_SLOTS.slice(0, BURNER_PANS).map((slot): THREE.Vector3Tuple => [slot.x, 0.03, slot.z]),
@@ -510,7 +517,7 @@ export const stoveSpec: SceneSpec = {
   steamY: POT.rimY,
   spreadRadius: 7.5,
   nest: { position: new THREE.Vector3(-8.2, -3.3, -15.2), scale: 0.42 },
-  slots: { pan: PAN_SLOTS },
+  slots: { pan: PAN_SLOTS, microwave: MICROWAVE_SLOTS },
   cannon: null,
   perches: [],
   build: buildStove,

@@ -1,5 +1,6 @@
 import type { Page } from '@playwright/test';
-import { advance, qa } from './shot-presets.ts';
+import { STAGES } from '../src/content/stages.ts';
+import { advance, qa, totalAt } from './shot-presets.ts';
 
 export interface FilmScenario {
   query?: string;
@@ -16,6 +17,12 @@ const FRAME = 1 / 60;
 const POT_CLIP = { x: 340, y: 180, width: 400, height: 300 };
 const POT_X = 540;
 const POT_Y = 390;
+
+const nearBreak = (stage: number, flavors: number): { stage: number; total: number; flavors: number } => ({
+  stage,
+  total: STAGES[stage]!.threshold * 0.98,
+  flavors,
+});
 
 const warmedUp = async (page: Page, amount: number): Promise<void> => {
   await qa(
@@ -36,7 +43,7 @@ export const filmScenarios: Record<string, FilmScenario> = {
   click: {
     clip: POT_CLIP,
     frames: 48,
-    setup: (page) => warmedUp(page, 20),
+    setup: (page) => warmedUp(page, 30),
     beforeFrame: async (page, frame) => {
       if (frame === 2) await click(page, POT_X, POT_Y);
     },
@@ -47,7 +54,7 @@ export const filmScenarios: Record<string, FilmScenario> = {
     clip: { x: 0, y: 200, width: 520, height: 420 },
     frames: 32,
     setup: async (page) => {
-      await warmedUp(page, 60);
+      await warmedUp(page, 100);
       await qa(page, (api) => api.buy(0), null);
     },
     step: (page) => advance(page, FRAME * 2),
@@ -61,10 +68,10 @@ export const filmScenarios: Record<string, FilmScenario> = {
       await qa(
         page,
         (api) => {
-          api.earn(960);
+          api.earn(1900);
           api.buy(0, 3);
           api.advance(2.5);
-          api.earn(200);
+          api.earn(300);
         },
         null,
       );
@@ -79,11 +86,11 @@ export const filmScenarios: Record<string, FilmScenario> = {
     setup: async (page) => {
       await qa(
         page,
-        (api) => {
-          api.set({ stage: 1, totalEarned: 12000, popcorn: 12000 });
+        (api, total: number) => {
+          api.set({ stage: 1, totalEarned: total, popcorn: total });
           api.advance(2.5);
         },
-        null,
+        totalAt(1, 0.64),
       );
     },
     beforeFrame: async (page, frame) => {
@@ -109,12 +116,12 @@ export const filmScenarios: Record<string, FilmScenario> = {
     setup: async (page) => {
       await qa(
         page,
-        (api) => {
-          api.set({ stage: 1, totalEarned: 4.9e4, popcorn: 4.9e4, flavors: 3 });
+        (api, value: { stage: number; total: number; flavors: number }) => {
+          api.set({ stage: value.stage, totalEarned: value.total, popcorn: value.total, flavors: value.flavors });
           api.advance(3);
-          api.earn(2000);
+          api.earn(value.total * 0.05);
         },
-        null,
+        nearBreak(1, 3),
       );
     },
     step: (page) => advance(page, FRAME * 6),
@@ -127,12 +134,12 @@ export const filmScenarios: Record<string, FilmScenario> = {
     setup: async (page) => {
       await qa(
         page,
-        (api) => {
-          api.set({ stage: 2, totalEarned: 9.8e6, popcorn: 9.8e6, flavors: 6 });
+        (api, value: { stage: number; total: number; flavors: number }) => {
+          api.set({ stage: value.stage, totalEarned: value.total, popcorn: value.total, flavors: value.flavors });
           api.advance(3);
-          api.earn(3e5);
+          api.earn(value.total * 0.05);
         },
-        null,
+        nearBreak(2, 6),
       );
     },
     step: (page) => advance(page, FRAME * 6),
@@ -145,12 +152,12 @@ export const filmScenarios: Record<string, FilmScenario> = {
     setup: async (page) => {
       await qa(
         page,
-        (api) => {
-          api.set({ stage: 3, totalEarned: 9.8e8, popcorn: 9.8e8, flavors: 9 });
+        (api, value: { stage: number; total: number; flavors: number }) => {
+          api.set({ stage: value.stage, totalEarned: value.total, popcorn: value.total, flavors: value.flavors });
           api.advance(3);
-          api.earn(3e7);
+          api.earn(value.total * 0.05);
         },
-        null,
+        nearBreak(3, 9),
       );
     },
     step: (page) => advance(page, FRAME * 6),
@@ -163,12 +170,12 @@ export const filmScenarios: Record<string, FilmScenario> = {
     setup: async (page) => {
       await qa(
         page,
-        (api) => {
-          api.set({ stage: 4, totalEarned: 1.95e10, popcorn: 1.95e10, flavors: 12 });
+        (api, value: { stage: number; total: number; flavors: number }) => {
+          api.set({ stage: value.stage, totalEarned: value.total, popcorn: value.total, flavors: value.flavors });
           api.advance(3);
-          api.earn(1e9);
+          api.earn(value.total * 0.05);
         },
-        null,
+        nearBreak(4, 12),
       );
     },
     step: (page) => advance(page, FRAME * 29),
@@ -179,7 +186,7 @@ export const filmScenarios: Record<string, FilmScenario> = {
     frames: 24,
     columns: 6,
     setup: async (page) => {
-      await warmedUp(page, 800);
+      await warmedUp(page, 1500);
       await advance(page, 2);
       await qa(page, (api) => api.buy(0), null);
     },
@@ -191,7 +198,7 @@ export const filmScenarios: Record<string, FilmScenario> = {
     frames: 28,
     columns: 7,
     setup: async (page) => {
-      await warmedUp(page, 900);
+      await warmedUp(page, 1600);
       await advance(page, 2);
       await qa(page, (api) => api.game.sim.buyFlavor(), null);
     },
@@ -201,7 +208,7 @@ export const filmScenarios: Record<string, FilmScenario> = {
   rapid: {
     clip: POT_CLIP,
     frames: 40,
-    setup: (page) => warmedUp(page, 40),
+    setup: (page) => warmedUp(page, 60),
     beforeFrame: async (page, frame) => {
       if (frame % 3 === 0) await click(page, POT_X + (frame % 7) * 8 - 24, POT_Y);
     },

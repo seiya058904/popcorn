@@ -204,6 +204,123 @@ function volcanoGlow(): THREE.BufferGeometry {
   return kit.build();
 }
 
+function microwaveBody(): THREE.BufferGeometry {
+  const kit = new Kit();
+  kit.add(P.box(2.1, 1.2, 1.1, 0.1, 3), { color: '#f4e6cf', gloss: 0.7, matrix: at(0, 0.68, 0) });
+  // Door frame around a dark oven cavity.
+  kit.add(P.box(1.34, 0.86, 0.04, 0.02, 1), { color: '#262331', gloss: 0.3, outline: 0, matrix: at(-0.27, 0.68, 0.56) });
+  for (const y of [0.22, 1.14]) kit.add(P.box(1.5, 0.08, 0.16, 0.03, 1), { color: IRON_LIGHT, gloss: 0.7, matrix: at(-0.27, y, 0.62) });
+  for (const x of [-1, 0.46]) kit.add(P.box(0.08, 1, 0.16, 0.03, 1), { color: IRON_LIGHT, gloss: 0.7, matrix: at(x, 0.68, 0.62) });
+  kit.add(P.box(1.2, 0.05, 0.02, 0.01, 1), { color: '#ffcf7a', emissive: 0.9, outline: 0, matrix: at(-0.27, 1.05, 0.59) });
+  kit.add(P.capsule(0.035, 0.6, 3, 8), { color: CHROME, gloss: 1, matrix: at(0.38, 0.68, 0.74) });
+  // Control panel.
+  kit.add(P.box(0.42, 0.98, 0.05, 0.03, 1), { color: '#dcc9aa', gloss: 0.5, outline: 0, matrix: at(0.76, 0.68, 0.56) });
+  kit.add(P.box(0.32, 0.15, 0.02, 0.01, 1), { color: '#7ce0b8', emissive: 0.9, outline: 0, matrix: at(0.76, 1.02, 0.59) });
+  for (let row = 0; row < 3; row += 1) {
+    for (let column = 0; column < 2; column += 1) {
+      kit.add(P.sphere(0.05, 8, 6), { color: row === 2 && column === 1 ? RED : IRON_LIGHT, gloss: 0.8, outline: 0, matrix: at(0.66 + column * 0.2, 0.78 - row * 0.17, 0.59) });
+    }
+  }
+  for (const x of [-0.85, 0.85]) for (const z of [-0.4, 0.4]) kit.add(P.puck(0.08, 0.06, 0.08, 10, 0.01), { color: IRON, matrix: at(x, 0, z) });
+  return kit.build();
+}
+
+/** The turntable with its swelling paper bag. */
+function microwaveTray(): THREE.BufferGeometry {
+  const kit = new Kit();
+  kit.add(P.puck(0.34, 0.34, 0.03, 20, 0.01), { color: '#d9e4ee', gloss: 1, outline: 0, matrix: at(0, -0.1, 0) });
+  kit.add(P.sphere(0.25, 14, 10), { color: '#fff1d0', gloss: 0.2, outline: 0.6, matrix: at(0, 0.1, 0, [0, 0, 0], [1.1, 0.8, 0.85]) });
+  kit.add(P.box(0.36, 0.05, 0.4, 0.02, 1), { color: RED, gloss: 0.5, outline: 0, matrix: at(0, 0.12, 0) });
+  return kit.build();
+}
+
+function truckBody(): THREE.BufferGeometry {
+  const kit = new Kit();
+  kit.add(P.box(5.3, 0.22, 1.7, 0.06, 2), { color: IRON, gloss: 0.4, matrix: at(0.1, 0.62, 0) });
+  // Striped cargo box with a serving hatch.
+  for (let i = 0; i < 7; i += 1) {
+    kit.add(P.box(0.5, 1.8, 1.72, 0.03, 1), { color: i % 2 ? CREAM : RED, gloss: 0.7, outline: i === 0 || i === 6 ? 1 : 0, matrix: at(-2.05 + i * 0.5, 1.64, 0) });
+  }
+  kit.add(P.box(3.7, 0.12, 1.86, 0.04, 1), { color: BUTTER, gloss: 0.8, matrix: at(-0.55, 2.6, 0) });
+  kit.add(P.box(1.7, 0.72, 0.05, 0.03, 1), { color: '#3a3346', gloss: 0.6, outline: 0, matrix: at(-0.55, 1.78, 0.87) });
+  kit.add(P.box(1.9, 0.07, 0.56, 0.02, 1), { color: BUTTER, gloss: 0.8, matrix: at(-0.55, 2.2, 1.08, [0.3, 0, 0]) });
+  // Cab.
+  kit.add(P.box(1.4, 1.35, 1.66, 0.16, 3), { color: BUTTER, gloss: 0.9, matrix: at(2.05, 1.38, 0) });
+  kit.add(P.box(0.06, 0.56, 1.36, 0.02, 1), { color: '#a9dbe9', gloss: 1, emissive: 0.1, outline: 0, matrix: at(2.76, 1.68, 0) });
+  for (const z of [-0.84, 0.84]) kit.add(P.box(0.8, 0.5, 0.04, 0.02, 1), { color: '#a9dbe9', gloss: 1, outline: 0, matrix: at(2.1, 1.68, z) });
+  kit.add(P.box(0.14, 0.26, 1.72, 0.05, 1), { color: CHROME, gloss: 1, matrix: at(2.86, 0.72, 0) });
+  for (const z of [-0.56, 0.56]) kit.add(P.sphere(0.12, 10, 8), { color: '#fff3c4', emissive: 1, outline: 0, matrix: at(2.8, 1.02, z) });
+  // A giant bucket on the roof, so it reads from far away.
+  kit.add(P.lathe([[0, 0], [0.5, 0], [0.72, 0.95], [0.66, 0.95], [0, 0.2]], 18, 0.02, 1), { color: RED, gloss: 0.7, matrix: at(-0.8, 2.66, 0) });
+  for (let i = 0; i < 7; i += 1) kit.add(P.sphere(0.26, 9, 7), { color: '#fff3d4', gloss: 0.12, outline: 0.5, matrix: at(-0.8 + Math.cos(i * 2.4) * 0.38, 3.66 + (i % 3) * 0.1, Math.sin(i * 2.4) * 0.38) });
+  return kit.build();
+}
+
+/** A pair of wheels on one axle; the hub spokes make the spin visible. */
+function truckAxle(): THREE.BufferGeometry {
+  const kit = new Kit();
+  for (const side of [-1, 1]) {
+    const flat: [number, number, number] = [Math.PI / 2, 0, 0];
+    kit.add(P.puck(0.44, 0.44, 0.28, 18, 0.05), { color: IRON, gloss: 0.3, matrix: at(0, 0, side * 0.82 - 0.14, flat) });
+    kit.add(P.puck(0.22, 0.22, 0.04, 12, 0.01), { color: CHROME, gloss: 1, outline: 0, matrix: at(0, 0, side * 0.82 + side * 0.14 - 0.02, flat) });
+    for (let i = 0; i < 3; i += 1) kit.add(P.box(0.4, 0.05, 0.03, 0.01, 1), { color: IRON_LIGHT, outline: 0, matrix: at(0, 0, side * 0.98, [0, 0, (i / 3) * Math.PI]) });
+  }
+  return kit.build();
+}
+
+function airshipBody(): THREE.BufferGeometry {
+  const kit = new Kit();
+  const stripe = new THREE.Color(RED);
+  kit.add(
+    P.lathe([[0, -3.2], [0.72, -2.8], [1.28, -1.6], [1.5, 0], [1.3, 1.6], [0.76, 2.8], [0, 3.2]], 28, 0.1, 3),
+    {
+      color: BUTTER,
+      gloss: 0.75,
+      matrix: at(0, 0, 0, [0, 0, -Math.PI / 2]),
+      colorFn: (p, _n, out) => {
+        if (Math.cos(Math.atan2(p.z, p.y) * 6) > 0.35) out.copy(stripe);
+      },
+    },
+  );
+  for (const [rx, sy] of [[0, 1], [Math.PI, 1], [Math.PI / 2, 0.9], [-Math.PI / 2, 0.9]] as const) {
+    kit.add(P.box(0.9, 0.9 * sy, 0.08, 0.04, 1), { color: RED, gloss: 0.7, matrix: new THREE.Matrix4().makeRotationX(rx).multiply(at(-2.7, 1.05, 0)) });
+  }
+  kit.add(P.box(1.7, 0.42, 0.62, 0.14, 3), { color: CREAM, gloss: 0.7, matrix: at(0.2, -1.84, 0) });
+  for (let i = 0; i < 4; i += 1) kit.add(P.box(0.2, 0.16, 0.03, 0.02, 1), { color: '#a9dbe9', gloss: 1, outline: 0, matrix: at(-0.4 + i * 0.4, -1.8, 0.32) });
+  for (const x of [-0.5, 0.9]) kit.add(P.box(0.05, 0.42, 0.05, 0.01, 1), { color: IRON, matrix: at(x, -1.5, 0) });
+  kit.add(P.puck(0.34, 0.14, 0.34, 12, 0.03), { color: IRON_LIGHT, gloss: 0.6, matrix: at(0.2, -2.04, 0, [Math.PI, 0, 0]) });
+  return kit.build();
+}
+
+function airshipProp(): THREE.BufferGeometry {
+  const kit = new Kit();
+  for (let i = 0; i < 3; i += 1) kit.add(P.box(0.05, 0.9, 0.14, 0.02, 1), { color: IRON_LIGHT, gloss: 0.8, outline: 0.5, matrix: at(0, 0, 0, [(i / 3) * Math.PI, 0, 0]) });
+  kit.add(P.sphere(0.09, 10, 8), { color: CHROME, gloss: 1, outline: 0 });
+  return kit.build();
+}
+
+function orbitalBody(): THREE.BufferGeometry {
+  const kit = new Kit();
+  kit.add(P.puck(0.62, 0.5, 0.9, 8, 0.06), { color: CHROME, gloss: 1, matrix: at(0, -0.3, 0) });
+  kit.add(P.torus(0.58, 0.05, 8, 24), { color: BUTTER, gloss: 0.9, outline: 0, matrix: at(0, 0.1, 0, [Math.PI / 2, 0, 0]) });
+  for (const side of [-1, 1]) {
+    kit.add(P.box(0.9, 0.06, 0.06, 0.01, 1), { color: IRON_LIGHT, matrix: at(side * 0.95, 0.1, 0) });
+    kit.add(P.box(2.3, 0.05, 1, 0.02, 1), { color: '#2a4fa0', gloss: 0.9, matrix: at(side * 2.5, 0.1, 0) });
+    for (let i = 0; i < 6; i += 1) kit.add(P.box(0.025, 0.06, 1, 0.005, 1), { color: '#b9c7d6', gloss: 0.8, outline: 0, matrix: at(side * (1.5 + i * 0.4), 0.1, 0) });
+  }
+  kit.add(P.sphere(0.2, 12, 9), { color: '#ffb648', emissive: 1, outline: 0, matrix: at(0, -0.46, 0) });
+  return kit.build();
+}
+
+/** The focusing mirror, aimed at the moon. */
+function orbitalMirror(): THREE.BufferGeometry {
+  const kit = new Kit();
+  kit.add(P.lathe([[0, 0], [0.5, 0.05], [0.95, 0.3], [1.05, 0.42], [0.98, 0.42], [0.5, 0.14], [0, 0.08]], 28, 0.02, 1), { color: '#e9f1f8', gloss: 1 });
+  kit.add(P.capsule(0.03, 0.5, 2, 6), { color: IRON_LIGHT, matrix: at(0, 0.34, 0) });
+  kit.add(P.sphere(0.07, 8, 6), { color: '#ffe9a8', emissive: 1, outline: 0, matrix: at(0, 0.66, 0) });
+  return kit.build();
+}
+
 export function cannonFrame(): THREE.BufferGeometry {
   const kit = new Kit();
   kit.add(P.box(2.4, 0.14, 1.3, 0.06, 2), { color: '#6a4227', gloss: 0.3, matrix: at(0, 0.07, 0) });
@@ -335,6 +452,17 @@ export const UNIT_DEFS: Partial<Record<UnitKindName, UnitDef>> = {
       st.lidSpin = gag ? host.rng.range(4, 7) * host.rng.sign() : 0;
     },
   },
+  microwave: {
+    parts: [microwaveBody, microwaveTray],
+    shadowParts: 1,
+    interval: [1.6, 2.8],
+    muzzle: [-0.27, 0.8, 0.7],
+    dropHeight: 5,
+    pose(st, _time, _index, _tier, base, put) {
+      put(0, base);
+      putLocal(base, put, 1, -0.27, 0.42, 0.46, 0, st.spin * 1.4, 0);
+    },
+  },
   cart: {
     parts: [cartBody, cartTumbler, cartSign],
     shadowParts: 1,
@@ -377,6 +505,46 @@ export const UNIT_DEFS: Partial<Record<UnitKindName, UnitDef>> = {
       putLocal(base, put, 1, 0, 2.22, 0, 0, 0, tip * 0.75);
       // The marquee lights come on once the machine has earned a following.
       put(2, tier >= 1 || Math.sin(time * 5 + index) > 0 ? base : HIDDEN);
+    },
+  },
+  truck: {
+    parts: [truckBody, truckAxle, truckAxle],
+    shadowParts: 1,
+    interval: [1.4, 2.4],
+    muzzle: [-0.8, 3.9, 0],
+    dropHeight: 6,
+    pose(st, _time, _index, _tier, base, put) {
+      put(0, base);
+      putLocal(base, put, 1, 1.9, 0.44, 0, 0, 0, -st.spin * 1.2);
+      putLocal(base, put, 2, -1.5, 0.44, 0, 0, 0, -st.spin * 1.2);
+    },
+  },
+  airship: {
+    parts: [airshipBody, airshipProp],
+    shadowParts: 1,
+    interval: [1, 1.9],
+    muzzle: [0.2, -2.3, 0],
+    dropHeight: 8,
+    pose(st, time, index, _tier, base, put) {
+      const bob = Math.sin(time * 0.7 + index * 2) * 0.22;
+      const roll = Math.sin(time * 0.45 + index) * 0.035;
+      putLocal(base, put, 0, 0, bob, 0, roll, 0, roll * 0.5);
+      putLocal(base, put, 1, -3.3, bob, 0, st.spin * 5, 0, 0);
+    },
+  },
+  orbital: {
+    parts: [orbitalBody, orbitalMirror],
+    shadowParts: 1,
+    interval: [0.9, 1.6],
+    muzzle: [0, 1, 0],
+    dropHeight: 10,
+    pose(st, time, index, _tier, base, put) {
+      const sway = Math.sin(time * 0.3 + index * 1.7) * 0.05;
+      putLocal(base, put, 0, 0, sway, 0, 0, time * 0.06 + index, 0);
+      putLocal(base, put, 1, 0, 0.42 + sway, 0, 0.18 + st.shake * 0.1, time * 0.06 + index, 0);
+    },
+    fire(_st, host, x, y, z, s) {
+      host.flash(x, y, z, 0.8 * s);
     },
   },
   factory: {
@@ -423,6 +591,7 @@ export class UnitRig {
   private readonly states: UnitState[] = [];
   private readonly base = new THREE.Matrix4();
   private readonly height: number;
+  private readonly lowest: number;
   private tier = 0;
 
   constructor(stage: Stage, parent: THREE.Object3D, kind: UnitKindName, slots: UnitSlot[], host: UnitHost) {
@@ -431,13 +600,16 @@ export class UnitRig {
     this.host = host;
     const shadowParts = this.def.shadowParts ?? this.def.parts.length;
     let height = 0;
+    let lowest = 0;
     this.parts = this.def.parts.map((make, index) => {
       const geometry = make();
       geometry.computeBoundingBox();
       height = Math.max(height, geometry.boundingBox!.max.y);
+      lowest = Math.min(lowest, geometry.boundingBox!.min.y);
       return addToyInstances(stage, parent, geometry, slots.length, index < shadowParts);
     });
     this.height = height;
+    this.lowest = lowest;
     this.cursors = this.parts.map(() => 0);
     const tints = this.def.tints;
     if (tints) {
@@ -454,6 +626,16 @@ export class UnitRig {
 
   get visible(): number {
     return this.states.length;
+  }
+
+  /** The top and bottom of every machine on show, for framing the camera. */
+  collectPoints(out: THREE.Vector3[]): void {
+    this.states.forEach((st, index) => {
+      if (st.sunk >= 1) return;
+      const slot = this.slots[index]!;
+      const s = slot.scale ?? 1;
+      out.push(new THREE.Vector3(slot.x, slot.y + this.height * s, slot.z), new THREE.Vector3(slot.x, slot.y + this.lowest * s, slot.z));
+    });
   }
 
   hide(): void {

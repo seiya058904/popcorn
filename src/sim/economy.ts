@@ -1,6 +1,6 @@
 import { FLAVOR_BASE_COST, FLAVOR_COST_GROWTH, FLAVOR_MULTIPLIER, FLAVORS } from '../content/flavors.ts';
 import { MILESTONE_STEP, MILESTONES, PRICE_GROWTH, PRODUCERS } from '../content/producers.ts';
-import { CANNON, CLICK, HOPPER, NEW_POT, OFFLINE } from '../content/skills.ts';
+import { CANNON, CLICK, HOPPER, NEW_POT, OFFLINE, POT } from '../content/skills.ts';
 import { STAGES } from '../content/stages.ts';
 import { UPGRADE_BY_ID, type UpgradeEffect } from '../content/upgrades.ts';
 import type { GameState } from './state.ts';
@@ -59,14 +59,21 @@ function* activeEffects(state: GameState): Generator<UpgradeEffect> {
 /** Everything derived from purchases. Recomputed only when purchases change. */
 export interface Derived {
   unitRates: number[];
+  /** What one more unit of each kind makes per second at the current multipliers. */
+  unitEach: number[];
   /** Production per second without the temporary frenzy. */
   baseRate: number;
   clickPops: number;
   clickShare: number;
+  /** Clicks per second made for the player by the stirring machines. */
+  autoPops: number;
+  autoCannon: boolean;
+  autoHopper: boolean;
   cannonGreenWidth: number;
   cannonCooldown: number;
   cannonPayout: number;
   frenzySeconds: number;
+  frenzyMultiplier: number;
   hopperIntervalScale: number;
   offlineRate: number;
   offlineCapSeconds: number;
@@ -83,13 +90,18 @@ export function derive(state: GameState): Derived {
   const synergy = PRODUCERS.map(() => 0);
   const d: Derived = {
     unitRates: [],
+    unitEach: [],
     baseRate: 0,
     clickPops: CLICK.basePops,
     clickShare: CLICK.rateShare,
+    autoPops: 0,
+    autoCannon: false,
+    autoHopper: false,
     cannonGreenWidth: CANNON.greenWidth,
     cannonCooldown: CANNON.cooldown,
     cannonPayout: 1,
     frenzySeconds: HOPPER.frenzySeconds,
+    frenzyMultiplier: HOPPER.frenzyMultiplier,
     hopperIntervalScale: 1,
     offlineRate: OFFLINE.rate,
     offlineCapSeconds: OFFLINE.capHours * 3600,
@@ -101,6 +113,15 @@ export function derive(state: GameState): Derived {
         break;
       case 'clickRate':
         d.clickShare += effect.add;
+        break;
+      case 'autoPops':
+        d.autoPops += effect.perSecond;
+        break;
+      case 'autoCannon':
+        d.autoCannon = true;
+        break;
+      case 'autoHopper':
+        d.autoHopper = true;
         break;
       case 'unitMult':
         unitMults[effect.unit]! *= effect.mult;
@@ -120,6 +141,9 @@ export function derive(state: GameState): Derived {
       case 'frenzyDuration':
         d.frenzySeconds += effect.add;
         break;
+      case 'frenzyMult':
+        d.frenzyMultiplier = Math.max(d.frenzyMultiplier, effect.mult);
+        break;
       case 'hopperInterval':
         d.hopperIntervalScale *= effect.mult;
         break;
@@ -135,19 +159,25 @@ export function derive(state: GameState): Derived {
     FLAVOR_MULTIPLIER ** Math.min(state.flavors, FLAVORS.length) *
     stageMultiplier(state.stage) *
     (1 + state.legacy.runs * NEW_POT.bonusPerRun);
-  d.unitRates = PRODUCERS.map((producer) => {
-    const owned = state.owned[producer.id]!;
-    return (
-      owned * producer.baseRate * 2 ** milestoneCount(owned) * unitMults[producer.id]! * (1 + synergy[producer.id]!) * global
-    );
-  });
-  d.baseRate = d.unitRates.reduce((sum, rate) => sum + rate, 0);
+  d.unitEach = PRODUCERS.map(
+    (producer) =>
+      producer.baseRate * 2 ** milestoneCount(state.owned[producer.id]!) * unitMults[producer.id]! * (1 + synergy[producer.id]!) * global,
+  );
+  d.unitRates = PRODUCERS.map((producer) => state.owned[producer.id]! * d.unitEach[producer.id]!);
+  d.baseRate = d.unitRates.reduce((sum, rate) => sum + rate, POT.idleRate * global);
   return d;
 }
 
 /** Popcorn per second including an active frenzy. */
 export function currentRate(state: GameState, d: Derived): number {
-  return d.baseRate * (state.frenzy > 0 ? HOPPER.frenzyMultiplier : 1);
+  return d.baseRate * (state.frenzy > 0 ? d.frenzyMultiplier : 1);
+}
+
+/** Output spans many orders of magnitude; shows and sound follow it on this compressed scale. */
+const SHOW_INTENSITY_PER_DECADE = 0.5;
+
+export function showIntensity(rate: number): number {
+  return Math.log10(1 + rate) * SHOW_INTENSITY_PER_DECADE;
 }
 
 /** A click earns one base value per kernel plus one share of production, however many kernels pop. */

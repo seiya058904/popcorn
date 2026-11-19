@@ -43,6 +43,6 @@ export const FLAVORS: readonly FlavorDef[] = [
   { id: 11, name: '神秘味道', blurb: '没人说得清，但月亮好像闻到了。', cream: '#d9fff4', shade: '#8ce0ff', deep: '#7a4dff', hull: '#2b1466', sheen: 0.85, effect: 'mystery', bottle: '#7a4dff' },
 ];
 
-export const FLAVOR_MULTIPLIER = 1.4;
-export const FLAVOR_BASE_COST = 300;
-export const FLAVOR_COST_GROWTH = 4;
+export const FLAVOR_MULTIPLIER = 1.35;
+export const FLAVOR_BASE_COST = 400;
+export const FLAVOR_COST_GROWTH = 28;

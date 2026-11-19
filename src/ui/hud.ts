@@ -85,7 +85,7 @@ export class Hud {
 
     this.shop = new Shop(root, sim);
     this.gauge = new CannonGauge(root, sim, gaugeHooks);
-    this.hint = el('div', 'hint', root, '点一下锅里的玉米');
+    this.hint = el('div', 'hint', root, '点一下锅里的玉米，也可以按住不放');
 
     for (let i = 0; i < FLOAT_POOL; i += 1) this.floats.push(el('div', 'float num', root));
     this.toasts = el('div', 'toasts', root);

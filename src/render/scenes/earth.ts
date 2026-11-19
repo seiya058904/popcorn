@@ -501,6 +501,16 @@ export const earthSpec: SceneSpec = {
   spreadRadius: 46,
   nest: null,
   slots: {
+    airship: [
+      { x: -27, y: 7, z: -6, rotation: 0.2, scale: 1.5 },
+      { x: 26, y: 9, z: -9, rotation: 2.9, scale: 1.5 },
+      { x: -9, y: 14, z: -20, rotation: 0.1, scale: 1.4 },
+    ],
+    orbital: [
+      { x: -41, y: -3, z: -6, rotation: 0.4, scale: 1.8 },
+      { x: 40, y: 0, z: -8, rotation: -0.4, scale: 1.8 },
+      { x: -40, y: -32, z: 4, rotation: 0.2, scale: 1.7 },
+    ],
     factory: [onPlanet(-21, 2, 1.5, 2), onPlanet(20, -8, -2, 2), onPlanet(4, 22, 0, 2)],
     volcano: [onPlanet(-11, -13, 0.7, 2.4), onPlanet(13, -14, -0.7, 2.4), onPlanet(-20, -9, 1.2, 2.3), onPlanet(22, 7, -1.4, 2.3), onPlanet(-3, -21, 0.1, 2.3), onPlanet(-24, 11, 1.1, 2.2), onPlanet(23, 13, -1.1, 2.2), onPlanet(9, 24, -0.3, 2.2)],
   },

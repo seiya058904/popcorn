@@ -1,6 +1,6 @@
 import { PRODUCERS } from '../content/producers.ts';
 
-export const SAVE_VERSION = 2;
+export const SAVE_VERSION = 3;
 
 export interface RunStats {
   clicks: number;

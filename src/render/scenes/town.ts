@@ -366,6 +366,13 @@ export const townSpec: SceneSpec = {
   },
   slots: {
     cinema: [slot(-44, 6, 0.8, 4.2), slot(-7, -36, 0.1, 4.2), slot(34, 10, -1, 4.2), slot(37, -14, -1.9, 4.2)],
+    truck: [slot(-34, 22, 0.9, 2.4), slot(29, 25, 2.4, 2.4), slot(-48, -14, 1.5, 2.4), slot(52, -4, 1.7, 2.4)],
+    airship: [
+      { x: -60, y: 30, z: -30, rotation: 0.2, scale: 3.6 },
+      { x: 44, y: 33, z: -40, rotation: 2.9, scale: 3.6 },
+      { x: -24, y: 30, z: -62, rotation: 0.1, scale: 3.4 },
+      { x: 60, y: 24, z: 4, rotation: 2.6, scale: 3.4 },
+    ],
     factory: [slot(-62, -30, 0.8, 5.2), slot(32, -62, -0.3, 5.2), slot(70, 2, -1.4, 5.2), slot(-70, 14, 1.3, 5.2), slot(60, 34, -2, 5), slot(-52, 44, 2.2, 5), slot(-12, -72, 0.1, 5.2), slot(76, -42, -1, 5)],
   },
   cannon: { position: new THREE.Vector3(32, 0.05, 14), rotation: Math.PI - 0.45, scale: 5.5 },

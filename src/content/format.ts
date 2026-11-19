@@ -1,15 +1,17 @@
 const UNITS: ReadonlyArray<readonly [number, string]> = [
-  [1e16, '京'],
-  [1e12, '兆'],
+  [1e20, '万亿亿'],
+  [1e16, '亿亿'],
+  [1e12, '万亿'],
   [1e8, '亿'],
   [1e4, '万'],
 ];
 
 function trimmed(value: number, digits: number): string {
-  return value.toFixed(digits).replace(/\.?0+$/, '');
+  const text = value.toFixed(digits);
+  return digits > 0 ? text.replace(/\.?0+$/, '') : text;
 }
 
-/** Chinese large-number display: 9,999 → 9,999; 12,300 → 1.23万; 2e8 → 2亿. */
+/** Chinese large-number display: 9,999 → 9,999; 12,300 → 1.23万; 2e8 → 2亿; 3e15 → 3000万亿. */
 export function formatAmount(value: number): string {
   if (!Number.isFinite(value)) return '∞';
   const abs = Math.abs(value);

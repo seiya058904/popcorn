@@ -32,7 +32,7 @@ for (const size of [
     await ready(page);
     await qa(page, (api) => {
       api.set({ stage: 2 });
-      api.earn(3e7);
+      api.earn(5e7);
       api.advance(0.3);
     });
     const issues = await page.evaluate(() => {
@@ -65,7 +65,7 @@ test('the counter does not move the layout as its length changes', async ({ page
   const rects = await qa(page, (api) => {
     const read = (): string => JSON.stringify(document.querySelector('.marquee')!.getBoundingClientRect());
     const seen = new Set<string>();
-    for (const amount of [5, 500, 9000, 50000, 3e6, 8e8, 2e10]) {
+    for (const amount of [5, 500, 9000, 50000, 3e6, 8e8, 2e10, 3e14, 9e16]) {
       api.earn(amount);
       api.advance(0.5);
       seen.add(read());

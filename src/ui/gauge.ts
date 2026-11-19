@@ -80,12 +80,14 @@ export class CannonGauge {
   private begin(): void {
     if (!this.sim.cannonReady || this.charging) return;
     this.charging = true;
+    this.sim.cannonHeld = true;
     this.held = 0;
   }
 
   private cancel(): void {
     if (!this.charging) return;
     this.charging = false;
+    this.sim.cannonHeld = false;
     this.held = 0;
     this.hooks.onChargeChange(0, false);
   }
@@ -97,6 +99,7 @@ export class CannonGauge {
 
   private fire(held: number): void {
     this.charging = false;
+    this.sim.cannonHeld = false;
     this.held = 0;
     this.hooks.onChargeChange(0, false);
     const outcome = this.sim.fireCannon(held);

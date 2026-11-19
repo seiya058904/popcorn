@@ -3,6 +3,7 @@ export type CannonResult = 'normal' | 'perfect' | 'overpressure';
 /** Everything the presentation layer may react to. */
 export interface GameEvents {
   kernel_popped: { count: number; gained: number };
+  auto_popped: { gained: number };
   producer_purchased: { producer: number; owned: number; quantity: number; spent: number; milestone: boolean };
   flavor_unlocked: { flavor: number; spent: number };
   upgrade_purchased: { upgrade: string; spent: number };

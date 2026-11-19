@@ -11,6 +11,8 @@ export const CANNON = {
   normalSeconds: 30,
   perfectSeconds: 60,
   overpressureSeconds: 10,
+  /** A ready cannon waits this long before the automatic fuse fires it, so the player can go first. */
+  autoFireDelay: 4,
 } as const;
 
 export const HOPPER = {
@@ -20,6 +22,8 @@ export const HOPPER = {
   visibleSeconds: 12,
   frenzySeconds: 20,
   frenzyMultiplier: 5,
+  /** The automatic catcher lets the kernel hop around for a moment first. */
+  autoCatchSeconds: 3,
 } as const;
 
 export const OFFLINE = {
@@ -32,7 +36,19 @@ export const OFFLINE = {
 export const CLICK = {
   basePops: 1,
   baseValue: 1,
-  rateShare: 0.01,
+  /** Each click also pays this share of one second of production, so clicks stay useful late. */
+  rateShare: 0.08,
+} as const;
+
+/** Holding the mouse down keeps popping, so nobody has to hammer the button. */
+export const HOLD_POP = {
+  firstDelay: 0.22,
+  interval: 1 / 6,
+} as const;
+
+/** The pot simmers by itself: a player who never clicks still gets started. */
+export const POT = {
+  idleRate: 1,
 } as const;
 
 export const NEW_POT = {

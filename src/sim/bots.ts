@@ -21,7 +21,7 @@ export interface BotProfile {
 
 export const BOT_PROFILES: readonly BotProfile[] = [
   { name: '点击型', clicksPerSecond: 3, cannon: 'normal', hopperCatch: 0.8, shopInterval: 1 },
-  { name: '挂机型', clicksPerSecond: 0.5, cannon: 'none', hopperCatch: 0.25, shopInterval: 8 },
+  { name: '挂机型', clicksPerSecond: 0, cannon: 'none', hopperCatch: 0, shopInterval: 8 },
   { name: '大炮熟练型', clicksPerSecond: 3, cannon: 'perfect', hopperCatch: 1, shopInterval: 1 },
 ];
 
@@ -36,6 +36,9 @@ export interface BotReport {
   purchases: number;
   firstPurchaseSeconds: number;
   firstUnitSeconds: number;
+  /** When the second kind of unit was first bought. */
+  secondKindSeconds: number;
+  total: number;
   owned: number[];
   firstBought: number[];
   lastBought: number[];
@@ -260,6 +263,8 @@ export function runBot(profile: BotProfile, maxHours = 14, trace?: (seconds: num
     purchases,
     firstPurchaseSeconds: firstPurchase,
     firstUnitSeconds: firstUnit,
+    secondKindSeconds: firstBought.filter((value) => value >= 0).sort((a, b) => a - b)[1] ?? Number.NaN,
+    total: sim.state.totalEarned,
     owned: [...sim.state.owned],
     firstBought: firstBought.map((value) => value / 60),
     lastBought: lastBought.map((value) => value / 60),

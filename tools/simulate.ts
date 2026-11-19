@@ -1,10 +1,13 @@
 import { writeFileSync } from 'node:fs';
+import { ACHIEVEMENTS } from '../src/content/achievements.ts';
+import { FLAVORS } from '../src/content/flavors.ts';
+import { formatAmount } from '../src/content/format.ts';
 import { PRODUCERS } from '../src/content/producers.ts';
 import { STAGES } from '../src/content/stages.ts';
 import { BOT_PROFILES, runBot, type BotReport } from '../src/sim/bots.ts';
 
-export const STAGE_TARGETS = [3, 12, 35, 80, 150];
-export const TOLERANCE = 0.2;
+export const STAGE_TARGETS = [1.5, 10, 35, 85, 150];
+export const TOLERANCE = 0.15;
 
 const started = performance.now();
 const reports = BOT_PROFILES.map((profile) => runBot(profile));
@@ -27,7 +30,7 @@ for (const p of BOT_PROFILES) {
 lines.push('', '## 到达各阶段的时间（分钟）', '');
 lines.push(`| 阶段 | 累计门槛 | 目标 | ${reports.map((r) => r.name).join(' | ')} |`, `|---|---:|---:|${reports.map(() => '---:').join('|')}|`);
 STAGES.forEach((stage, index) => {
-  lines.push(`| ${stage.name} | ${stage.threshold.toLocaleString('en-US')} | ${STAGE_TARGETS[index]} | ${reports.map((r) => f1(r.stageMinutes[index]!)).join(' | ')} |`);
+  lines.push(`| ${stage.name} | ${formatAmount(stage.threshold)} | ${STAGE_TARGETS[index]} | ${reports.map((r) => f1(r.stageMinutes[index]!)).join(' | ')} |`);
 });
 lines.push('', '## 节奏', '');
 lines.push(`| 指标 | ${reports.map((r) => r.name).join(' | ')} |`, `|---|${reports.map(() => '---:').join('|')}|`);
@@ -35,17 +38,18 @@ const row = (label: string, get: (r: BotReport) => string): void => {
   lines.push(`| ${label} | ${reports.map(get).join(' | ')} |`);
 };
 row('通关（分钟）', (r) => (r.finished ? r.endMinutes.toFixed(1) : '未通关'));
+row('累计产量', (r) => formatAmount(r.total));
 row('最长购买等待（分钟）', (r) => r.longestWaitMinutes.toFixed(2));
 row('最长等待发生在（分钟）', (r) => r.longestWaitAt.toFixed(1));
 row('最长等待买的是', (r) => r.longestWaitFor);
 row('首次购买（秒）', (r) => r.firstPurchaseSeconds.toFixed(0));
-row('首个自动单位（秒）', (r) => r.firstUnitSeconds.toFixed(0));
+row('第二种设备（秒）', (r) => r.secondKindSeconds.toFixed(0));
 row('前 20 分钟购买间隔中位数（秒）', (r) => percentile(r.purchaseGapsEarly, 0.5).toFixed(0));
 row('前 20 分钟购买间隔 P90（秒）', (r) => percentile(r.purchaseGapsEarly, 0.9).toFixed(0));
 row('总购买次数', (r) => String(r.purchases));
-row('口味', (r) => `${r.flavors}/12`);
+row('口味', (r) => `${r.flavors}/${FLAVORS.length}`);
 row('升级', (r) => String(r.upgrades));
-row('成就', (r) => `${r.achievements}/24`);
+row('成就', (r) => `${r.achievements}/${ACHIEVEMENTS.length}`);
 lines.push('', '## 每种单位的购买情况', '');
 lines.push(`| 单位 | ${reports.map((r) => `${r.name}：数量 / 首购 / 末购（分钟）`).join(' | ')} |`, `|---|${reports.map(() => '---').join('|')}|`);
 PRODUCERS.forEach((producer) => {
@@ -61,23 +65,19 @@ STAGE_TARGETS.forEach((target, index) => {
   const actual = active.stageMinutes[index]!;
   if (!(Math.abs(actual - target) <= target * TOLERANCE)) failures.push(`${STAGES[index]!.name}：${f1(actual)} 分钟，目标 ${target}±${TOLERANCE * 100}%`);
 });
-if (active.longestWaitMinutes > 3) failures.push(`活跃玩家最长等待 ${active.longestWaitMinutes.toFixed(2)} 分钟 > 3`);
+if (active.firstPurchaseSeconds > 5) failures.push(`首次购买 ${active.firstPurchaseSeconds.toFixed(1)} 秒 > 5`);
+if (!(active.secondKindSeconds <= 45)) failures.push(`第二种设备 ${active.secondKindSeconds.toFixed(1)} 秒 > 45`);
+if (percentile(active.purchaseGapsEarly, 0.5) > 10) failures.push(`前 20 分钟购买间隔中位数 ${percentile(active.purchaseGapsEarly, 0.5).toFixed(1)} 秒 > 10`);
+if (active.longestWaitMinutes > 2) failures.push(`活跃玩家最长等待 ${active.longestWaitMinutes.toFixed(2)} 分钟 > 2`);
 if (idle.longestWaitMinutes > 5) failures.push(`挂机玩家最长等待 ${idle.longestWaitMinutes.toFixed(2)} 分钟 > 5`);
+if (!(idle.endMinutes <= 210)) failures.push(`挂机玩家通关 ${idle.endMinutes.toFixed(1)} 分钟 > 210`);
+if (active.total < 3e16 || active.total > 3e17) failures.push(`通关累计 ${formatAmount(active.total)} 不在 3亿亿～30亿亿之间`);
 for (const report of reports) {
   if (!report.finished) failures.push(`${report.name} 未通关`);
   PRODUCERS.forEach((producer) => {
     if (report.owned[producer.id] === 0) failures.push(`${report.name} 从未购买 ${producer.name}`);
   });
 }
-lines.push('', '## 相对设计方案初值的调整', '');
-lines.push(
-  '设计方案的初值没有计入跳跳粒、点击升级、绿区和协同，全部计入后通关只需约 9 分钟，因此做了以下调整：',
-  '',
-  '- 单位价格与产量按上表 `src/content/producers.ts` 重新校准：推车、大炮、影院机、工厂、火山炉的基础价提高，后三者基础产量降低。',
-  '- 一次点击的收益改为“每粒 1 + 产量份额一次”，粒数不再放大产量份额。',
-  '- 阶段奖励收窄为 ×1.3、×1.1、×1.15、×1，单位升级为 ×1.5，协同为每台 +0.25%。',
-  '- 通关时长约 2.3 小时，在 150 分钟 ±20% 的验收范围内，略低于“约 3 小时”的预期；挂机型约 5.8 小时。',
-);
 lines.push('', '## 验收', '');
 lines.push(failures.length === 0 ? '全部通过。' : failures.map((failure) => `- 未通过：${failure}`).join('\n'), '');
 

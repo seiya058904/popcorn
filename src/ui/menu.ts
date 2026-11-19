@@ -84,7 +84,7 @@ export class Menus {
       const row = el('div', 'title-row', title);
       el('button', 'btn is-quiet', row, '设置').addEventListener('pointerdown', () => this.showSettings(false));
       el('button', 'btn is-quiet', row, '存档').addEventListener('pointerdown', () => this.showSaves(false));
-      el('p', 'title-hint', title, '点击爆玉米 · 按住空格或压力表开炮 · Esc 打开菜单');
+      el('p', 'title-hint', title, '点击或按住爆玉米 · 按住空格或压力表开炮 · Esc 打开菜单');
       start.addEventListener('pointerdown', () => {
         this.host.unlockAudio();
         this.playing = true;

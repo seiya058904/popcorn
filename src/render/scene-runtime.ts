@@ -13,7 +13,10 @@ import { Pile } from './popcorn/pile.ts';
 import type { SceneContext, SceneParts, SceneSpec, UnitKindName } from './scenes/types.ts';
 import { UnitRig, type UnitHost } from './units.ts';
 
-const UNIT_ORDER: UnitKindName[] = ['pan', 'cart', 'cannon', 'cinema', 'factory', 'volcano'];
+/** Same order as the producers, so a unit's index in the save picks its rig. */
+const UNIT_ORDER: UnitKindName[] = ['pan', 'microwave', 'cart', 'cannon', 'cinema', 'truck', 'factory', 'airship', 'volcano', 'orbital'];
+/** The vessel simmers on its own, matching the small income it makes without any machine. */
+const SIMMER_POPS_PER_SECOND = 0.55;
 /** New machines wait for the shovel to dig before they drop in. */
 const UNIT_DROP_DELAY = 0.24;
 /** Most machine-launched flakes per second; the rest are implied by the heap and the sound. */
@@ -136,6 +139,12 @@ export class SceneRuntime {
     });
   }
 
+  machinePoints(): THREE.Vector3[] {
+    const points: THREE.Vector3[] = [];
+    for (const rig of this.rigs.values()) rig.collectPoints(points);
+    return points;
+  }
+
   syncUpgrades(owned: readonly string[]): void {
     this.parts.upgradesChanged?.(owned);
   }
@@ -171,21 +180,30 @@ export class SceneRuntime {
    */
   private updateFountain(dt: number, intensity: number, attract: boolean): void {
     const k = this.spec.pile.k;
-    const rate = attract ? 1.3 : Math.min(26, Math.max(0, (intensity - 2.4) * 5.5));
+    const rate = attract ? 1.3 : Math.max(SIMMER_POPS_PER_SECOND, Math.min(26, (intensity - 1.2) * 11));
     this.fountainBudget = Math.min(5, this.fountainBudget + rate * dt);
     while (this.fountainBudget >= 1) {
       this.fountainBudget -= 1;
-      const a = this.rng.range(0, 6.28);
-      const r = this.rng.range(0, this.spec.homeRadius * 0.7);
-      const x = Math.cos(a) * r;
-      const z = Math.sin(a) * r;
-      this.director!.launch(x, this.pile.heightAt(x, z) + 0.2 * k, z, {
-        flight: this.rng.range(0.85, 1.35),
-        scale: this.rng.range(0.26, 0.42),
-        reach: 1.3,
-        quiet: true,
-      });
+      this.popFromVessel(k);
     }
+  }
+
+  private popFromVessel(k: number): void {
+    const a = this.rng.range(0, 6.28);
+    const r = this.rng.range(0, this.spec.homeRadius * 0.7);
+    const x = Math.cos(a) * r;
+    const z = Math.sin(a) * r;
+    this.director!.launch(x, this.pile.heightAt(x, z) + 0.2 * k, z, {
+      flight: this.rng.range(0.85, 1.35),
+      scale: this.rng.range(0.26, 0.42),
+      reach: 1.3,
+      quiet: true,
+    });
+  }
+
+  /** One pop made by the stirring machine. */
+  autoPop(): void {
+    if (this.director) this.popFromVessel(this.spec.pile.k);
   }
 
   setDetail(fraction: number): void {
