@@ -116,7 +116,8 @@ export class Kit {
     return this;
   }
 
-  build(): THREE.BufferGeometry {
+  /** `frozen` is for large sets that are never read or changed again after they are drawn. */
+  build(options: { frozen?: boolean } = {}): THREE.BufferGeometry {
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.Float32BufferAttribute(this.positions, 3));
     geometry.setAttribute('normal', new THREE.Float32BufferAttribute(this.normals, 3));
@@ -128,8 +129,18 @@ export class Kit {
     geometry.computeBoundingSphere();
     if (this.glass) geometry.userData.glass = this.glass.build();
     geometry.userData.noInk = !this.inked;
+    if (options.frozen) {
+      // The data can leave main memory once it is on the GPU. A lost graphics context reloads
+      // the page, so nothing ever needs to upload it again.
+      for (const attribute of Object.values(geometry.attributes)) (attribute as THREE.BufferAttribute).onUpload(releaseArray);
+      geometry.getIndex()?.onUpload(releaseArray);
+    }
     return geometry;
   }
+}
+
+function releaseArray(this: { array: unknown }): void {
+  this.array = null;
 }
 
 /** Transform helper: position, Euler rotation, uniform or per-axis scale. */
@@ -170,10 +181,30 @@ export function roundProfile(points: Point[], radius: number, steps = 4): THREE.
   return out;
 }
 
+/**
+ * Scenes repeat the same few parts thousands of times, and building one is far slower than
+ * copying it into a kit. Kits only read these, so identical requests can share one.
+ */
+const shapes = new Map<string, THREE.BufferGeometry>();
+
+function shared(key: string, make: () => THREE.BufferGeometry): THREE.BufferGeometry {
+  let shape = shapes.get(key);
+  if (!shape) {
+    shape = make();
+    shapes.set(key, shape);
+  }
+  return shape;
+}
+
+/** Called when a scene is finished, so the shapes do not stay in memory. */
+export function releaseSharedShapes(): void {
+  shapes.clear();
+}
+
 /** Primitive library. Lathe profiles run counter-clockwise: outward along the base, then up. */
 export const P = {
   box: (w: number, h: number, d: number, r = 0.05, seg = 2): THREE.BufferGeometry =>
-    new RoundedBoxGeometry(w, h, d, seg, Math.min(r, Math.min(w, h, d) * 0.49)),
+    shared(`b${w},${h},${d},${r},${seg}`, () => new RoundedBoxGeometry(w, h, d, seg, Math.min(r, Math.min(w, h, d) * 0.49))),
   lathe: (profile: Point[], segments = 48, round = 0.03, steps = 4): THREE.BufferGeometry =>
     new THREE.LatheGeometry(roundProfile(profile, round, steps), segments),
   /** Solid rounded cylinder. */
@@ -190,7 +221,7 @@ export const P = {
       ),
       segments,
     ),
-  sphere: (radius: number, w = 24, h = 16): THREE.BufferGeometry => new THREE.SphereGeometry(radius, w, h),
+  sphere: (radius: number, w = 24, h = 16): THREE.BufferGeometry => shared(`s${radius},${w},${h}`, () => new THREE.SphereGeometry(radius, w, h)),
   capsule: (radius: number, length: number, cap = 6, radial = 14): THREE.BufferGeometry =>
     new THREE.CapsuleGeometry(radius, length, cap, radial),
   torus: (radius: number, tube: number, radial = 12, tubular = 40, arc = Math.PI * 2): THREE.BufferGeometry =>
@@ -236,6 +267,7 @@ export function addToyInstances(
   geometry: THREE.BufferGeometry,
   capacity: number,
   castShadow = true,
+  withInk = true,
 ): ToyInstances {
   const materials = toyMaterials();
   const body = new THREE.InstancedMesh(geometry, materials.body, capacity);
@@ -243,7 +275,7 @@ export function addToyInstances(
   body.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   ink.instanceMatrix = body.instanceMatrix;
   // Parts that are all fine detail have no outline, so their ink pass would draw nothing.
-  ink.visible = geometry.userData.noInk !== true;
+  ink.visible = withInk && geometry.userData.noInk !== true;
   body.frustumCulled = false;
   ink.frustumCulled = false;
   body.count = 0;

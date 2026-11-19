@@ -248,6 +248,7 @@ function cannonTrim(): THREE.BufferGeometry {
 export const HOME_MACHINES: Record<'pan' | 'microwave' | 'cart' | 'cannon', UnitDef> = {
   pan: {
     parts: [panShell, panLid],
+    inkParts: 2,
     interval: [2.2, 4.2],
     tints: ['#fff0d2', '#ffc94f', '#8fe0c8', '#8cc4ff', '#ffa9a0', '#f2e7ff', '#ffd9a3', '#b8ecd9', '#c3dcff', '#ffc6bd'],
     muzzle: [0, 0.72, 0],
@@ -310,6 +311,7 @@ export const HOME_MACHINES: Record<'pan' | 'microwave' | 'cart' | 'cannon', Unit
   cannon: {
     parts: [cannonFrame, cannonDrum, cannonCrank, cannonTrim],
     shadowParts: 2,
+    inkParts: 2,
     interval: [3.4, 5.6],
     muzzle: [1.36, 1.72, 0],
     dropHeight: 6,

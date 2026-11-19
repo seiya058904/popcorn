@@ -147,6 +147,7 @@ export const shotPresets: ShotPreset[] = [
   scene('p2-cinema-machines', 2, 0.45, [4, 0, 3, 0, 4, 4]),
   scene('p2-town-machines', 3, 0.45, [0, 0, 0, 0, 4, 4, 4, 4]),
   scene('p2-earth-machines', 4, 0.45, [0, 0, 0, 0, 0, 0, 3, 3, 4, 3]),
+  { ...scene('p7-720p-late', 4, 0.45, [5, 5, 5, 5, 5, 5, 3, 3, 4, 3]), size: { width: 1280, height: 720 } },
   scene('m5-cinema-start', 2, 0.03, [0, 0, 0, 0, 0, 0]),
   scene('m5-cinema-mid', 2, 0.47, [4, 0, 3, 2, 4, 2]),
   scene('m5-cinema-full', 2, 0.99, [6, 0, 4, 2, 8, 4]),

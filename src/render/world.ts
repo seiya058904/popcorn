@@ -9,6 +9,7 @@ import { tuning } from '../motion/tuning.ts';
 import { showIntensity } from '../sim/economy.ts';
 import type { Simulation } from '../sim/simulation.ts';
 import { applyLamps, applyLightRig, globals, type LightRig } from './core/globals.ts';
+import { releaseSharedShapes } from './geometry/kit.ts';
 import { QUALITY } from './core/quality.ts';
 import type { Stage } from './core/stage.ts';
 import { SceneRuntime, type RuntimeHooks } from './scene-runtime.ts';
@@ -241,6 +242,7 @@ export class World {
     let runtime = this.runtimes[index];
     if (!runtime) {
       runtime = new SceneRuntime(this.stage, SCENES[index]!, this.rng, this.runtimeHooks, live);
+      releaseSharedShapes();
       this.runtimes[index] = runtime;
     }
     return runtime;

@@ -9,6 +9,7 @@ import { Shovel } from './fx/shovel.ts';
 import { SpriteKind, Sprites } from './fx/sprites.ts';
 import { Stirrer } from './fx/stirrer.ts';
 import { HeroCannon } from './hero-cannon.ts';
+import { toyMaterials } from './materials/toy.ts';
 import { PieceBatches } from './popcorn/batches.ts';
 import { PopDirector } from './popcorn/director.ts';
 import { FlavorShow } from './popcorn/flavor.ts';
@@ -322,6 +323,7 @@ export class SceneRuntime {
   /** As the camera pulls away, this scene stops casting shadows: they would be too small to see. */
   beginShrinking(stage: Stage): void {
     stage.shadow.removeTree(this.root);
+    this.dropOutlines();
     this.flock?.setHidden(true);
   }
 
@@ -329,10 +331,19 @@ export class SceneRuntime {
     this.flock?.setHidden(hidden);
   }
 
+  /** A scene seen from far away has no use for outlines, and each one is a draw call. */
+  private dropOutlines(): void {
+    const ink = toyMaterials().outline;
+    this.root.traverse((node) => {
+      if ((node as THREE.Mesh).material === ink) node.visible = false;
+    });
+  }
+
   /** Called once this scene has been outgrown and shrinks into a prop in the next one. */
   retire(stage: Stage): void {
     this.live = false;
     stage.shadow.removeTree(this.root);
+    this.dropOutlines();
     this.pile.setSurfaceVisible(false);
     if (this.batches) this.batches.group.visible = false;
     this.sprites.mesh.visible = false;

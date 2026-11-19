@@ -1,6 +1,6 @@
 # Pop! The Popcorn Got Out of Hand (砰！爆米花失控了)
 
-A browser incremental game. You start with one kernel in a pot on the stove and keep popping until the heap has outgrown the kitchen, the cinema, the town and the planet, and the moon itself goes off.
+A browser incremental game that leans toward idle play. You start with one kernel in a pot on the stove, buy ten generations of ever larger machines, and watch the heap outgrow the kitchen, the cinema, the town and the planet until the moon itself goes off. A first run takes about 2.5 hours, and totals climb past 100 quadrillion.
 
 The game is web only. There is no desktop build. All text in the game is Simplified Chinese.
 
@@ -27,11 +27,12 @@ For development with hot reload, use `npm run dev` instead.
 | Input | Action |
 |---|---|
 | Click the pot or the heap | Pop kernels |
+| Hold the mouse button on the pot or the heap | Keep popping |
 | Hold <kbd>Space</kbd> or the pressure gauge, then release in the green zone | Fire the cannon |
 | Click the bouncing orange kernel | Start a frenzy |
 | <kbd>Esc</kbd> | Pause menu, settings and save management |
 
-Buy machines, flavors and upgrades from the panel on the right. Filling each stage bursts it open and carries the game into the next, larger scene.
+Buy machines, flavors and upgrades from the panel on the right. Filling each stage bursts it open and carries the game into the next, larger scene. Clicking speeds things up but is never required: upgrades can stir the pot, fire the cannon and catch the hopping kernel for you.
 
 ## Saves
 
@@ -40,6 +41,7 @@ Buy machines, flavors and upgrades from the panel on the right. Filling each sta
 - A backup copy is kept, and a damaged save is restored from it.
 - The pause menu can export a save as text and import it in another browser.
 - Time away earns a capped share of normal production. Moving the system clock backward earns nothing.
+- Saves from before the ten-machine economy start a new run. Achievements, the flavor album and new-pot progress are kept.
 
 ## Settings
 
@@ -56,6 +58,7 @@ Master, music and effects volume, graphics quality (automatic or four fixed tier
 | `npm run balance` | Economy simulation, written to `docs/BALANCE.md` |
 | `npm run audio` | Loudness and clipping checks for the generated audio (needs `ffmpeg`) |
 | `npm run shots` | Review screenshots; add `--verify` to check they are reproducible |
+| `npm run turntable` | Close-ups of every machine from four sides |
 | `npm run playthrough` | Plays the real game with a simulated player |
 | `npm run soak` | Real-time stress run with memory tracking |
 
@@ -76,9 +79,10 @@ docs                               Design, plan, balance report and credits
 - Edge has not been tested, because it was not installed on the development machine. Chromium and Chrome pass, and Edge shares their engine.
 - Performance was measured on one desktop with a Radeon RX 7900 XT. Integrated graphics and laptops have not been tested on real hardware.
 - The game is designed for desktop screens with a mouse. Phones and tablets are not a supported target.
-- A breakout can take one long frame, up to about 220 ms on the development machine, while the next scene is prepared. It is placed inside the blast's white flash and hit-stop.
+- A breakout can take one long frame, up to about 420 ms on the development machine, while a later scene is prepared. It is placed inside the blast's white flash and hit-stop.
+- Glass reflects and tints but does not bend what is behind it.
 - Game feel, sound quality and art direction have been checked with frame captures and loudness analysis, not yet by human players.
-- A simulated active player finishes in about 2.3 hours, a little short of the 2.5 to 4 hours the design aims for. Time for human players has not been measured.
+- Pacing was tuned with simulated players: about 2.5 hours for an active player and about 3.1 hours for one who never clicks. Time for human players has not been measured.
 - Simplified Chinese is the only language. The settings menu has a language option, but interface text still lives in `src/ui` and has to be extracted before another language can be added.
 
 ## Credits

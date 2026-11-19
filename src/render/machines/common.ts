@@ -54,6 +54,8 @@ export interface UnitDef {
   parts: Array<() => THREE.BufferGeometry>;
   /** Small inner parts skip the shadow pass; nobody can see their shadows. */
   shadowParts?: number;
+  /** How many leading parts get an outline; small moving parts look better, and cost less, without. */
+  inkParts?: number;
   /** Seconds between work cycles. */
   interval: [number, number];
   tints?: string[];

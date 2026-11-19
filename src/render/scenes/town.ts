@@ -211,7 +211,7 @@ function buildTown(stage: Stage, root: THREE.Group): SceneParts {
   const set = new Kit();
   addTown(set);
   addClockTower(set);
-  addToy(stage, root, set.build());
+  addToy(stage, root, set.build({ frozen: true }));
   // The picture palace front stands in the camera's way on arrival, so it rises up afterward.
   const frontKit = new Kit();
   addCinemaFront(frontKit);
@@ -236,7 +236,7 @@ function buildTown(stage: Stage, root: THREE.Group): SceneParts {
   cars.ink.instanceColor = cars.body.instanceColor;
 
   // People out for a walk around the square.
-  const strollers = addToyInstances(stage, root, strollerGeometry(), STROLLERS);
+  const strollers = addToyInstances(stage, root, strollerGeometry(), STROLLERS, true, false);
   const clothes = ['#d8473f', '#3f7fd8', '#ffc53f', '#58c79c', '#c98bff', '#ff8fb0', '#f7f0df', '#26325e'];
   for (let i = 0; i < STROLLERS; i += 1) strollers.body.setColorAt(i, tint.set(clothes[i % clothes.length]!));
   strollers.ink.instanceColor = strollers.body.instanceColor;

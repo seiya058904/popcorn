@@ -31,7 +31,7 @@ export class Debris {
 
   constructor(stage: Stage, parent: THREE.Object3D, colors: readonly string[], k: number) {
     this.k = k;
-    this.parts = addToyInstances(stage, parent, shardGeometry(), SHARDS, false);
+    this.parts = addToyInstances(stage, parent, shardGeometry(), SHARDS, false, false);
     const tint = new THREE.Color();
     for (let i = 0; i < SHARDS; i += 1) this.parts.body.setColorAt(i, tint.set(colors[i % colors.length]!));
     this.parts.ink.instanceColor = this.parts.body.instanceColor;
@@ -147,7 +147,7 @@ export class Parcel {
 
   constructor(stage: Stage, parent: THREE.Object3D, k: number) {
     this.k = k;
-    this.group = addToy(stage, parent, parcelGeometry());
+    this.group = addToy(stage, parent, parcelGeometry(), { outline: false });
     this.group.visible = false;
     this.group.scale.setScalar(k * 0.6);
     this.group.position.set(0, 0, 0);

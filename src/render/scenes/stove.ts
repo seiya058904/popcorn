@@ -329,7 +329,7 @@ function buildStove(stage: Stage, root: THREE.Group): SceneParts {
   addWindow(set);
   addForeground(set);
   dressStove(set);
-  addToy(stage, root, set.build());
+  addToy(stage, root, set.build({ frozen: true }));
   // Evening light slanting in through the window.
   addLightBeam(root, new THREE.Vector3(-3.95, 4.3, -3.25), new THREE.Vector3(-0.8, 0.1, 1.1), 1, 2.3, '#ff9ec4', 0.075);
 

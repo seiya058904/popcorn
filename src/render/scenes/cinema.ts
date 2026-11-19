@@ -241,7 +241,7 @@ function buildCinema(stage: Stage, root: THREE.Group): SceneParts {
   addProscenium(set);
   addSnackBar(set);
   dressCinema(set, GROUND, STAGE_R);
-  addToy(stage, root, set.build());
+  addToy(stage, root, set.build({ frozen: true }));
   addSign(root, SIGN_TEXT.popcorn, { background: '#ffc63f', color: '#8f1f26', border: '#8f1f26', glow: 0.4 }, 9, 2.4, at(-40.8, GROUND + 2.9, 2.08));
   // The projector's beam, drifting through the dark over the audience.
   addLightBeam(root, new THREE.Vector3(0, 35, 74), new THREE.Vector3(0, 16, -44), 1.2, 34, '#cdd8ff', 0.035);

@@ -292,7 +292,7 @@ function buildKitchen(stage: Stage, root: THREE.Group): SceneParts {
   addCounter(set);
   addDecor(set);
   dressKitchen(set, GROUND, COUNTER_TOP);
-  addToy(stage, root, set.build());
+  addToy(stage, root, set.build({ frozen: true }));
   // The pool under the pendant lamp, and moonlight falling from the window.
   addLightBeam(root, new THREE.Vector3(0, 10.2, 0), new THREE.Vector3(0, GROUND, 0), 1.9, 10, '#ffd9a4', 0.07);
   addLightBeam(root, new THREE.Vector3(10, 7.2, -16.9), new THREE.Vector3(1, GROUND, -3), 3.2, 6.5, '#c79bff', 0.05);

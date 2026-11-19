@@ -67,11 +67,13 @@ export class Stirrer {
     this.group.position.set(Math.sin(yaw) * -reach * k, 0, Math.cos(yaw) * -reach * k);
     // Local +X, the direction of the arm, points at the vessel.
     this.group.rotation.y = Math.atan2(-Math.cos(yaw), Math.sin(yaw));
-    addToy(stage, this.group, baseGeometry());
-    this.shaft = addToy(stage, this.group, shaftGeometry());
+    // Only the arm casts a shadow and nothing here is outlined: it is a small, busy machine.
+    const light = { shadow: false, outline: false };
+    addToy(stage, this.group, baseGeometry(), light);
+    this.shaft = addToy(stage, this.group, shaftGeometry(), light);
     this.shaft.position.y = SHAFT_START;
-    this.head = addToy(stage, this.group, headGeometry(reach));
-    this.paddle = addToy(stage, this.head, paddleGeometry(PADDLE_DEPTH, 3));
+    this.head = addToy(stage, this.group, headGeometry(reach), { outline: false });
+    this.paddle = addToy(stage, this.head, paddleGeometry(PADDLE_DEPTH, 3), light);
     this.paddle.position.set(reach, -0.08, 0);
     parent.add(this.group);
     this.place();

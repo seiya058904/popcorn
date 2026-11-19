@@ -56,7 +56,7 @@ export class UnitRig {
       height = Math.max(height, box.max.y);
       lowest = Math.min(lowest, box.min.y);
       if (index === 0) reach = Math.max(-box.min.x, box.max.x, -box.min.z, box.max.z);
-      return addToyInstances(stage, parent, geometry, slots.length, index < shadowParts);
+      return addToyInstances(stage, parent, geometry, slots.length, index < shadowParts, index < (this.def.inkParts ?? 1));
     });
     this.height = height;
     this.lowest = lowest;
