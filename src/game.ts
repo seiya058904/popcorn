@@ -107,6 +107,8 @@ export class Game {
         this.audio.effect('cannon-fire', 'tap', 1.5);
         this.audio.effect('pigeons');
       },
+      onMachineSound: (name) => this.audio.effect(name, 'tap'),
+      onCombo: (count) => this.audio.effect('combo', 'small', Math.min(1.6, 0.9 + count / 150)),
       onBreakBeat: (beat, stage) => this.onBreakBeat(beat, stage),
       onFinaleBeat: (beat) => this.onFinaleBeat(beat),
       onFinaleDone: () => {
@@ -203,9 +205,11 @@ export class Game {
 
   private wireSounds(): void {
     const { bus, audio } = this;
-    bus.on('producer_purchased', ({ milestone }) => {
+    bus.on('producer_purchased', ({ producer, owned, quantity, milestone }) => {
       audio.effect('buy', 'small', milestone ? 1.25 : 1);
       audio.effect('shovel');
+      if (milestone) audio.effect('milestone', 'medium');
+      else if (owned === quantity && producer > 0) audio.effect('unveil', 'medium');
     });
     bus.on('upgrade_purchased', () => {
       audio.effect('buy', 'small', 1.12);

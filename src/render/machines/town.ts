@@ -223,8 +223,9 @@ export const TOWN_MACHINES: Record<'cinema' | 'truck' | 'factory', UnitDef> = {
       if (tier >= 1) putLocal(base, put, 3, roll, idle, 0);
       else putLocal(base, put, 3, 0, 0, 0, 0, 0, 0, 0);
     },
-    fire(st) {
+    fire(st, host) {
       st.kick = 1;
+      if (host.rng.next() < 0.3) host.sound('truck-horn');
     },
   },
   factory: {

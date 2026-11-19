@@ -137,7 +137,7 @@ export const shotPresets: ShotPreset[] = [
           api.game.sim.state.totalEarned = 1200;
           api.game.sim.buyUpgrade('auto1');
           api.set({ popcorn: 0, totalEarned: 320 });
-          api.advance(2.6);
+          api.advance(2.8);
         },
         null,
       );
@@ -250,7 +250,7 @@ export const shotPresets: ShotPreset[] = [
           api.buy(0, 22);
           api.buy(1, 9);
           api.buy(2, 3);
-          api.advance(1.5);
+          api.advance(2.8);
         },
         totalAt(2, 0.1),
       );
@@ -266,7 +266,7 @@ export const shotPresets: ShotPreset[] = [
           api.set({ stage: 1, totalEarned: total, popcorn: total });
           api.buy(0, 12);
           api.buy(1, 3);
-          api.advance(1.5);
+          api.advance(2.8);
         },
         totalAt(1, 0.3),
       );

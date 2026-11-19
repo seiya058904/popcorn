@@ -114,6 +114,21 @@ export class UnitRig {
     };
   }
 
+  /** Machines of this kind on show, for sparkles and the like. */
+  positions(): THREE.Vector3[] {
+    return this.states.map((_st, index) => {
+      const slot = this.slots[index]!;
+      return new THREE.Vector3(slot.x, slot.y + this.height * (slot.scale ?? 1) * 0.7, slot.z);
+    });
+  }
+
+  /** Has every machine fall into place again, one after another, on arrival in a scene. */
+  dropIn(startDelay: number): void {
+    this.states.forEach((st, index) => {
+      st.age = -startDelay - index * 0.07;
+    });
+  }
+
   /** Leaves one copy on show, so it can be inspected without its neighbors in the way. */
   keepOnlyFirst(): void {
     this.states.length = Math.min(this.states.length, 1);

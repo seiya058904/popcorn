@@ -5,6 +5,7 @@ import { globals } from '../core/globals.ts';
 import type { Stage } from '../core/stage.ts';
 import { PopcornSnow } from '../fx/snow.ts';
 import { SpriteKind } from '../fx/sprites.ts';
+import { addLightBeam } from '../fx/beam.ts';
 import { addToy, at, Kit, P } from '../geometry/kit.ts';
 import { GLSL_LIGHT_PARS, GLSL_UTIL } from '../materials/glsl.ts';
 import { popcornUniforms } from '../materials/popcorn.ts';
@@ -18,6 +19,12 @@ const K = 3.5;
 const CRATER = { floorY: 2.4, rimY: 5.2, innerR: 4.6, outerR: 5.5, skirtR: 13 };
 const MOON_R = 12.5;
 const MOON_HOME = new THREE.Vector3(-64, 40, -56);
+
+const ORBITAL_SLOTS: UnitSlot[] = [
+  { x: -41, y: -3, z: -6, rotation: 0.4, scale: 1.8 },
+  { x: 40, y: 0, z: -8, rotation: -0.4, scale: 1.8 },
+  { x: -40, y: -32, z: 4, rotation: 0.2, scale: 1.7 },
+];
 
 const smooth = (a: number, b: number, x: number): number => {
   const t = clamp01((x - a) / (b - a));
@@ -362,6 +369,20 @@ function buildEarth(stage: Stage, root: THREE.Group): SceneParts {
   const thumbBase = segment(hand, 22, 6.2, -8, 2, 0);
   const thumbTip = segment(thumbBase, 17, 5.4, 0, 22, 0);
 
+  // Every orbital mirror turns on the moon for the finale.
+  const moonBeams = ORBITAL_SLOTS.map((slot) => {
+    const beam = addLightBeam(root, new THREE.Vector3(slot.x, slot.y + 2.6, slot.z), MOON_HOME, 0.5, MOON_R * 0.55, '#ffd28a', 0);
+    beam.visible = false;
+    return beam;
+  });
+  let orbitals = 0;
+  const setBeams = (strength: number): void => {
+    moonBeams.forEach((beam, index) => {
+      beam.visible = strength > 0 && index < orbitals;
+      (beam.material as THREE.ShaderMaterial).uniforms.uStrength!.value = strength;
+    });
+  };
+
   const craterKick = new Spring(0, 420, 15);
   let time = 0;
   let steamTimer = 0;
@@ -432,6 +453,7 @@ function buildEarth(stage: Stage, root: THREE.Group): SceneParts {
       globeUniforms.uSnow.value = 1;
       snow.setAmount(1);
       const heat = smooth(HEAT_START, POP_AT - 0.75, t);
+      setBeams(popped ? 0 : heat * 0.5);
       if (!popped) {
         const tremble = heat * heat * 0.9;
         const swell = 1 + heat * heat * 0.42;
@@ -468,12 +490,16 @@ function buildEarth(stage: Stage, root: THREE.Group): SceneParts {
       snow.setAmount(1);
       popped = true;
       moon.visible = false;
+      setBeams(0);
       showMoonFlake(MOON_R * 1.5, 1, 0);
     },
   };
 
   return {
     finale,
+    unitsChanged(kind, count) {
+      if (kind === 'orbital') orbitals = count;
+    },
     kick(strength) {
       craterKick.kick(-0.14 - 0.12 * strength);
     },
@@ -551,6 +577,7 @@ export const earthSpec: SceneSpec = {
   aoRadius: 2,
   shadow: { center: new THREE.Vector3(0, -12, 0), radius: 60 },
   pile: earthPile,
+  debris: ['#5b4150', '#ff7a2f', '#84606e'],
   homeRadius: CRATER.innerR * 0.72,
   steamY: CRATER.rimY,
   spreadRadius: 46,
@@ -562,11 +589,7 @@ export const earthSpec: SceneSpec = {
       { x: 26, y: 9, z: -9, rotation: 2.9, scale: 1.5 },
       { x: -9, y: 14, z: -20, rotation: 0.1, scale: 1.4 },
     ],
-    orbital: [
-      { x: -41, y: -3, z: -6, rotation: 0.4, scale: 1.8 },
-      { x: 40, y: 0, z: -8, rotation: -0.4, scale: 1.8 },
-      { x: -40, y: -32, z: 4, rotation: 0.2, scale: 1.7 },
-    ],
+    orbital: ORBITAL_SLOTS,
     factory: [onPlanet(-21, 2, 1.5, 2), onPlanet(20, -8, -2, 2), onPlanet(4, 22, 0, 2)],
     volcano: [onPlanet(-11, -13, 0.7, 2.4), onPlanet(13, -14, -0.7, 2.4), onPlanet(-20, -9, 1.2, 2.3), onPlanet(22, 7, -1.4, 2.3), onPlanet(-3, -21, 0.1, 2.3), onPlanet(-24, 11, 1.1, 2.2), onPlanet(23, 13, -1.1, 2.2), onPlanet(9, 24, -0.3, 2.2)],
   },

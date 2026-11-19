@@ -467,6 +467,7 @@ export const cinemaSpec: SceneSpec = {
     outerDensityRadius: 23,
     flakeScale: 0.78,
   }),
+  debris: ['#d8313a', '#ffeccb', '#f0b73a'],
   homeRadius: BUCKET.innerR * 0.72,
   steamY: BUCKET.rimY,
   spreadRadius: 46,

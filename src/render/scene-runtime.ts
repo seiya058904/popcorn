@@ -3,6 +3,7 @@ import type { CannonResult } from '../events/game-events.ts';
 import type { Rng } from '../motion/rng.ts';
 import type { Stage } from './core/stage.ts';
 import { UPGRADE_BY_ID } from '../content/upgrades.ts';
+import { Cracks, Debris, Parcel } from './fx/breakout.ts';
 import { Flock } from './fx/flock.ts';
 import { Shovel } from './fx/shovel.ts';
 import { SpriteKind, Sprites } from './fx/sprites.ts';
@@ -24,6 +25,10 @@ const UNIT_DROP_DELAY = 0.24;
 /** Most machine-launched flakes per second; the rest are implied by the heap and the sound. */
 const MACHINE_LAUNCHES_PER_SECOND = 7;
 
+/** Two of the same machine noise never overlap closer than this. */
+const SOUND_GAP = 0.45;
+const sparkleColor = new THREE.Color(2.4, 2, 1.1);
+const comboColor = new THREE.Color(2, 1.5, 0.7);
 const flashColor = new THREE.Color(2.4, 1.8, 1);
 const smokeColor = new THREE.Color(0.55, 0.5, 0.5);
 const caramelColor = new THREE.Color('#d99a58');
@@ -34,6 +39,7 @@ export interface RuntimeHooks {
   onLand(gain: number): void;
   onSquash(): void;
   onMachineCannon(): void;
+  onMachineSound(name: string): void;
 }
 
 /** Everything alive in one scene. Once outgrown it stays on as a static prop in the next one. */
@@ -50,6 +56,13 @@ export class SceneRuntime {
   readonly heroCannon: HeroCannon | null = null;
   readonly flock: Flock | null = null;
   private readonly stirrer: Stirrer | null = null;
+  private readonly debris: Debris | null = null;
+  private readonly cracks: Cracks | null = null;
+  private readonly parcel: Parcel | null = null;
+  private readonly soundClock = new Map<string, number>();
+  private clock = 0;
+  /** While the camera is right up against a machine, nothing should fly into the lens. */
+  holdLaunches = false;
   private readonly rigs = new Map<UnitKindName, UnitRig>();
   private readonly rng: Rng;
   private launchBudget = 0;
@@ -95,12 +108,15 @@ export class SceneRuntime {
     this.flavor = new FlavorShow(stage, this.root, this.sprites, rng, spec.spreadRadius, k);
     if (spec.perches.length > 0) this.flock = new Flock(stage, this.root, spec.perches, 0.62 * k, rng);
     this.stirrer = new Stirrer(stage, this.root, spec.steamY, spec.homeRadius / 0.72, k);
+    this.debris = new Debris(stage, this.root, spec.debris ?? ['#ffeccb'], k);
+    this.cracks = new Cracks(stage, this.root, rng, (spec.homeRadius / 0.72) * 1.13, spec.steamY, k);
+    this.parcel = new Parcel(stage, this.root, k);
     if (spec.cannon) this.heroCannon = new HeroCannon(stage, this.root, spec.cannon, this.sprites, this.director, rng);
 
     const host: UnitHost = {
       rng,
       launch: (x, y, z) => {
-        if (this.launchBudget < 1) return;
+        if (this.launchBudget < 1 || this.holdLaunches) return;
         this.launchBudget -= 1;
         this.director!.launch(x, y, z);
       },
@@ -122,6 +138,11 @@ export class SceneRuntime {
       onCannonFired: () => {
         this.flock?.scare();
         hooks.onMachineCannon();
+      },
+      sound: (name) => {
+        if (this.clock - (this.soundClock.get(name) ?? -9) < SOUND_GAP) return;
+        this.soundClock.set(name, this.clock);
+        hooks.onMachineSound(name);
       },
     };
     for (const kind of UNIT_ORDER) {
@@ -149,6 +170,65 @@ export class SceneRuntime {
     return points;
   }
 
+  private rigFor(unit: number): UnitRig | undefined {
+    return this.rigs.get(UNIT_ORDER[unit]!);
+  }
+
+  /** The first copy of a machine, if this scene has a place for it. */
+  machineFocus(unit: number): ReturnType<UnitRig['firstCopy']> {
+    const rig = this.rigFor(unit);
+    return rig && rig.visible > 0 ? rig.firstCopy() : null;
+  }
+
+  hasMachine(unit: number): boolean {
+    return this.rigFor(unit) !== undefined;
+  }
+
+  /** Sparkles over every copy of a machine that has just reached a milestone. */
+  celebrate(unit: number): void {
+    const k = this.spec.pile.k;
+    for (const p of this.rigFor(unit)?.positions() ?? []) {
+      this.sprites.spawn({ x: p.x, y: p.y, z: p.z, sizeStart: 0.4 * k, sizeEnd: 2.2 * k, life: 0.55, color: sparkleColor, alpha: 0.8, additive: 1, kind: SpriteKind.Ring });
+      for (let i = 0; i < 6; i += 1) {
+        const a = this.rng.range(0, 6.28);
+        this.sprites.spawn({ x: p.x, y: p.y, z: p.z, vx: Math.cos(a) * 2 * k, vy: this.rng.range(1, 3.2) * k, vz: Math.sin(a) * 2 * k, gravity: 4 * k, sizeStart: 0.28 * k, sizeEnd: 0.04 * k, life: this.rng.range(0.5, 0.9), color: sparkleColor, alpha: 1, additive: 1, kind: SpriteKind.Star, spin: this.rng.range(-4, 4) });
+      }
+    }
+  }
+
+  /** A burst from the vessel when a run of clicks reaches a round number. */
+  comboBurst(power: number): void {
+    if (!this.director) return;
+    const k = this.spec.pile.k;
+    const top = this.pile.heightAt(this.spec.pile.centerX, this.spec.pile.centerZ) + 0.2 * k;
+    this.sprites.spawn({ x: 0, y: top, z: 0, sizeStart: 0.5 * k, sizeEnd: (2 + power) * k, life: 0.42, color: comboColor, alpha: 0.75, additive: 1, kind: SpriteKind.Ring });
+    for (let i = 0; i < 4 + power * 2; i += 1) this.popFromVessel(k);
+  }
+
+  dropParcel(): void {
+    if (this.parcel) this.parcel.drop(this.rng, this.pile.heightAt(this.spec.pile.centerX, this.spec.pile.centerZ));
+  }
+
+  /** Pressure on the vessel, from the first tremble to the moment it gives way. */
+  strain(u: number, ctx: SceneContext | null): void {
+    if (ctx) this.parts.strain?.(u, ctx);
+    this.cracks?.set(u);
+  }
+
+  burstVessel(): void {
+    this.debris?.burst(this.rng, this.spec.homeRadius / 0.72, this.spec.steamY);
+    this.cracks?.hide();
+  }
+
+  /** Machines drop in one after another as the camera arrives. */
+  dropInMachines(): void {
+    let delay = 0.05;
+    for (const rig of this.rigs.values()) {
+      rig.dropIn(delay);
+      delay += 0.12;
+    }
+  }
+
   /** QA: shows one copy of a machine alone and says where it is. */
   isolateMachine(kind: UnitKindName): ReturnType<UnitRig['firstCopy']> {
     for (const [other, rig] of this.rigs) {
@@ -174,6 +254,7 @@ export class SceneRuntime {
   }
 
   update(dt: number, ctx: Omit<SceneContext, 'sprites' | 'director' | 'rng'>, cooling: boolean): void {
+    this.clock += dt;
     const director = this.director;
     if (director) {
       const full: SceneContext = { ...ctx, sprites: this.sprites, director, rng: this.rng };
@@ -185,6 +266,8 @@ export class SceneRuntime {
       this.updateFountain(dt, ctx.intensity, ctx.attract);
       this.heroCannon?.update(dt, cooling);
       this.stirrer?.update(dt, this.pile.heightAt(this.spec.pile.centerX, this.spec.pile.centerZ));
+      this.debris?.update(dt);
+      if (this.parcel?.update(dt, (x, z) => this.pile.heightAt(x, z))) this.parts.kick?.(0.5);
       this.flock?.update(dt);
       const tempo = 1 + Math.min(1.6, ctx.intensity * 0.28);
       for (const rig of this.rigs.values()) rig.update(dt, ctx.time, tempo);
@@ -259,6 +342,9 @@ export class SceneRuntime {
     for (const [kind, rig] of this.rigs) if (kind !== 'pan') rig.hide();
     this.flock?.setHidden(true);
     this.stirrer?.hide();
+    this.debris?.hide();
+    this.cracks?.hide();
+    this.parcel?.hide();
     this.shovel?.hide();
     this.flavor?.hide();
     this.parts.settleAsMiniature?.();

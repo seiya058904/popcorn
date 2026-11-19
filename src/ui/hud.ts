@@ -1,6 +1,7 @@
 import { ACHIEVEMENTS } from '../content/achievements.ts';
 import { formatAmount } from '../content/format.ts';
 import { CREDITS, NEWS_LINES } from '../content/news.ts';
+import { PRODUCERS } from '../content/producers.ts';
 import { STAGES } from '../content/stages.ts';
 import type { EventBus } from '../events/bus.ts';
 import type { GameEvents } from '../events/game-events.ts';
@@ -10,7 +11,7 @@ import type { Simulation } from '../sim/simulation.ts';
 import { el, setClass, Text } from './dom.ts';
 import './game.css';
 import { CannonGauge, type GaugeHooks } from './gauge.ts';
-import { ICONS } from './icons.ts';
+import { ICONS, UNIT_ICONS } from './icons.ts';
 import { Shop } from './shop.ts';
 
 const FLOAT_POOL = 24;
@@ -118,6 +119,14 @@ export class Hud {
     bus.on('achievement_unlocked', ({ id }) => {
       const def = ACHIEVEMENTS.find((achievement) => achievement.id === id);
       if (def) this.toast(ICONS.trophy, def.name, def.blurb);
+    });
+    bus.on('producer_purchased', ({ producer, owned, quantity, milestone }) => {
+      const def = PRODUCERS[producer]!;
+      if (owned === quantity && producer > 0) {
+        this.toast(UNIT_ICONS[producer]!, `新设备：${def.name}`, `每台每秒 ${formatAmount(sim.derived.unitEach[producer]!)}`);
+      } else if (milestone) {
+        this.toast(UNIT_ICONS[producer]!, `${def.name} 达到 ${owned} 台`, '这种设备的产量翻倍了。');
+      }
     });
     bus.on('stage_broken', ({ stage }) => {
       const def = STAGES[stage]!;

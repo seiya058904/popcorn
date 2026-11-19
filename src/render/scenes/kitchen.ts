@@ -488,6 +488,7 @@ export const kitchenSpec: SceneSpec = {
     outerDensityRadius: 12,
     flakeScale: 0.46,
   }),
+  debris: ['#3d7fd6', '#ffeccb', '#20203c'],
   homeRadius: BOWL.innerR * 0.72,
   steamY: BOWL.rimY,
   spreadRadius: 24,

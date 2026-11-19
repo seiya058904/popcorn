@@ -279,6 +279,7 @@ export const SKY_MACHINES: Record<'airship' | 'volcano' | 'orbital', UnitDef> = 
     fire(st, host, x, y, z, s) {
       st.kick = 1;
       host.flash(x, y, z, 0.8 * s);
+      host.sound('orbital-zap');
     },
   },
 };

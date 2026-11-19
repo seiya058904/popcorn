@@ -214,6 +214,21 @@ vec2 pileUv(vec2 xz) { return (xz - uPileMin) / uPileSize * (1.0 - uPileTexel) +
 // Rise over run of the resting heap, stored up to CLIFF_RANGE in pile.ts. Popcorn cannot stand
 // steeper than a couple of units, so more than that is the grid bridging a rim or a table edge.
 float pileCliff(vec2 uv) { return textureLod(uPileCliff, uv, 0.0).r * 6.0; }
+// True for a grid cell that only spans a drop. Judged per whole cell from its four corners,
+// so the heap ends in a clean line instead of slivers climbing up the wall behind it.
+bool pileBridge(vec2 uv) {
+  ivec2 size = textureSize(uPileTex, 0);
+  ivec2 c = clamp(ivec2(floor(uv * vec2(size) - 0.5)), ivec2(0), size - 2);
+  float cliff = 0.0, low = 1e9, high = -1e9;
+  for (int y = 0; y < 2; y++) for (int x = 0; x < 2; x++) {
+    ivec2 t = c + ivec2(x, y);
+    cliff = max(cliff, texelFetch(uPileCliff, t, 0).r * 6.0);
+    float h = texelFetch(uPileTex, t, 0).r;
+    low = min(low, h);
+    high = max(high, h);
+  }
+  return cliff > 2.2 && high - low > uPileSize * uPileTexel * 1.05;
+}
 `;
 
 const surfaceVertex = /* glsl */ `
@@ -299,7 +314,7 @@ float pileHeight(vec2 uv) { return texture2D(uPileTex, uv).r; }
 void main() {
   vec2 uv = pileUv(vXZ);
   vec4 h = texture2D(uPileTex, uv);
-  if (h.r - h.b < 0.015 * uPieceK || pileCliff(uv) > 2.6) discard;
+  if (h.r - h.b < 0.015 * uPieceK || pileBridge(uv)) discard;
   float e = uPileTexel;
   float world = uPileSize * e * 2.0;
   vec3 N = normalize(vec3(pileHeight(uv - vec2(e, 0.0)) - pileHeight(uv + vec2(e, 0.0)), world, pileHeight(uv - vec2(0.0, e)) - pileHeight(uv + vec2(0.0, e))));
@@ -345,7 +360,7 @@ varying vec2 vXZ;
 void main() {
   vec2 uv = pileUv(vXZ);
   vec4 h = texture2D(uPileTex, uv);
-  if (h.r - h.b < 0.015 * uPieceK || pileCliff(uv) > 2.6) discard;
+  if (h.r - h.b < 0.015 * uPieceK || pileBridge(uv)) discard;
   gl_FragColor = vec4(1.0);
 }
 `;

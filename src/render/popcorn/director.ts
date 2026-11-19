@@ -100,6 +100,12 @@ export class PopDirector {
   private lastClick = -10;
   private clickRate = 0;
   private combo = 0;
+
+  /** Clicks in the current unbroken run. */
+  get comboCount(): number {
+    return this.combo;
+  }
+
   private lastShape = 0;
   private hopFrom = new THREE.Vector3();
   private hopTo = new THREE.Vector3();

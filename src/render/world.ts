@@ -25,6 +25,9 @@ export interface WorldHooks {
   onBurst(screenX: number, screenY: number, combo: number, gain: number, manual: boolean): void;
   onLand(gain: number): void;
   onMachineCannon(): void;
+  onMachineSound(name: string): void;
+  /** A run of clicks reached a round number. */
+  onCombo(count: number): void;
   onBreakBeat(beat: BreakBeat, stage: number): void;
   onFinaleBeat(beat: FinaleBeat): void;
   onFinaleDone(): void;
@@ -33,10 +36,18 @@ export interface WorldHooks {
 /** Scenes in play order; later milestones extend this list. */
 export const SCENES: SceneSpec[] = [stoveSpec, kitchenSpec, cinemaSpec, townSpec, earthSpec];
 
-const STRAIN_END = 0.5;
-const ZOOM_START = 0.86;
-const ZOOM_END = 2.55;
-const TRANSITION_END = 2.7;
+const STRAIN_END = 0.85;
+const ZOOM_START = 1.21;
+const ZOOM_END = 3.1;
+const TRANSITION_END = 3.25;
+/** The vessel starts to tremble and crack when the scene is this close to bursting. */
+const PRESSURE_FROM = 0.955;
+const PRESSURE_SHARE = 0.5;
+const COMBO_STEP = 12;
+/** The close look at a machine bought for the first time. */
+const SPOTLIGHT_IN = 0.45;
+const SPOTLIGHT_HOLD = 1.55;
+const SPOTLIGHT_OUT = 0.55;
 const HOPPER_HIT_RADIUS_REM = 5.2;
 /** How many camera positions are tried when fitting the machines into the picture. */
 const FRAMING_STEPS = 12;
@@ -152,6 +163,7 @@ export class World {
   private wantedOpen = 0;
   private framedInset = Number.NaN;
   private readonly framingCamera = new THREE.PerspectiveCamera();
+  private spotlight: { center: THREE.Vector3; size: number; rotation: number; t: number } | null = null;
 
   constructor(stage: Stage, sim: Simulation, bus: EventBus<GameEvents>, impact: ImpactDirector, hooks: WorldHooks) {
     this.stage = stage;
@@ -173,13 +185,22 @@ export class World {
         this.hooks.onLand(gain);
       },
       onMachineCannon: () => this.hooks.onMachineCannon(),
+      onMachineSound: (name) => this.hooks.onMachineSound(name),
     };
 
     bus.on('auto_popped', () => this.current?.autoPop());
-    bus.on('producer_purchased', ({ spent }) => {
-      this.current?.syncUnits(this.sim.state.owned, true);
+    bus.on('producer_purchased', ({ producer, owned, quantity, milestone, spent }) => {
+      const runtime = this.current;
+      runtime?.syncUnits(this.sim.state.owned, true);
       this.updateFraming();
       this.scoopPayment(spent);
+      if (!runtime) return;
+      if (!runtime.hasMachine(producer)) runtime.dropParcel();
+      else if (owned === quantity && producer > 0) this.startSpotlight(producer);
+      if (milestone) {
+        runtime.celebrate(producer);
+        this.impact.hit('medium');
+      }
     });
     bus.on('upgrade_purchased', ({ spent }) => {
       this.scoopPayment(spent);
@@ -372,6 +393,34 @@ export class World {
     this.raycaster.setFromCamera(ndc, this.stage.camera);
     this.pendingGain += count * gainEach;
     director.click(this.raycaster.ray, count, gainEach);
+    // A click during a machine's close-up means the player wants the game back.
+    if (this.spotlight) this.spotlight.t = Math.max(this.spotlight.t, SPOTLIGHT_IN + SPOTLIGHT_HOLD);
+    const combo = director.comboCount;
+    if (combo > 0 && combo % COMBO_STEP === 0) {
+      runtime.comboBurst(Math.min(3, combo / (COMBO_STEP * 2)));
+      this.hooks.onCombo(combo);
+    }
+  }
+
+  private startSpotlight(producer: number): void {
+    if (this.reduceMotion || this.attract || this.transition || this.finaleTime !== -1) return;
+    const copy = this.current?.machineFocus(producer);
+    if (copy) this.spotlight = { ...copy, t: 0 };
+  }
+
+  private spotlightPose(rest: Pose): Pose {
+    const s = this.spotlight!;
+    const u = easeInOutCubic(clamp01(s.t / SPOTLIGHT_IN)) * (1 - easeInOutCubic(clamp01((s.t - SPOTLIGHT_IN - SPOTLIGHT_HOLD) / SPOTLIGHT_OUT)));
+    const distance = s.size * 2.1;
+    const a = s.rotation + 0.55 + s.t * 0.09;
+    const eye = v2.set(s.center.x + Math.sin(a) * distance, s.center.y + distance * 0.3, s.center.z + Math.cos(a) * distance);
+    return {
+      ...rest,
+      position: rest.position.clone().lerp(eye, u),
+      target: rest.target.clone().lerp(s.center, u),
+      focusDistance: lerp(rest.focusDistance, distance, u),
+      focusRange: lerp(rest.focusRange, s.size * 1.1, u),
+    };
   }
 
   setCannonCharge(charge: number, charging: boolean): void {
@@ -475,6 +524,7 @@ export class World {
     const ctx = from.context(this.time, 1, this.intensity);
     if (ctx) from.parts.blast?.(ctx);
     this.impact.hit('epic');
+    from.burstVessel();
     this.hooks.onBreakBeat('blast', tr.stage);
 
     // From here on the old scene lives inside the new one, so the camera can simply pull away.
@@ -532,8 +582,14 @@ export class World {
     tr.to.parts.enter?.(1);
     tr.to.setFlockHidden(false);
     this.transition = null;
-    if (!tr.arrived) this.hooks.onBreakBeat('arrive', tr.stage);
+    if (!tr.arrived) this.arrive(tr);
     this.stage.post.params.shock.w = 0;
+  }
+
+  private arrive(tr: Transition): void {
+    tr.arrived = true;
+    tr.to.dropInMachines();
+    this.hooks.onBreakBeat('arrive', tr.stage);
   }
 
   private updateTransition(dt: number): void {
@@ -545,10 +601,7 @@ export class World {
       this.hooks.onBreakBeat('silence', tr.stage);
     }
     if (!tr.blasted && t >= STRAIN_END + tuning.breakSilenceMs / 1000) this.startBlast(tr);
-    if (!tr.arrived && t >= ZOOM_END - 0.35) {
-      tr.arrived = true;
-      this.hooks.onBreakBeat('arrive', tr.stage);
-    }
+    if (!tr.arrived && t >= ZOOM_END - 0.35) this.arrive(tr);
     if (tr.blasted) tr.to.parts.enter?.(clamp01((t - ZOOM_START) / (ZOOM_END - ZOOM_START)));
     if (t >= TRANSITION_END) this.finishTransition();
   }
@@ -574,17 +627,29 @@ export class World {
     if (!active || active.blasted) {
       this.level += (this.targetLevel() - this.level) * (1 - Math.exp(-dt * 7));
     }
+    if (this.spotlight) {
+      this.spotlight.t += dt;
+      if (this.spotlight.t >= SPOTLIGHT_IN + SPOTLIGHT_HOLD + SPOTLIGHT_OUT) this.spotlight = null;
+    }
+    if (this.current) this.current.holdLaunches = this.spotlight !== null;
 
     const current = this.current!;
     const cooling = this.sim.state.cannonCooldown > 0;
     const shared = { time: this.time, level: this.level, intensity: this.intensity, attract: this.attract };
     if (active && !active.blasted) {
       const u = clamp01(active.t / STRAIN_END);
-      const ctx = active.from.context(this.time, 1, this.intensity);
-      if (ctx) active.from.parts.strain?.(u, ctx);
+      // Carries straight on from the pressure that was already building.
+      active.from.strain(PRESSURE_SHARE + (1 - PRESSURE_SHARE) * u, active.from.context(this.time, 1, this.intensity));
       active.from.pile.setLevel(1 + u * 0.05);
       active.from.update(sceneDt, { ...shared, level: 1 + u * 0.05 }, cooling);
     } else {
+      if (!active && !this.attract && this.finaleTime === -1 && this.sim.state.stage < SCENES.length) {
+        const pressure = smoothstep(this.targetLevel(), PRESSURE_FROM, 1);
+        if (pressure > 0) {
+          current.strain(pressure * PRESSURE_SHARE, current.context(this.time, this.level, this.intensity));
+          this.impact.rumble(pressure * 0.55);
+        }
+      }
       current.update(dt, shared, cooling);
       if (active) {
         const ctx = active.from.context(this.time, 1, this.intensity);
@@ -652,6 +717,7 @@ export class World {
         pose = this.blendPose(tr.startPose!, rest, u, tr.from.spec.nest?.rise ?? 0.1);
       }
     }
+    if (this.spotlight && !tr && this.finaleTime === -1) pose = this.spotlightPose(rest);
     if (this.attract) {
       // A slow drift around the pot while the title is up.
       const angle = Math.sin(this.time * 0.13) * 0.16;

@@ -18,6 +18,8 @@ export interface UnitHost {
   caramel(x: number, y: number, z: number, size: number): void;
   ember(x: number, y: number, z: number, size: number): void;
   onCannonFired(): void;
+  /** A machine's own working noise; the world keeps these from piling up. */
+  sound(name: string): void;
 }
 
 export interface UnitState {

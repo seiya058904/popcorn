@@ -520,6 +520,7 @@ export const stoveSpec: SceneSpec = {
     outerDensityRadius: 3.9,
     flakeScale: 0.2,
   }),
+  debris: ['#cf2f38', '#f6dfb8', '#24232c'],
   homeRadius: POT.innerR * 0.72,
   steamY: POT.rimY,
   spreadRadius: 7.5,

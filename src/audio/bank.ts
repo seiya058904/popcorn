@@ -129,6 +129,33 @@ export const SOUND_RECIPES: Record<string, () => Float32Array> = {
       0,
       0.03,
     ),
+  // A kitchen timer's clear little bell.
+  ding: () => fadeEdges(normalizePeak(tone(0.7, bell(2637, 0.16, 0.5)), 0.2), 0, 0.05),
+  'truck-horn': () => {
+    const out = seconds(0.42);
+    for (const frequency of [311, 392]) mixIn(out, tone(0.36, (t) => Math.sign(Math.sin(TAU * frequency * t)) * 0.3 * Math.min(1, t / 0.01) * Math.min(1, (0.36 - t) / 0.04)), 0);
+    const soft = new Biquad('low', 1800, 0.7);
+    for (let i = 0; i < out.length; i += 1) out[i] = soft.run(out[i]!);
+    return fadeEdges(normalizePeak(out, 0.18), 0.004, 0.03);
+  },
+  'orbital-zap': () => fadeEdges(normalizePeak(tone(0.3, (t) => Math.sin(TAU * (1800 * t - 2200 * t * t)) * Math.exp(-t / 0.08)), 0.14), 0, 0.03),
+  combo: () => {
+    const out = seconds(0.42);
+    [880, 1319].forEach((frequency, i) => mixIn(out, tone(0.36, bell(frequency, 0.09, 0.55)), i * 0.05));
+    return fadeEdges(normalizePeak(out, 0.3), 0, 0.04);
+  },
+  milestone: () => {
+    const out = seconds(1);
+    [659, 880, 1047, 1319, 1760].forEach((frequency, i) => mixIn(out, tone(0.72, bell(frequency, 0.17, 0.55)), i * 0.055));
+    return fadeEdges(normalizePeak(out, 0.5), 0, 0.08);
+  },
+  unveil: () => {
+    const out = seconds(1.3);
+    const air = new Biquad('band', 1500, 0.8);
+    mixIn(out, burstNoise(0.55, 44, air, (t) => Math.sin(Math.min(1, t / 0.55) * Math.PI)), 0, 0.28);
+    [523, 784, 1047].forEach((frequency, i) => mixIn(out, tone(0.9, bell(frequency, 0.26, 0.5)), 0.3 + i * 0.07));
+    return fadeEdges(normalizePeak(out, 0.48), 0, 0.1);
+  },
   catch: () => {
     const out = seconds(0.9);
     [1319, 1760, 2349, 2637, 3136].forEach((frequency, i) => mixIn(out, tone(0.5, bell(frequency, 0.13, 0.5)), i * 0.045));

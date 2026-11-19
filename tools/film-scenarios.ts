@@ -78,6 +78,24 @@ export const filmScenarios: Record<string, FilmScenario> = {
     },
     step: (page) => advance(page, FRAME * 6),
   },
+  /** The close look at a machine bought for the first time. */
+  spotlight: {
+    clip: { x: 0, y: 0, width: 1280, height: 720 },
+    frames: 24,
+    columns: 6,
+    setup: async (page) => {
+      await qa(
+        page,
+        (api) => {
+          api.earn(300);
+          api.advance(1);
+          api.buy(1);
+        },
+        null,
+      );
+    },
+    step: (page) => advance(page, FRAME * 7),
+  },
   /** Cannon charge and a perfect shot, in the kitchen. */
   cannon: {
     clip: { x: 0, y: 0, width: 1280, height: 720 },

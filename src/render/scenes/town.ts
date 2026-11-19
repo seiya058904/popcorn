@@ -387,6 +387,7 @@ export const townSpec: SceneSpec = {
     outerDensityRadius: 54,
     flakeScale: 1.25,
   }),
+  debris: ['#e8dcc8', '#b7a892', '#58b7e8'],
   homeRadius: FOUNTAIN.innerR * 0.72,
   steamY: FOUNTAIN.rimY,
   spreadRadius: 95,

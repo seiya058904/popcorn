@@ -286,6 +286,7 @@ export const HOME_MACHINES: Record<'pan' | 'microwave' | 'cart' | 'cannon', Unit
     fire(st, host, x, y, z, s) {
       st.kick = 1;
       host.flash(x, y, z, 0.5 * s);
+      host.sound('ding');
     },
   },
   cart: {

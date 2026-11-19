@@ -47,6 +47,11 @@ export class ImpactDirector {
     if (!this.prefs.reduceMotion) this.hitstop = Math.max(this.hitstop, spec.hitstop);
   }
 
+  /** A low continuous tremble, for pressure building up. */
+  rumble(amount: number): void {
+    this.trauma = Math.max(this.trauma, Math.min(1, amount) * 0.3);
+  }
+
   /** Scales presentation time; zero during a hit-stop. Input and the economy never pause. */
   timeScale(deltaSeconds: number): number {
     if (this.hitstop <= 0) return 1;

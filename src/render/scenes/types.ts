@@ -87,6 +87,8 @@ export interface SceneParts {
 export interface SceneSpec {
   id: number;
   light: LightRig;
+  /** Colors of the pieces thrown out when the vessel bursts. */
+  debris?: string[];
   /** Practical lights that spill onto everything nearby. */
   lamps?: Lamp[];
   grade: Grade;
