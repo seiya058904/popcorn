@@ -112,7 +112,14 @@ export interface SceneSpec {
   slots: Partial<Record<UnitKindName, UnitSlot[]>>;
   cannon: HeroCannonPose | null;
   perches: THREE.Vector3[];
-  build(stage: Stage, root: THREE.Group): SceneParts;
+  /**
+   * Builds the set a few milliseconds at a time: every `yield` is a point where the game may draw
+   * a frame before going on, so a scene can be prepared in the background without a stall.
+   */
+  build(stage: Stage, root: THREE.Group): SceneBuild;
 }
+
+/** A scene set under construction; see SceneSpec.build. */
+export type SceneBuild = Generator<void, SceneParts, void>;
 
 export type UnitKindName = 'pan' | 'microwave' | 'cart' | 'cannon' | 'cinema' | 'truck' | 'factory' | 'airship' | 'volcano' | 'orbital';

@@ -52,6 +52,21 @@ export class ShadowPass {
     this.casters.delete(mesh);
   }
 
+  /** Asks for the depth programs of every caster under `root`, as they will be drawn. */
+  compile(renderer: THREE.WebGLRenderer, root: THREE.Object3D, scene: THREE.Scene): void {
+    if (!this.target) return;
+    const originals: Array<[THREE.Mesh, THREE.Material | THREE.Material[]]> = [];
+    root.traverse((node) => {
+      const depth = this.casters.get(node as THREE.Mesh);
+      if (!depth) return;
+      originals.push([node as THREE.Mesh, (node as THREE.Mesh).material]);
+      (node as THREE.Mesh).material = depth;
+    });
+    renderer.setRenderTarget(this.target);
+    renderer.compile(root, this.camera, scene);
+    for (const [mesh, material] of originals) mesh.material = material;
+  }
+
   render(renderer: THREE.WebGLRenderer, scene: THREE.Object3D): void {
     if (!this.target) return;
     const r = this.radius;

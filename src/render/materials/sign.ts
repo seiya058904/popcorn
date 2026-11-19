@@ -84,25 +84,33 @@ void main() {
 }
 `;
 
-export function signMaterial(text: string, style: SignStyle): THREE.ShaderMaterial {
+/** `rig` is the part texture of the machine the sign is fixed to; its geometry then carries `aPart`. */
+export function signMaterial(text: string, style: SignStyle, rig?: THREE.Texture): THREE.ShaderMaterial {
   const glow = style.glow ?? 0;
-  const key = `${text}|${style.background}|${style.color}|${style.border ?? ''}|${style.aspect ?? 3}|${glow}`;
+  const key = `${text}|${style.background}|${style.color}|${style.border ?? ''}|${style.aspect ?? 3}|${glow}|${rig?.uuid ?? ''}`;
   let material = materials.get(key);
   if (!material) {
     material = new THREE.ShaderMaterial({
       name: 'sign',
       vertexShader: vertex,
       fragmentShader: fragment,
-      uniforms: { ...globals, tSign: { value: signTexture(text, style) }, uGlow: { value: glow } },
+      uniforms: { ...globals, tSign: { value: signTexture(text, style) }, uGlow: { value: glow }, ...(rig ? { tParts: { value: rig } } : {}) },
+      defines: rig ? { USE_PART_RIG: '' } : {},
     });
     materials.set(key, material);
   }
   return material;
 }
 
-/** A flat painted board facing +Z before `matrix` is applied. */
-export function signGeometry(width: number, height: number, matrix: THREE.Matrix4): THREE.BufferGeometry {
-  return new THREE.PlaneGeometry(width, height).applyMatrix4(matrix);
+/** A flat painted board facing +Z before `matrix` is applied. A rig part makes it ride on that part. */
+export function signGeometry(width: number, height: number, matrix: THREE.Matrix4, part?: number): THREE.BufferGeometry {
+  const geometry = new THREE.PlaneGeometry(width, height).applyMatrix4(matrix);
+  if (part !== undefined) {
+    const tags = new Float32Array(geometry.getAttribute('position').count * 3);
+    for (let i = 0; i < tags.length; i += 3) tags[i] = part;
+    geometry.setAttribute('aPart', new THREE.BufferAttribute(tags, 3));
+  }
+  return geometry;
 }
 
 export function addSign(parent: THREE.Object3D, text: string, style: SignStyle, width: number, height: number, matrix: THREE.Matrix4): THREE.Mesh {

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { Spring } from '../motion/ease.ts';
 import type { Stage } from './core/stage.ts';
-import { addToyInstances, type ToyInstances } from './geometry/kit.ts';
+import { PartRig } from './geometry/rig.ts';
 import { HIDDEN, type UnitDef, type UnitHost, type UnitState } from './machines/common.ts';
 import { CALM_ENTRANCE, ENTRANCES, type Entrance, type EntrancePose, type EntranceSpot } from './machines/entrances.ts';
 import { HOME_MACHINES } from './machines/home.ts';
@@ -27,73 +27,78 @@ const ARRIVAL_STAGGER = 0.05;
 
 const frame: EntrancePose = { x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0, sx: 1, sy: 1, sz: 1 };
 const spot: EntranceSpot = { x: 0, y: 0, z: 0, mx: 0, my: 0, mz: 0, s: 1 };
+const bounds = new THREE.Box3();
+const sphere = new THREE.Sphere();
+const corner = new THREE.Vector3();
 
-interface SignInstances {
-  mesh: THREE.InstancedMesh;
-  part: number;
-}
-
-/** All visible copies of one unit type in one scene. */
+/** All visible copies of one unit type in one scene, drawn as one part rig. */
 export class UnitRig {
   private readonly def: UnitDef;
   private readonly entrance: Entrance;
   private readonly slots: UnitSlot[];
   private readonly host: UnitHost;
-  private readonly parts: ToyInstances[];
-  private readonly signs: SignInstances[];
-  private readonly cursors: number[];
+  private readonly rig: PartRig;
+  private readonly signs: THREE.InstancedMesh[];
   private readonly states: UnitState[] = [];
   private readonly base = new THREE.Matrix4();
   private readonly height: number;
   private readonly lowest: number;
   private readonly reach: number;
+  /** Half the widest extent of any part, for the box the camera tests against. */
+  private readonly radius: number;
   private tier = 0;
 
-  constructor(stage: Stage, parent: THREE.Object3D, kind: UnitKindName, slots: UnitSlot[], host: UnitHost) {
+  /** Builds the machine one part per step, so it can be made in the background. */
+  static *create(stage: Stage, parent: THREE.Object3D, kind: UnitKindName, slots: UnitSlot[], host: UnitHost): Generator<void, UnitRig, void> {
+    const geometries: THREE.BufferGeometry[] = [];
+    for (const make of UNIT_DEFS[kind].parts) {
+      geometries.push(make());
+      yield;
+    }
+    return new UnitRig(stage, parent, kind, slots, host, geometries);
+  }
+
+  constructor(stage: Stage, parent: THREE.Object3D, kind: UnitKindName, slots: UnitSlot[], host: UnitHost, geometries?: THREE.BufferGeometry[]) {
     this.def = UNIT_DEFS[kind];
     this.entrance = ENTRANCES[kind];
     this.slots = slots;
     this.host = host;
     const shadowParts = this.def.shadowParts ?? this.def.parts.length;
+    const inkParts = this.def.inkParts ?? 1;
     let height = 0;
     let lowest = 0;
     let reach = 0;
-    this.parts = this.def.parts.map((make, index) => {
-      const geometry = make();
+    let radius = 0;
+    const parts = this.def.parts.map((make, index) => {
+      const geometry = geometries?.[index] ?? make();
       geometry.computeBoundingBox();
       const box = geometry.boundingBox!;
       height = Math.max(height, box.max.y);
       lowest = Math.min(lowest, box.min.y);
+      radius = Math.max(radius, box.max.length(), box.min.length());
       if (index === 0) reach = Math.max(-box.min.x, box.max.x, -box.min.z, box.max.z);
-      return addToyInstances(stage, parent, geometry, slots.length, index < shadowParts, index < (this.def.inkParts ?? 1));
+      return { geometry, ink: index < inkParts, shadow: index < shadowParts };
     });
     this.height = height;
     this.lowest = lowest;
     this.reach = reach;
+    this.radius = radius;
+    this.rig = new PartRig(stage, parent, parts, slots.length);
     this.signs = (this.def.signs ?? []).map((sign) => {
-      const part = sign.part ?? 0;
       const mesh = new THREE.InstancedMesh(
-        signGeometry(sign.width, sign.height, sign.matrix),
-        signMaterial(sign.text, { aspect: sign.width / sign.height, ...sign.style }),
+        signGeometry(sign.width, sign.height, sign.matrix, sign.part ?? 0),
+        signMaterial(sign.text, { aspect: sign.width / sign.height, ...sign.style }, this.rig.texture),
         slots.length,
       );
-      mesh.instanceMatrix = this.parts[part]!.body.instanceMatrix;
       mesh.frustumCulled = false;
       mesh.count = 0;
       parent.add(mesh);
-      return { mesh, part };
+      return mesh;
     });
-    this.cursors = this.parts.map(() => 0);
     const tints = this.def.tints;
     if (tints) {
       const color = new THREE.Color();
-      for (const part of this.parts) {
-        slots.forEach((_slot, index) => {
-          color.set(tints[index % tints.length]!);
-          part.body.setColorAt(index, color);
-        });
-        part.ink.instanceColor = part.body.instanceColor;
-      }
+      slots.forEach((_slot, index) => this.rig.setColor(index, color.set(tints[index % tints.length]!)));
     }
   }
 
@@ -146,7 +151,7 @@ export class UnitRig {
 
   /** Nobody can read a machine's sign once its whole scene is shrinking away. */
   hideSigns(): void {
-    for (const sign of this.signs) sign.mesh.visible = false;
+    for (const sign of this.signs) sign.visible = false;
   }
 
   /** Leaves one copy on show, so it can be inspected without its neighbors in the way. */
@@ -155,8 +160,8 @@ export class UnitRig {
   }
 
   hide(): void {
-    for (const part of this.parts) part.commit(0);
-    for (const sign of this.signs) sign.mesh.count = 0;
+    this.rig.commit(0);
+    for (const sign of this.signs) sign.count = 0;
     this.states.length = 0;
   }
 
@@ -187,19 +192,23 @@ export class UnitRig {
 
   update(dt: number, time: number, tempo: number): void {
     const def = this.def;
-    this.cursors.fill(0);
-    const put = (part: number, matrix: THREE.Matrix4): void => {
-      this.parts[part]!.setMatrixAt(this.cursors[part]!, matrix);
-      this.cursors[part]! += 1;
+    const rig = this.rig;
+    let copy = 0;
+    const put = (part: number, matrix: THREE.Matrix4): void => rig.setMatrix(copy, part, matrix);
+    const hideCopy = (): void => {
+      for (let part = 0; part < rig.partCount; part += 1) rig.setMatrix(copy, part, HIDDEN);
     };
     const speed = 1 + this.tier * 0.35;
     const entrance = this.host.calm ? CALM_ENTRANCE : this.entrance;
+    let shown = 0;
+    bounds.makeEmpty();
     this.states.forEach((st, index) => {
+      copy = index;
       st.age += dt;
       const slot = this.slots[index]!;
       const s = slot.scale ?? 1;
       if (st.age < 0) {
-        for (let part = 0; part < this.parts.length; part += 1) put(part, HIDDEN);
+        hideCopy();
         return;
       }
       // Half-buried machines leave odd scraps poking out, so the heap swallows them whole.
@@ -209,7 +218,7 @@ export class UnitRig {
       const under = surface > line || (st.sunk > 0.5 && surface > line - height * 0.08);
       st.sunk = st.sunk < 0 ? (under ? 1 : 0) : THREE.MathUtils.clamp(st.sunk + (under ? dt : -dt) * 2.4, 0, 1);
       if (st.sunk >= 1) {
-        for (let part = 0; part < this.parts.length; part += 1) put(part, HIDDEN);
+        hideCopy();
         return;
       }
       st.timer -= dt * tempo * speed;
@@ -268,8 +277,18 @@ export class UnitRig {
       scale.set(wide * frame.sx, shrink * squash * frame.sy, wide * frame.sz);
       this.base.compose(pos, quat, scale);
       def.pose(st, time, index, this.tier, this.base, put);
+      // Generous on purpose: lids fly and doors swing a little outside the model's own box.
+      const r = this.radius * s * Math.max(1, frame.sx, frame.sy, frame.sz) * 1.35;
+      bounds.expandByPoint(corner.copy(pos).addScalar(r)).expandByPoint(corner.copy(pos).addScalar(-r));
+      shown += 1;
     });
-    this.parts.forEach((part, index) => part.commit(this.cursors[index]!));
-    for (const sign of this.signs) sign.mesh.count = this.cursors[sign.part]!;
+    const count = shown > 0 ? this.states.length : 0;
+    rig.commit(count);
+    rig.setBounds(shown > 0 ? bounds.getBoundingSphere(sphere) : null);
+    for (const sign of this.signs) {
+      sign.count = count;
+      sign.frustumCulled = shown > 0;
+      if (shown > 0) (sign.boundingSphere ??= new THREE.Sphere()).copy(sphere);
+    }
   }
 }

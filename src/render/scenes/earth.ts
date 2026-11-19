@@ -12,7 +12,7 @@ import { popcornUniforms } from '../materials/popcorn.ts';
 import { toyMaterials } from '../materials/toy.ts';
 import { PieceBatches } from '../popcorn/batches.ts';
 import type { PileShape } from '../popcorn/pile.ts';
-import type { FinalePlan, SceneContext, SceneParts, SceneSpec, UnitSlot } from './types.ts';
+import type { FinalePlan, SceneContext, SceneBuild, SceneSpec, UnitSlot } from './types.ts';
 
 const R = 34;
 const K = 3.5;
@@ -158,7 +158,7 @@ void main() {
 }
 `;
 
-function craterGeometry(): THREE.BufferGeometry {
+function* craterGeometry(): Generator<void, THREE.BufferGeometry, void> {
   const { floorY: f, rimY: r, innerR: i, outerR: o, skirtR: s } = CRATER;
   const kit = new Kit();
   const profile: Array<[number, number]> = [[s + 1, sphereY(s + 1) - 0.8]];
@@ -191,17 +191,21 @@ function craterGeometry(): THREE.BufferGeometry {
     const rivers = Math.pow(Math.max(0, Math.cos(a * 5 + 0.8 + Math.sin(rr * 0.8 + a * 2) * 0.55)), 26) * (1 - smooth(s - 3, s, rr));
     return rr < i + 0.08 ? 0 : Math.max(smooth(o + 1.1, o - 0.1, rr), rivers);
   };
+  yield;
+  // The Kit asks for color, then glow, for each vertex in turn, so the lava is worked out once.
+  let lava = 0;
   kit.add(cone, {
     color: rock,
     gloss: 0.1,
     colorFn: (p, _n, out) => {
       const rr = Math.hypot(p.x, p.z);
       const a = Math.atan2(p.z, p.x);
+      lava = lavaAt(p);
       out.lerpColors(rock, ridge, 0.5 + 0.5 * Math.sin(a * 11 + rr * 1.3));
       if (rr < i + 0.08) out.copy(inner);
-      else out.lerp(glow, lavaAt(p));
+      else out.lerp(glow, lava);
     },
-    emissiveFn: (p) => lavaAt(p) * 0.75,
+    emissiveFn: () => lava * 0.75,
   });
   return kit.build();
 }
@@ -282,10 +286,11 @@ const HAND_REST = new THREE.Vector3(104, 26, 6);
 const LEAVE_X = 330;
 const LEAVE_Y = 60;
 
-function buildEarth(stage: Stage, root: THREE.Group): SceneParts {
+function* buildEarth(stage: Stage, root: THREE.Group): SceneBuild {
   const sky = new THREE.Group();
   root.add(sky);
   addToy(stage, sky, starsGeometry(), { shadow: false, outline: false });
+  yield;
 
   const globeUniforms = {
     ...globals,
@@ -298,6 +303,7 @@ function buildEarth(stage: Stage, root: THREE.Group): SceneParts {
   const globeKit = new Kit();
   globeKit.add(new THREE.SphereGeometry(R, 128, 88), { color: '#ffffff', outline: 1.4 });
   const globeGeometry = globeKit.build();
+  yield;
   const globe = new THREE.Mesh(
     globeGeometry,
     new THREE.ShaderMaterial({
@@ -333,13 +339,16 @@ function buildEarth(stage: Stage, root: THREE.Group): SceneParts {
   );
   air.position.y = -R;
   root.add(air);
+  yield;
 
-  const crater = addToy(stage, root, craterGeometry());
+  const crater = addToy(stage, root, yield* craterGeometry());
+  yield;
 
   const moon = new THREE.Group();
   moon.position.copy(MOON_HOME);
   sky.add(moon);
   addToy(stage, moon, moonGeometry());
+  yield;
 
   // The moon's true form: a kernel the size of a moon.
   const moonFlake = new PieceBatches(stage, sky, 1);

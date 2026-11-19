@@ -59,6 +59,8 @@ const FRAMING_MARGIN = 0.05;
 /** Keeps the whole play area sharp; only the distant background goes soft. */
 const FOCUS_DEPTH = 1.8;
 const REFLECTION_REACH = 14;
+/** Milliseconds per frame spent building the next scene in the background. */
+const BUILD_BUDGET_MS = 4;
 
 const ndc = new THREE.Vector2();
 const v = new THREE.Vector3();
@@ -147,6 +149,17 @@ export class World {
   reduceMotion = false;
   /** Behind the title screen the camera drifts and the pot pops on its own. */
   attract = false;
+  /** Off for captures, which must come out the same every time: they build scenes in one go. */
+  backgroundBuilds = true;
+  /** The scene being built in the background, if any. */
+  private job: {
+    index: number;
+    runtime: SceneRuntime;
+    steps: Generator<void, void, void>;
+    phase: 'build' | 'compile' | 'upload';
+    pending: THREE.Object3D[];
+    longestStepMs: number;
+  } | null = null;
   private readonly stage: Stage;
   private readonly sim: Simulation;
   private readonly hooks: WorldHooks;
@@ -244,22 +257,83 @@ export class World {
 
   private runtime(index: number, live: boolean): SceneRuntime {
     let runtime = this.runtimes[index];
-    if (!runtime) {
-      runtime = new SceneRuntime(this.stage, SCENES[index]!, this.rng, this.runtimeHooks, live);
-      releaseSharedShapes();
-      this.runtimes[index] = runtime;
+    if (runtime) return runtime;
+    // Needed before the background build got there: finish it now. Normally it is long done.
+    if (this.job?.index === index) {
+      this.finishJob();
+      return this.runtimes[index]!;
     }
+    runtime = new SceneRuntime(this.stage, SCENES[index]!, this.rng, this.runtimeHooks, live);
+    const steps = runtime.construct();
+    while (steps.next().done !== true);
+    releaseSharedShapes();
+    this.runtimes[index] = runtime;
     return runtime;
   }
 
   /**
-   * Builds the following scene ahead of time. This runs at load and inside the blast's hit-stop,
-   * the two moments a long frame cannot be seen, so the next breakout starts without a stall.
+   * Starts building the following scene. In play it is built a few milliseconds per frame while
+   * the current scene runs, its shaders compile off the main thread, and its buffers go to the GPU
+   * one piece per frame, so the next breakout finds it ready and nothing ever stalls.
    */
   private prepareNext(): void {
     const next = this.currentIndex + 1;
-    if (next >= SCENES.length || this.runtimes[next]) return;
-    this.stage.preload(this.runtime(next, true).root);
+    if (next >= SCENES.length || this.runtimes[next] || this.job?.index === next) return;
+    const runtime = new SceneRuntime(this.stage, SCENES[next]!, this.rng, this.runtimeHooks, true);
+    this.job = { index: next, runtime, steps: runtime.construct(), phase: 'build', pending: [], longestStepMs: 0 };
+    if (!this.backgroundBuilds) this.finishJob();
+  }
+
+  /** Works on the background build for about `budgetMs` milliseconds. */
+  private advanceJob(budgetMs: number): void {
+    const job = this.job;
+    if (!job) return;
+    const start = performance.now();
+    while (performance.now() - start < budgetMs) {
+      if (job.phase === 'build') {
+        const before = performance.now();
+        const done = job.steps.next().done === true;
+        job.longestStepMs = Math.max(job.longestStepMs, performance.now() - before);
+        if (done) {
+          releaseSharedShapes();
+          this.stage.requestCompile(job.runtime.root);
+          job.phase = 'compile';
+          return;
+        }
+      } else if (job.phase === 'compile') {
+        // The driver compiles in parallel; drawing before it is done would block.
+        if (!this.stage.programsReady()) return;
+        job.pending = [...job.runtime.root.children];
+        job.phase = 'upload';
+      } else {
+        const piece = job.pending.shift();
+        if (piece) this.stage.preload(piece);
+        if (job.pending.length === 0) {
+          this.completeJob();
+          return;
+        }
+        // Uploads are big and few: one per frame keeps each frame short.
+        return;
+      }
+    }
+  }
+
+  private finishJob(): void {
+    const job = this.job;
+    if (!job) return;
+    if (job.phase === 'build') {
+      while (job.steps.next().done !== true);
+      releaseSharedShapes();
+    }
+    this.stage.preload(job.runtime.root);
+    this.completeJob();
+  }
+
+  private completeJob(): void {
+    const job = this.job!;
+    this.runtimes[job.index] = job.runtime;
+    if (__QA__) job.runtime.root.userData.longestBuildStepMs = job.longestStepMs;
+    this.job = null;
   }
 
   /** Puts `inner` where it belongs inside `outer`, as a small prop. */
@@ -667,6 +741,8 @@ export class World {
     const tr = this.transition;
     if (tr) this.updateTransition(dt);
     const active = this.transition;
+    // Shows get the whole frame; the next scene is built in the quiet in between.
+    if (!active && this.finaleTime < 0) this.advanceJob(BUILD_BUDGET_MS);
 
     // During the silent beat the old scene hangs in slow motion.
     let sceneDt = dt;
@@ -723,27 +799,31 @@ export class World {
   /** -1 before the ending, -2 after it, otherwise seconds into the closing show. */
   private finaleTime = -1;
 
-  private restPose(spec: SceneSpec, level: number, open = this.frameOpen): Pose {
+  /**
+   * The resting camera for this scene. Without `out` it returns a pose of its own; the per-frame
+   * path passes a scratch pose, so a still camera allocates nothing.
+   */
+  private restPose(spec: SceneSpec, level: number, open = this.frameOpen, out?: Pose): Pose {
     const t = Math.max(smoothstep(level, 0.3, 0.92), open);
     const near = 1 - (1 - spec.close.distance) * (1 - t);
-    const target = spec.close.target.clone().lerp(spec.camera.target, t);
-    const position = spec.camera.position.clone().sub(spec.camera.target).multiplyScalar(near).add(target);
+    const pose = out ?? { position: new THREE.Vector3(), target: new THREE.Vector3(), shadowCenter: new THREE.Vector3() } as Pose;
+    const target = pose.target.copy(spec.close.target).lerp(spec.camera.target, t);
+    const position = pose.position.copy(spec.camera.position).sub(spec.camera.target).multiplyScalar(near).add(target);
     position.y += spec.close.lift * (1 - t);
     // A tight opening shot gets a tight shadow map, so close-ups stay crisp.
     const shadowTight = lerp(0.62, 1, t);
-    return {
-      position,
-      target,
-      fov: spec.camera.fov,
-      focusDistance: position.distanceTo(spec.focusPoint),
-      focusRange: spec.focusRange * near * FOCUS_DEPTH,
-      aoRadius: spec.aoRadius,
-      shadowCenter: spec.close.target.clone().lerp(spec.shadow.center, t),
-      shadowRadius: spec.shadow.radius * shadowTight,
-      rig: spec.light,
-      grade: spec.grade,
-    };
+    pose.fov = spec.camera.fov;
+    pose.focusDistance = position.distanceTo(spec.focusPoint);
+    pose.focusRange = spec.focusRange * near * FOCUS_DEPTH;
+    pose.aoRadius = spec.aoRadius;
+    pose.shadowCenter.copy(spec.close.target).lerp(spec.shadow.center, t);
+    pose.shadowRadius = spec.shadow.radius * shadowTight;
+    pose.rig = spec.light;
+    pose.grade = spec.grade;
+    return pose;
   }
+
+  private readonly scratchPose = { position: new THREE.Vector3(), target: new THREE.Vector3(), shadowCenter: new THREE.Vector3() } as Pose;
 
   private applyRest(level: number): void {
     this.applyPose(this.restPose(this.current!.spec, level));
@@ -752,7 +832,7 @@ export class World {
   private applyView(dt: number): void {
     if (this.cameraLocked) return;
     const tr = this.transition;
-    const rest = this.restPose(this.current!.spec, this.level);
+    const rest = this.restPose(this.current!.spec, this.level, this.frameOpen, this.scratchPose);
     let pose = rest;
     const plan = this.current!.parts.finale;
     if (plan && this.finaleTime !== -1) {

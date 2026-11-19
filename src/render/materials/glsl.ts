@@ -198,13 +198,43 @@ vec3 toyLight(vec3 albedo, vec3 N, vec3 V, vec3 P, float gloss, float ao, float 
 }
 `;
 
-/** Normal transform that stays correct under the non-uniform squash used everywhere. */
+/**
+ * Where a vertex sits in the world. A part rig draws many moving parts in one call: every vertex
+ * says which part it belongs to, and each copy's part matrices are read from a small float texture
+ * laid out one copy per row, four texels (the matrix columns) per part.
+ */
 export const GLSL_INSTANCE_WORLD = /* glsl */ `
+#ifdef USE_PART_RIG
+  // x: part index, y: 1 if the part is outlined, z: 1 if it casts a shadow.
+  attribute vec3 aPart;
+  uniform highp sampler2D tParts;
+#endif
 mat4 worldMatrixOf() {
-  #ifdef USE_INSTANCING
+  #ifdef USE_PART_RIG
+    int x = int(aPart.x + 0.5) * 4;
+    int y = gl_InstanceID;
+    return modelMatrix * mat4(
+      texelFetch(tParts, ivec2(x, y), 0),
+      texelFetch(tParts, ivec2(x + 1, y), 0),
+      texelFetch(tParts, ivec2(x + 2, y), 0),
+      texelFetch(tParts, ivec2(x + 3, y), 0)
+    );
+  #elif defined(USE_INSTANCING)
     return modelMatrix * instanceMatrix;
   #else
     return modelMatrix;
   #endif
 }
+`;
+
+/**
+ * Parts left out of a pass collapse to a point outside the view, so they cost no pixels at all.
+ * Used as the last statement of main(), after every varying has been written.
+ */
+export const GLSL_RIG_SKIP = /* glsl */ `
+#ifdef USE_PART_RIG
+  #define RIG_SKIP(flag) if (flag < 0.5) gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
+#else
+  #define RIG_SKIP(flag)
+#endif
 `;

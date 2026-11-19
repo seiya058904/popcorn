@@ -1,6 +1,7 @@
 import * as THREE from 'three';
+import { globals } from '../core/globals.ts';
 import type { Stage } from '../core/stage.ts';
-import { addToy } from '../geometry/kit.ts';
+import { ToyRig } from '../geometry/rig.ts';
 import { at, Kit, M, P, rivets, rod, V } from '../machines/common.ts';
 
 function baseGeometry(): THREE.BufferGeometry {
@@ -68,14 +69,16 @@ export class Stirrer {
     // Local +X, the direction of the arm, points at the vessel.
     this.group.rotation.y = Math.atan2(-Math.cos(yaw), Math.sin(yaw));
     // Only the arm casts a shadow and nothing here is outlined: it is a small, busy machine.
-    const light = { shadow: false, outline: false };
-    addToy(stage, this.group, baseGeometry(), light);
-    this.shaft = addToy(stage, this.group, shaftGeometry(), light);
+    const light = { shadow: false, ink: false };
+    const rig = new ToyRig();
+    rig.part(this.group, baseGeometry(), light);
+    this.shaft = rig.part(this.group, shaftGeometry(), light);
     this.shaft.position.y = SHAFT_START;
-    this.head = addToy(stage, this.group, headGeometry(reach), { outline: false });
-    this.paddle = addToy(stage, this.head, paddleGeometry(PADDLE_DEPTH, 3), light);
+    this.head = rig.part(this.group, headGeometry(reach), { ink: false });
+    this.paddle = rig.part(this.head, paddleGeometry(PADDLE_DEPTH, 3), light);
     this.paddle.position.set(reach, -0.08, 0);
     parent.add(this.group);
+    rig.build(stage, parent, globals.uTime);
     this.place();
   }
 

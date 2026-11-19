@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { globals } from '../core/globals.ts';
-import { GLSL_INSTANCE_WORLD, GLSL_LIGHT_PARS, GLSL_UTIL } from './glsl.ts';
+import { GLSL_INSTANCE_WORLD, GLSL_LIGHT_PARS, GLSL_RIG_SKIP, GLSL_UTIL } from './glsl.ts';
 
 const toyVertex = /* glsl */ `
 attribute vec4 aMat, aMat2;
@@ -146,6 +146,7 @@ uniform float uOutlinePx, uOutlineRefDist;
 varying vec3 vColor;
 varying float vDist;
 ${GLSL_INSTANCE_WORLD}
+${GLSL_RIG_SKIP}
 void main() {
   mat4 world = worldMatrixOf();
   vec4 wp = world * vec4(position, 1.0);
@@ -164,6 +165,7 @@ void main() {
   #endif
   vDist = distance(cameraPosition, wp.xyz);
   gl_Position = clip;
+  RIG_SKIP(aPart.y)
 }
 `;
 
@@ -182,7 +184,11 @@ void main() {
 
 const depthVertex = /* glsl */ `
 ${GLSL_INSTANCE_WORLD}
-void main() { gl_Position = projectionMatrix * viewMatrix * worldMatrixOf() * vec4(position, 1.0); }
+${GLSL_RIG_SKIP}
+void main() {
+  gl_Position = projectionMatrix * viewMatrix * worldMatrixOf() * vec4(position, 1.0);
+  RIG_SKIP(aPart.z)
+}
 `;
 
 const glassVertex = /* glsl */ `
@@ -376,27 +382,49 @@ export const glassUniforms = {
 let shared: ToyMaterials | null = null;
 
 export function toyMaterials(): ToyMaterials {
-  if (shared) return shared;
-  shared = {
+  shared ??= makeToyMaterials({}, {});
+  return shared;
+}
+
+/**
+ * The same materials for one part rig. They compile to the shared programs; only the texture that
+ * holds the rig's part matrices is its own.
+ */
+export function rigToyMaterials(parts: THREE.Texture): ToyMaterials {
+  return makeToyMaterials({ tParts: { value: parts } }, { USE_PART_RIG: '' });
+}
+
+/** Ink materials are recognized by this flag, whichever rig they belong to. */
+export const isInk = (material: THREE.Material | THREE.Material[]): boolean => !Array.isArray(material) && material.userData.ink === true;
+
+function makeToyMaterials(extra: Record<string, THREE.IUniform>, defines: Record<string, string>): ToyMaterials {
+  const uniforms = { ...globals, ...extra };
+  const outline = new THREE.ShaderMaterial({
+    name: 'toy-outline',
+    vertexShader: outlineVertex,
+    fragmentShader: outlineFragment,
+    uniforms,
+    defines,
+    vertexColors: true,
+    side: THREE.BackSide,
+  });
+  outline.userData.ink = true;
+  return {
     body: new THREE.ShaderMaterial({
       name: 'toy',
       vertexShader: toyVertex,
       fragmentShader: toyFragment,
-      uniforms: globals,
+      uniforms,
+      defines,
       vertexColors: true,
     }),
-    outline: new THREE.ShaderMaterial({
-      name: 'toy-outline',
-      vertexShader: outlineVertex,
-      fragmentShader: outlineFragment,
-      uniforms: globals,
-      vertexColors: true,
-      side: THREE.BackSide,
-    }),
+    outline,
     depth: new THREE.ShaderMaterial({
       name: 'toy-depth',
       vertexShader: depthVertex,
       fragmentShader: 'void main() { gl_FragColor = vec4(1.0); }',
+      uniforms: extra,
+      defines,
       colorWrite: false,
       // Back faces in the shadow map remove self-shadow streaks on grazing walls.
       side: THREE.BackSide,
@@ -405,7 +433,8 @@ export function toyMaterials(): ToyMaterials {
       name: 'toy-glass',
       vertexShader: glassVertex,
       fragmentShader: glassFragment,
-      uniforms: globals,
+      uniforms,
+      defines,
       vertexColors: true,
       transparent: true,
       depthWrite: false,
@@ -421,7 +450,8 @@ export function toyMaterials(): ToyMaterials {
       name: 'toy-glass-body',
       vertexShader: glassVertex,
       fragmentShader: glassBodyFragment,
-      uniforms: { ...globals, ...glassUniforms },
+      uniforms: { ...uniforms, ...glassUniforms },
+      defines,
       vertexColors: true,
       blending: THREE.NoBlending,
     }),
@@ -429,7 +459,8 @@ export function toyMaterials(): ToyMaterials {
       name: 'toy-glass-surface',
       vertexShader: glassVertex,
       fragmentShader: glassSurfaceFragment,
-      uniforms: { ...globals, ...glassUniforms },
+      uniforms: { ...uniforms, ...glassUniforms },
+      defines,
       vertexColors: true,
       transparent: true,
       depthTest: false,
@@ -442,5 +473,4 @@ export function toyMaterials(): ToyMaterials {
       blendDstAlpha: THREE.OneFactor,
     }),
   };
-  return shared;
 }

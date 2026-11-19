@@ -8,7 +8,7 @@ import { SpriteKind } from '../fx/sprites.ts';
 import { addToy, addToyInstances, at, Kit, P, Pattern } from '../geometry/kit.ts';
 import { addSign } from '../materials/sign.ts';
 import { toyMaterials } from '../materials/toy.ts';
-import type { SceneContext, SceneParts, SceneSpec, UnitSlot } from './types.ts';
+import type { SceneContext, SceneBuild, SceneSpec, UnitSlot } from './types.ts';
 import { addRichTree, carDetails, clockTowerDetails, dressHouse, dressPlaza, fountainStatue, wheelGondolas, windowFrameAt, type HouseFrame } from './dress.ts';
 import { vesselPile } from './vessel.ts';
 
@@ -69,7 +69,11 @@ function addHouse(kit: Kit, rng: Rng, look: Rng, x: number, z: number, rotation:
   dressHouse(kit, look, house, wall);
 }
 
-function addTown(kit: Kit): void {
+/**
+ * Pauses every few houses and trees, so the town can be built in the background. The houses go
+ * into a kit of their own: one huge mesh would take too long to hand to the GPU in a single frame.
+ */
+function* addTown(kit: Kit, houseKits: [Kit, Kit]): Generator<void, void, void> {
   kit.add(P.puck(BOARD_R + 2, BOARD_R, 6, 96, 0.8), { color: C.grassDeep, gloss: 0.2, matrix: at(0, -6, 0) });
   kit.add(P.puck(BOARD_R, BOARD_R - 0.2, 0.2, 96, 0.08), {
     color: C.grass,
@@ -95,7 +99,9 @@ function addTown(kit: Kit): void {
   const rng = new Rng(2024);
   // Details draw from their own sequence, so the layout of the town never shifts with them.
   const look = new Rng(99);
+  yield;
   dressPlaza(kit, look, RING_ROAD);
+  yield;
   let houses = 0;
   let guard = 0;
   while (houses < 74 && guard < 900) {
@@ -109,14 +115,16 @@ function addTown(kit: Kit): void {
     if (offSpoke > Math.PI / 4 - 6 / r) continue;
     if (x > -48 && x < -4 && z > -46 && z < -4) continue;
     if (z > 42 && Math.abs(x) < 46) continue;
-    addHouse(kit, rng, look, x, z, -a + Math.PI / 2);
+    addHouse(houseKits[houses % 2]!, rng, look, x, z, -a + Math.PI / 2);
     houses += 1;
+    if (houses % 2 === 0) yield;
   }
   for (let i = 0; i < 46; i += 1) {
     const a = rng.range(0, Math.PI * 2);
     const r = rng.range(19, BOARD_R - 5);
     if (r > RING_ROAD - 5 && r < RING_ROAD + 5) continue;
-    addRichTree(kit, look, Math.cos(a) * r, Math.sin(a) * r);
+    addRichTree(houseKits[i % 2]!, look, Math.cos(a) * r, Math.sin(a) * r);
+    if (i % 6 === 5) yield;
   }
 }
 
@@ -204,22 +212,33 @@ function moonGeometry(radius: number): THREE.BufferGeometry {
 
 const steam = new THREE.Color(0.92, 0.9, 0.88);
 
-function buildTown(stage: Stage, root: THREE.Group): SceneParts {
+function* buildTown(stage: Stage, root: THREE.Group): SceneBuild {
   const skyKit = new Kit();
   addSkyDome(skyKit);
   const sky = addToy(stage, root, skyKit.build(), { shadow: false, outline: false });
+  yield;
   const set = new Kit();
-  addTown(set);
+  const houses: [Kit, Kit] = [new Kit(), new Kit()];
+  yield* addTown(set, houses);
   addClockTower(set);
+  yield;
   addToy(stage, root, set.build({ frozen: true }));
+  yield;
+  for (const kit of houses) {
+    addToy(stage, root, kit.build({ frozen: true }));
+    yield;
+  }
   // The picture palace front stands in the camera's way on arrival, so it rises up afterward.
   const frontKit = new Kit();
   addCinemaFront(frontKit);
   const front = addToy(stage, root, frontKit.build());
   addSign(front, SIGN_TEXT.theatre, { background: '#fff3cf', color: '#a31d28', glow: 0.9 }, 13.2, 1.9, at(-25, 7, -4.02));
+  yield;
   const fountain = addToy(stage, root, fountainGeometry());
+  yield;
 
   const wheel = addToy(stage, root, wheelGeometry());
+  yield;
   wheel.position.set(56, 14, -30);
   const standKit = new Kit();
   for (const side of [-1, 1]) {
@@ -227,6 +246,7 @@ function buildTown(stage: Stage, root: THREE.Group): SceneParts {
   }
   const stand = addToy(stage, root, standKit.build());
   stand.position.set(56, 0, -30);
+  yield;
 
   // Cars circling the ring road, unbothered until the very end.
   const cars = addToyInstances(stage, root, carGeometry(), 12);
@@ -234,6 +254,7 @@ function buildTown(stage: Stage, root: THREE.Group): SceneParts {
   const tint = new THREE.Color();
   carColors.concat(carColors).forEach((color, index) => cars.body.setColorAt(index, tint.set(color)));
   cars.ink.instanceColor = cars.body.instanceColor;
+  yield;
 
   // People out for a walk around the square.
   const strollers = addToyInstances(stage, root, strollerGeometry(), STROLLERS, true, false);
@@ -245,6 +266,7 @@ function buildTown(stage: Stage, root: THREE.Group): SceneParts {
   const moonHome = new THREE.Vector3(-108, 112, -190);
   moon.position.copy(moonHome);
   root.add(moon);
+  yield;
 
   const snow = new PopcornSnow(root, { count: 460, size: 0.95, height: 130, radius: 88, center: [0, 0, -12] });
 

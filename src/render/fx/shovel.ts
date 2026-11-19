@@ -1,8 +1,10 @@
 import * as THREE from 'three';
 import { clamp01, easeInCubic, easeOutCubic, lerp } from '../../motion/ease.ts';
 import type { Rng } from '../../motion/rng.ts';
+import { globals } from '../core/globals.ts';
 import type { Stage } from '../core/stage.ts';
-import { addToy, at, Kit, P } from '../geometry/kit.ts';
+import { at, Kit, P } from '../geometry/kit.ts';
+import { ToyRig } from '../geometry/rig.ts';
 import { SpriteKind, type Sprites } from './sprites.ts';
 
 const DURATION = 0.72;
@@ -61,8 +63,10 @@ export class Shovel {
 
   constructor(stage: Stage, parent: THREE.Object3D, sprites: Sprites, rng: Rng, k: number) {
     this.k = k;
-    this.group = addToy(stage, parent, scoopGeometry());
-    this.load = addToy(stage, this.group, loadGeometry());
+    const rig = new ToyRig();
+    this.group = rig.part(parent, scoopGeometry());
+    this.load = rig.part(this.group, loadGeometry());
+    rig.build(stage, parent, globals.uTime);
     this.load.visible = false;
     this.group.visible = false;
     this.group.scale.setScalar(0.92 * k);

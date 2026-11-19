@@ -2,8 +2,9 @@ import * as THREE from 'three';
 import { Rng } from '../../motion/rng.ts';
 import { QUALITY } from '../core/quality.ts';
 import type { Stage } from '../core/stage.ts';
-import { createPileMaterials, createPileUniforms } from '../materials/popcorn.ts';
-import { lowFlake } from './batches.ts';
+import { FLAKE_DETAIL_LOW } from '../geometry/popcorn.ts';
+import { createPileMaterials, createPileUniforms, surfaceAtlas } from '../materials/popcorn.ts';
+import { flakeAtlas } from './batches.ts';
 
 export interface PileShape {
   centerX: number;
@@ -53,6 +54,8 @@ export class Pile {
   private readonly rest: Float32Array;
   private readonly cliffs: Uint8Array;
   private readonly cliffTexture: THREE.DataTexture;
+  private readonly surfaceMaterial: THREE.Material;
+  private readonly withSurface: boolean;
   private level = -1;
   private filledLevel = -1;
   private rowPhase = 0;
@@ -81,22 +84,6 @@ export class Pile {
     this.cliffs = new Uint8Array(cells);
 
     const k = shape.k;
-    for (let j = 0; j < res; j += 1) {
-      for (let i = 0; i < res; i += 1) {
-        const x = this.minX + i * this.cell;
-        const z = this.minZ + j * this.cell;
-        const c = i + j * res;
-        this.floors[c] = shape.floor(x, z);
-        this.clear[c] = shape.clearance(x, z);
-        const angle = Math.atan2(z - shape.centerZ, x - shape.centerX);
-        this.wobble[c] =
-          0.5 * Math.sin(angle * 3 + 1.2) + 0.3 * Math.sin(angle * 7 + 4.1) + 0.2 * Math.sin(angle * 11 + 2.6);
-        const u = x / k;
-        const v = z / k;
-        this.lumps[c] =
-          k * (0.05 * Math.sin(u * 3.1 + v * 1.7) * Math.cos(v * 2.9 - u * 0.8) + 0.03 * Math.sin(u * 7.3 - v * 5.1) * Math.sin(v * 6.7 + u * 2.3));
-      }
-    }
 
     this.texture = new THREE.DataTexture(this.texels, res, res, THREE.RGBAFormat, THREE.FloatType);
     this.texture.internalFormat = 'RGBA16F';
@@ -129,21 +116,46 @@ export class Pile {
     stage.shadow.add(heap, materials.heapDepth);
 
     this.group.add(this.surface);
-    if (withSurface) this.buildSurface(stage, materials.surface);
+    this.surfaceMaterial = materials.surface;
+    this.withSurface = withSurface;
   }
 
-  private buildSurface(stage: Stage, material: THREE.Material): void {
+  /**
+   * Fills in the ground under the heap and scatters its surface flakes, a slice at a time so a
+   * scene can be built in the background. Must run to the end before the heap is used.
+   */
+  *build(stage: Stage): Generator<void, void, void> {
+    const { shape, res } = this;
+    const k = shape.k;
+    for (let j = 0; j < res; j += 1) {
+      for (let i = 0; i < res; i += 1) {
+        const x = this.minX + i * this.cell;
+        const z = this.minZ + j * this.cell;
+        const c = i + j * res;
+        this.floors[c] = shape.floor(x, z);
+        this.clear[c] = shape.clearance(x, z);
+        const angle = Math.atan2(z - shape.centerZ, x - shape.centerX);
+        this.wobble[c] =
+          0.5 * Math.sin(angle * 3 + 1.2) + 0.3 * Math.sin(angle * 7 + 4.1) + 0.2 * Math.sin(angle * 11 + 2.6);
+        const u = x / k;
+        const v = z / k;
+        this.lumps[c] =
+          k * (0.05 * Math.sin(u * 3.1 + v * 1.7) * Math.cos(v * 2.9 - u * 0.8) + 0.03 * Math.sin(u * 7.3 - v * 5.1) * Math.sin(v * 6.7 + u * 2.3));
+      }
+      if (j % 60 === 59) yield;
+    }
+    if (this.withSurface) yield* this.buildSurface(stage, this.surfaceMaterial);
+  }
+
+  private *buildSurface(stage: Stage, material: THREE.Material): Generator<void, void, void> {
     const rng = new Rng(4242);
     const shape = this.shape;
     // Built at full density once; lower quality simply draws fewer of them.
     const perShape = Math.floor(QUALITY.ultra.pileInstances / SURFACE_SHAPES);
+    const places: Float32Array[] = [];
+    const quats: Float32Array[] = [];
+    const counts: number[] = [];
     for (let s = 0; s < SURFACE_SHAPES; s += 1) {
-      const base = lowFlake(s);
-      const geometry = new THREE.InstancedBufferGeometry();
-      geometry.index = base.index;
-      geometry.setAttribute('position', base.getAttribute('position'));
-      geometry.setAttribute('normal', base.getAttribute('normal'));
-      geometry.setAttribute('aShade', base.getAttribute('aShade'));
       const place = new Float32Array(perShape * 4);
       const quat = new Float32Array(perShape * 4);
       const q = new THREE.Quaternion();
@@ -164,14 +176,40 @@ export class Pile {
         quat.set([q.x, q.y, q.z, q.w], placed * 4);
         placed += 1;
       }
-      geometry.setAttribute('iPlace', new THREE.InstancedBufferAttribute(place, 4));
-      geometry.setAttribute('iQuat', new THREE.InstancedBufferAttribute(quat, 4));
-      geometry.instanceCount = placed;
-      this.surfaceCounts.push(placed);
-      const mesh = new THREE.Mesh(geometry, material);
-      mesh.frustumCulled = false;
-      this.surface.add(mesh);
+      places.push(place);
+      quats.push(quat);
+      counts.push(placed);
+      yield;
     }
+    // All shapes in one draw. Interleaved, so any prefix holds an even share of every shape and
+    // lower quality tiers can simply draw fewer.
+    const total = counts.reduce((sum, count) => sum + count, 0);
+    const place = new Float32Array(total * 4);
+    const quat = new Float32Array(total * 4);
+    const kind = new Float32Array(total);
+    let cursor = 0;
+    for (let k = 0; cursor < total; k += 1) {
+      for (let s = 0; s < SURFACE_SHAPES; s += 1) {
+        if (k >= counts[s]!) continue;
+        place.set(places[s]!.subarray(k * 4, k * 4 + 4), cursor * 4);
+        quat.set(quats[s]!.subarray(k * 4, k * 4 + 4), cursor * 4);
+        kind[cursor] = s;
+        cursor += 1;
+      }
+    }
+    const atlas = flakeAtlas(FLAKE_DETAIL_LOW);
+    surfaceAtlas.value = atlas.texture;
+    const geometry = new THREE.InstancedBufferGeometry();
+    geometry.index = atlas.index;
+    geometry.setAttribute('position', atlas.position);
+    geometry.setAttribute('iPlace', new THREE.InstancedBufferAttribute(place, 4));
+    geometry.setAttribute('iQuat', new THREE.InstancedBufferAttribute(quat, 4));
+    geometry.setAttribute('iShape', new THREE.InstancedBufferAttribute(kind, 1));
+    geometry.instanceCount = total;
+    this.surfaceCounts.push(total);
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.frustumCulled = false;
+    this.surface.add(mesh);
     this.setDetail(stage.quality.pileInstances / QUALITY.ultra.pileInstances);
   }
 

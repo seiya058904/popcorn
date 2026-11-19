@@ -9,7 +9,7 @@ import { Shovel } from './fx/shovel.ts';
 import { SpriteKind, Sprites } from './fx/sprites.ts';
 import { Stirrer } from './fx/stirrer.ts';
 import { HeroCannon } from './hero-cannon.ts';
-import { toyMaterials } from './materials/toy.ts';
+import { isInk } from './materials/toy.ts';
 import { PieceBatches } from './popcorn/batches.ts';
 import { PopDirector } from './popcorn/director.ts';
 import { FlavorShow } from './popcorn/flavor.ts';
@@ -51,19 +51,22 @@ export interface RuntimeHooks {
 export class SceneRuntime {
   readonly spec: SceneSpec;
   readonly root = new THREE.Group();
-  readonly parts: SceneParts;
-  readonly pile: Pile;
-  readonly sprites: Sprites;
-  readonly batches: PieceBatches | null = null;
-  readonly director: PopDirector | null = null;
-  readonly shovel: Shovel | null = null;
-  readonly flavor: FlavorShow | null = null;
-  readonly heroCannon: HeroCannon | null = null;
-  readonly flock: Flock | null = null;
-  private readonly stirrer: Stirrer | null = null;
-  private readonly debris: Debris | null = null;
-  private readonly cracks: Cracks | null = null;
-  private readonly parcel: Parcel | null = null;
+  // Filled in by construct(), which runs to the end before anything else touches the runtime.
+  parts!: SceneParts;
+  pile!: Pile;
+  sprites!: Sprites;
+  batches: PieceBatches | null = null;
+  director: PopDirector | null = null;
+  shovel: Shovel | null = null;
+  flavor: FlavorShow | null = null;
+  heroCannon: HeroCannon | null = null;
+  flock: Flock | null = null;
+  private stirrer: Stirrer | null = null;
+  private debris: Debris | null = null;
+  private cracks: Cracks | null = null;
+  private parcel: Parcel | null = null;
+  private readonly stage: Stage;
+  private readonly hooks: RuntimeHooks;
   private readonly soundClock = new Map<string, number>();
   private clock = 0;
   private lastThump = -9;
@@ -77,21 +80,32 @@ export class SceneRuntime {
   private fountainBudget = 0;
   private live: boolean;
 
+  /** Cheap: the scene itself is made by construct(). */
   constructor(stage: Stage, spec: SceneSpec, rng: Rng, hooks: RuntimeHooks, live: boolean) {
+    this.stage = stage;
     this.spec = spec;
     this.rng = rng;
+    this.hooks = hooks;
     this.live = live;
     this.root.userData.budgetScene = spec.id;
+  }
+
+  /** Builds the whole scene in steps of a few milliseconds; see SceneSpec.build. */
+  *construct(): Generator<void, void, void> {
+    const { stage, spec, rng, hooks, live } = this;
     // Labels what each draw call belongs to, for the budget report. Costs nothing at run time.
     const tagNew = (label: string): void => {
       for (const child of this.root.children) child.userData.budget ??= label;
     };
-    this.parts = spec.build(stage, this.root);
+    this.parts = yield* spec.build(stage, this.root);
     tagNew('set');
+    yield;
     this.pile = new Pile(stage, this.root, spec.pile, live);
+    yield* this.pile.build(stage);
     tagNew('pile');
     this.sprites = new Sprites(this.root);
     tagNew('sprites');
+    yield;
     if (!live) {
       this.pile.setLevel(1);
       this.pile.update(0);
@@ -103,6 +117,7 @@ export class SceneRuntime {
     const k = spec.pile.k;
     this.batches = new PieceBatches(stage, this.root);
     tagNew('flying');
+    yield;
     this.director = new PopDirector(
       this.pile,
       this.batches,
@@ -126,16 +141,19 @@ export class SceneRuntime {
     tagNew('shovel');
     this.flavor = new FlavorShow(stage, this.root, this.sprites, rng, spec.spreadRadius, k);
     tagNew('flavor');
+    yield;
     if (spec.perches.length > 0) this.flock = new Flock(stage, this.root, spec.perches, 0.62 * k, rng);
     tagNew('flock');
     this.stirrer = new Stirrer(stage, this.root, spec.steamY, spec.homeRadius / 0.72, k);
     tagNew('stirrer');
+    yield;
     this.debris = new Debris(stage, this.root, spec.debris ?? ['#ffeccb'], k);
     this.cracks = new Cracks(stage, this.root, rng, (spec.homeRadius / 0.72) * 1.13, spec.steamY, k);
     this.parcel = new Parcel(stage, this.root, k);
     tagNew('breakout');
     if (spec.cannon) this.heroCannon = new HeroCannon(stage, this.root, spec.cannon, this.sprites, this.director, rng);
     tagNew('hero-cannon');
+    yield;
 
     const runtime = this;
     const host: UnitHost = {
@@ -194,8 +212,10 @@ export class SceneRuntime {
     };
     for (const kind of UNIT_ORDER) {
       const slots = spec.slots[kind];
-      if (slots) this.rigs.set(kind, new UnitRig(stage, this.root, kind, slots, host));
+      if (!slots) continue;
+      this.rigs.set(kind, yield* UnitRig.create(stage, this.root, kind, slots, host));
       tagNew(`machine:${kind}`);
+      yield;
     }
   }
 
@@ -382,9 +402,9 @@ export class SceneRuntime {
 
   /** A scene seen from far away has no use for outlines, and each one is a draw call. */
   private dropOutlines(): void {
-    const ink = toyMaterials().outline;
     this.root.traverse((node) => {
-      if ((node as THREE.Mesh).material === ink) node.visible = false;
+      const material = (node as THREE.Mesh).material;
+      if (material && isInk(material)) node.visible = false;
     });
   }
 

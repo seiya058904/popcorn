@@ -2,9 +2,10 @@ import * as THREE from 'three';
 import type { CannonResult } from '../events/game-events.ts';
 import { Spring } from '../motion/ease.ts';
 import type { Rng } from '../motion/rng.ts';
+import { globals } from './core/globals.ts';
 import type { Stage } from './core/stage.ts';
 import { SpriteKind, type Sprites } from './fx/sprites.ts';
-import { addToy } from './geometry/kit.ts';
+import { ToyRig } from './geometry/rig.ts';
 import type { PopDirector } from './popcorn/director.ts';
 import type { HeroCannonPose } from './scenes/types.ts';
 import { cannonCap, cannonDrum, cannonFrame } from './units.ts';
@@ -48,12 +49,15 @@ export class HeroCannon {
     this.group.rotation.y = pose.rotation;
     this.group.scale.setScalar(pose.scale);
     parent.add(this.group);
-    addToy(stage, this.group, cannonFrame());
+    // Frame, drum and cap move separately but are drawn together.
+    const rig = new ToyRig();
+    rig.part(this.group, cannonFrame());
     this.pivot.position.y = 1.42;
     this.pivot.rotation.z = TILT;
     this.group.add(this.pivot);
-    this.drum = addToy(stage, this.pivot, cannonDrum());
-    this.cap = addToy(stage, this.pivot, cannonCap());
+    this.drum = rig.part(this.pivot, cannonDrum());
+    this.cap = rig.part(this.pivot, cannonCap());
+    rig.build(stage, parent, globals.uTime);
     this.resetCap();
   }
 

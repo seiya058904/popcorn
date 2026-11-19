@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { toyMaterials } from '../materials/toy.ts';
+import { toyMaterials, type ToyMaterials } from '../materials/toy.ts';
 import type { Stage } from '../core/stage.ts';
 
 /** Surface relief, painted by the shader. The fraction picks the scale: .5 is the default. */
@@ -56,18 +56,51 @@ export interface Paint {
 const tempP = new THREE.Vector3();
 const tempN = new THREE.Vector3();
 const tempC = new THREE.Color();
+const normalMatrix = new THREE.Matrix3();
+
+/** A float array that doubles when it runs out of room, so adding parts never reallocates per vertex. */
+class Grow {
+  data: Float32Array;
+  length = 0;
+  constructor(capacity: number) {
+    this.data = new Float32Array(capacity);
+  }
+  /** Makes room for `count` more values and returns where they start. */
+  reserve(count: number): number {
+    const start = this.length;
+    if (start + count > this.data.length) {
+      const next = new Float32Array(Math.max(this.data.length * 2, start + count));
+      next.set(this.data.subarray(0, start));
+      this.data = next;
+    }
+    this.length = start + count;
+    return start;
+  }
+  /** An exact-size copy; the spare room is left behind for the garbage collector. */
+  take(): Float32Array {
+    return this.data.slice(0, this.length);
+  }
+
+  /** A view without copying, for data that is dropped from memory once it is on the GPU. */
+  view(): Float32Array {
+    return this.data.subarray(0, this.length);
+  }
+}
 
 /** Bakes painted primitives into one vertex-colored geometry, so a whole prop is one draw call. */
 export class Kit {
-  private positions: number[] = [];
-  private normals: number[] = [];
-  private colors: number[] = [];
-  private mats: number[] = [];
-  private mats2: number[] = [];
-  private tints: number[] = [];
-  private indices: number[] = [];
+  private readonly positions = new Grow(3 * 1024);
+  private readonly normals = new Grow(3 * 1024);
+  private readonly colors = new Grow(3 * 1024);
+  private readonly mats = new Grow(4 * 1024);
+  private readonly mats2 = new Grow(4 * 1024);
+  private readonly tints = new Grow(1024);
+  private indices = new Uint32Array(4096);
+  private indexCount = 0;
   private glass: Kit | null = null;
   private inked = false;
+  /** Running bounds, so a huge set never has to be scanned again to find its extent. */
+  private readonly box = new THREE.Box3();
 
   add(geometry: THREE.BufferGeometry, paint: Paint): this {
     if ((paint.detail ?? 0) > detailLevel) {
@@ -80,12 +113,14 @@ export class Kit {
       this.glass.add(geometry, { ...paint, glass: false, gloss: paint.thickness ?? 0.05, metal: paint.lens ?? 0 });
       return this;
     }
-    const pos = geometry.getAttribute('position');
-    const nor = geometry.getAttribute('normal');
+    const pos = geometry.getAttribute('position') as THREE.BufferAttribute;
+    const nor = geometry.getAttribute('normal') as THREE.BufferAttribute;
+    const count = pos.count;
     const base = this.positions.length / 3;
-    const normalMatrix = new THREE.Matrix3();
-    if (paint.matrix) normalMatrix.getNormalMatrix(paint.matrix);
-    const color = new THREE.Color(paint.color);
+    const color = tempC.set(paint.color);
+    const cr = color.r;
+    const cg = color.g;
+    const cb = color.b;
     const gloss = paint.gloss ?? 0.25;
     const emissive = paint.emissive ?? 0;
     const outline = paint.outline ?? 1;
@@ -94,29 +129,139 @@ export class Kit {
     const coat = paint.coat ?? 0;
     const pattern = paint.pattern ?? 0;
     const wear = paint.wear ?? 0;
-    for (let i = 0; i < pos.count; i += 1) {
-      tempP.fromBufferAttribute(pos, i);
-      tempN.fromBufferAttribute(nor, i);
-      if (paint.matrix) {
-        tempP.applyMatrix4(paint.matrix);
-        tempN.applyMatrix3(normalMatrix).normalize();
+    const tint = paint.fixedColor ? 0 : 1;
+    const aoFn = typeof paint.ao === 'function' ? paint.ao : null;
+    const aoValue = typeof paint.ao === 'number' ? paint.ao : 1;
+    const { colorFn, emissiveFn } = paint;
+    const perVertex = aoFn !== null || colorFn !== undefined || emissiveFn !== undefined;
+
+    // The matrix is applied by hand: this loop runs for every vertex of every scene.
+    const e = paint.matrix?.elements;
+    if (paint.matrix) normalMatrix.getNormalMatrix(paint.matrix);
+    const nm = normalMatrix.elements;
+    const sp = pos.array as Float32Array;
+    const sn = nor.array as Float32Array;
+    const strideP = pos.itemSize;
+    const strideN = nor.itemSize;
+    const op = this.positions.reserve(count * 3);
+    const on = this.normals.reserve(count * 3);
+    const oc = this.colors.reserve(count * 3);
+    const om = this.mats.reserve(count * 4);
+    const om2 = this.mats2.reserve(count * 4);
+    const ot = this.tints.reserve(count);
+    const P = this.positions.data;
+    const N = this.normals.data;
+    const C = this.colors.data;
+    const M = this.mats.data;
+    const M2 = this.mats2.data;
+    const T = this.tints.data;
+    const interleaved = (pos as THREE.BufferAttribute & { isInterleavedBufferAttribute?: boolean }).isInterleavedBufferAttribute === true;
+    let minX = this.box.min.x;
+    let minY = this.box.min.y;
+    let minZ = this.box.min.z;
+    let maxX = this.box.max.x;
+    let maxY = this.box.max.y;
+    let maxZ = this.box.max.z;
+    for (let i = 0; i < count; i += 1) {
+      let x: number;
+      let y: number;
+      let z: number;
+      let nx: number;
+      let ny: number;
+      let nz: number;
+      if (interleaved) {
+        x = pos.getX(i);
+        y = pos.getY(i);
+        z = pos.getZ(i);
+        nx = nor.getX(i);
+        ny = nor.getY(i);
+        nz = nor.getZ(i);
+      } else {
+        x = sp[i * strideP]!;
+        y = sp[i * strideP + 1]!;
+        z = sp[i * strideP + 2]!;
+        nx = sn[i * strideN]!;
+        ny = sn[i * strideN + 1]!;
+        nz = sn[i * strideN + 2]!;
       }
-      this.positions.push(tempP.x, tempP.y, tempP.z);
-      this.normals.push(tempN.x, tempN.y, tempN.z);
-      tempC.copy(color);
-      paint.colorFn?.(tempP, tempN, tempC);
-      this.colors.push(tempC.r, tempC.g, tempC.b);
-      const ao = typeof paint.ao === 'function' ? paint.ao(tempP, tempN) : (paint.ao ?? 1);
-      this.mats.push(gloss, paint.emissiveFn ? paint.emissiveFn(tempP, tempN) : emissive, ao, outline);
-      this.mats2.push(metal, coat, pattern, wear);
-      this.tints.push(paint.fixedColor ? 0 : 1);
+      if (e) {
+        const tx = e[0]! * x + e[4]! * y + e[8]! * z + e[12]!;
+        const ty = e[1]! * x + e[5]! * y + e[9]! * z + e[13]!;
+        const tz = e[2]! * x + e[6]! * y + e[10]! * z + e[14]!;
+        x = tx;
+        y = ty;
+        z = tz;
+        const ux = nm[0]! * nx + nm[3]! * ny + nm[6]! * nz;
+        const uy = nm[1]! * nx + nm[4]! * ny + nm[7]! * nz;
+        const uz = nm[2]! * nx + nm[5]! * ny + nm[8]! * nz;
+        const length = Math.hypot(ux, uy, uz) || 1;
+        nx = ux / length;
+        ny = uy / length;
+        nz = uz / length;
+      }
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+      if (z < minZ) minZ = z;
+      if (z > maxZ) maxZ = z;
+      const j3 = i * 3;
+      const j4 = i * 4;
+      P[op + j3] = x;
+      P[op + j3 + 1] = y;
+      P[op + j3 + 2] = z;
+      N[on + j3] = nx;
+      N[on + j3 + 1] = ny;
+      N[on + j3 + 2] = nz;
+      let r = cr;
+      let g = cg;
+      let b = cb;
+      let ao = aoValue;
+      let glow = emissive;
+      if (perVertex) {
+        tempP.set(x, y, z);
+        tempN.set(nx, ny, nz);
+        if (colorFn) {
+          const out = tempC.setRGB(cr, cg, cb);
+          colorFn(tempP, tempN, out);
+          r = out.r;
+          g = out.g;
+          b = out.b;
+        }
+        if (aoFn) ao = aoFn(tempP, tempN);
+        if (emissiveFn) glow = emissiveFn(tempP, tempN);
+      }
+      C[oc + j3] = r;
+      C[oc + j3 + 1] = g;
+      C[oc + j3 + 2] = b;
+      M[om + j4] = gloss;
+      M[om + j4 + 1] = glow;
+      M[om + j4 + 2] = ao;
+      M[om + j4 + 3] = outline;
+      M2[om2 + j4] = metal;
+      M2[om2 + j4 + 1] = coat;
+      M2[om2 + j4 + 2] = pattern;
+      M2[om2 + j4 + 3] = wear;
+      T[ot + i] = tint;
     }
+    this.box.min.set(minX, minY, minZ);
+    this.box.max.set(maxX, maxY, maxZ);
     const index = geometry.getIndex();
-    if (index) {
-      for (let i = 0; i < index.count; i += 1) this.indices.push(base + index.getX(i));
-    } else {
-      for (let i = 0; i < pos.count; i += 1) this.indices.push(base + i);
+    const indexCount = index ? index.count : count;
+    if (this.indexCount + indexCount > this.indices.length) {
+      const next = new Uint32Array(Math.max(this.indices.length * 2, this.indexCount + indexCount));
+      next.set(this.indices.subarray(0, this.indexCount));
+      this.indices = next;
     }
+    const out = this.indices;
+    const at = this.indexCount;
+    if (index) {
+      const source = index.array;
+      for (let i = 0; i < indexCount; i += 1) out[at + i] = base + source[i]!;
+    } else {
+      for (let i = 0; i < indexCount; i += 1) out[at + i] = base + i;
+    }
+    this.indexCount += indexCount;
     geometry.dispose();
     return this;
   }
@@ -124,14 +269,23 @@ export class Kit {
   /** `frozen` is for large sets that are never read or changed again after they are drawn. */
   build(options: { frozen?: boolean } = {}): THREE.BufferGeometry {
     const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.Float32BufferAttribute(this.positions, 3));
-    geometry.setAttribute('normal', new THREE.Float32BufferAttribute(this.normals, 3));
-    geometry.setAttribute('color', new THREE.Float32BufferAttribute(this.colors, 3));
-    geometry.setAttribute('aMat', new THREE.Float32BufferAttribute(this.mats, 4));
-    geometry.setAttribute('aMat2', new THREE.Float32BufferAttribute(this.mats2, 4));
-    geometry.setAttribute('aTint', new THREE.Float32BufferAttribute(this.tints, 1));
-    geometry.setIndex(this.indices);
-    geometry.computeBoundingSphere();
+    // A frozen set leaves main memory after upload, so its arrays are handed over without a copy.
+    const grab = (grow: Grow): Float32Array => (options.frozen ? grow.view() : grow.take());
+    geometry.setAttribute('position', new THREE.BufferAttribute(grab(this.positions), 3));
+    geometry.setAttribute('normal', new THREE.BufferAttribute(grab(this.normals), 3));
+    geometry.setAttribute('color', new THREE.BufferAttribute(grab(this.colors), 3));
+    geometry.setAttribute('aMat', new THREE.BufferAttribute(grab(this.mats), 4));
+    geometry.setAttribute('aMat2', new THREE.BufferAttribute(grab(this.mats2), 4));
+    geometry.setAttribute('aTint', new THREE.BufferAttribute(grab(this.tints), 1));
+    const vertices = this.positions.length / 3;
+    const indices = this.indices.subarray(0, this.indexCount);
+    geometry.setIndex(new THREE.BufferAttribute(vertices > 65535 ? (options.frozen ? indices : indices.slice()) : Uint16Array.from(indices), 1));
+    if (vertices > 0) {
+      geometry.boundingBox = this.box.clone();
+      geometry.boundingSphere = this.box.getBoundingSphere(new THREE.Sphere());
+    } else {
+      geometry.computeBoundingSphere();
+    }
     if (this.glass) geometry.userData.glass = this.glass.build();
     geometry.userData.noInk = !this.inked;
     if (options.frozen) {
@@ -257,8 +411,7 @@ export function addToy(
 }
 
 /** Glass exists in a simple form and a refracting one; the stage shows whichever applies. */
-function addGlassPiece<T extends THREE.Mesh>(stage: Stage, parent: THREE.Object3D, make: (material: THREE.Material) => T): T[] {
-  const materials = toyMaterials();
+export function addGlassPiece<T extends THREE.Mesh>(stage: Stage, parent: THREE.Object3D, make: (material: THREE.Material) => T, materials: ToyMaterials = toyMaterials()): T[] {
   const simple = make(materials.glass);
   const body = make(materials.glassBody);
   const surface = make(materials.glassSurface);

@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import type { Rng } from '../../motion/rng.ts';
 import type { Stage } from '../core/stage.ts';
-import { addToyInstances, at, Kit, P, type ToyInstances } from '../geometry/kit.ts';
+import { at, Kit, P } from '../geometry/kit.ts';
+import { PartRig } from '../geometry/rig.ts';
 
 function birdBody(): THREE.BufferGeometry {
   const kit = new Kit();
@@ -40,10 +41,13 @@ const e = new THREE.Euler();
 const p = new THREE.Vector3();
 const s = new THREE.Vector3();
 
+const bounds = new THREE.Box3();
+const sphere = new THREE.Sphere();
+
 /** The pigeons every cannon shot sends flying. They always come back, a little warily. */
 export class Flock {
-  private readonly body: ToyInstances;
-  private readonly wing: ToyInstances;
+  /** Parts: body, then the two wings. */
+  private readonly rig: PartRig;
   private readonly birds: Bird[];
   private readonly rng: Rng;
   private readonly size: number;
@@ -52,8 +56,7 @@ export class Flock {
   constructor(stage: Stage, parent: THREE.Object3D, perches: THREE.Vector3[], size: number, rng: Rng) {
     this.rng = rng;
     this.size = size;
-    this.body = addToyInstances(stage, parent, birdBody(), perches.length);
-    this.wing = addToyInstances(stage, parent, birdWing(), perches.length * 2);
+    this.rig = new PartRig(stage, parent, [{ geometry: birdBody() }, { geometry: birdWing() }, { geometry: birdWing() }], perches.length);
     this.birds = perches.map((home) => ({
       home,
       pos: home.clone(),
@@ -71,10 +74,7 @@ export class Flock {
   /** Birds stay out of shot while the camera sweeps past their perches. */
   setHidden(hidden: boolean): void {
     this.hidden = hidden;
-    if (hidden) {
-      this.body.commit(0);
-      this.wing.commit(0);
-    }
+    if (hidden) this.rig.commit(0);
   }
 
   scare(): void {
@@ -92,7 +92,7 @@ export class Flock {
   update(dt: number): void {
     if (this.hidden) return;
     this.time += dt;
-    let wings = 0;
+    bounds.makeEmpty();
     this.birds.forEach((bird, index) => {
       bird.t += dt;
       let wingAngle = 0;
@@ -131,17 +131,19 @@ export class Flock {
       e.set(0, bird.heading, pitch);
       q.setFromEuler(e);
       m.compose(bird.pos, q, s.setScalar(size));
-      this.body.setMatrixAt(index, m);
+      this.rig.setMatrix(index, 0, m);
+      bounds.expandByPoint(bird.pos);
       for (const side of [1, -1]) {
         // Folded wings lie back along the body; in flight they spread and beat.
         e.set(wingAngle * side, side === 1 ? -1.42 * fold : Math.PI + 1.42 * fold, 0, 'YXZ');
         q.setFromEuler(e);
         child.compose(p.set(-0.05, 0.16, side * 0.28), q, s.set(1, 1, 1));
-        this.wing.setMatrixAt(wings, child.premultiply(m));
-        wings += 1;
+        this.rig.setMatrix(index, side === 1 ? 1 : 2, child.premultiply(m));
       }
     });
-    this.body.commit(this.birds.length);
-    this.wing.commit(wings);
+    this.rig.commit(this.birds.length);
+    bounds.getBoundingSphere(sphere);
+    sphere.radius += this.size * 1.5;
+    this.rig.setBounds(sphere);
   }
 }

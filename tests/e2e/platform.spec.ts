@@ -57,22 +57,30 @@ test('the system reduced-motion preference starts the game calm', async ({ page 
   expect(state).toEqual({ reduce: true, shake: false, flash: 0.35, world: true });
 });
 
-test('automatic quality steps down on slow frames and respects an explicit choice', async ({ page }) => {
+test('automatic quality softens the picture, then steps down, and respects an explicit choice', async ({ page }) => {
   await open(page);
   const result = await page.evaluate(() => {
     const game = (window as unknown as QaWindow).__pop.game as unknown as GameInternals;
     game.stop();
-    const order = ['low', 'medium', 'high', 'ultra'];
+    const look = (): string => `${game.stage.quality.tier}@${game.stage.dynamicScale}`;
     game.settings.quality = 'auto';
     game.stage.setQuality('high');
-    for (let i = 0; i < 240; i += 1) game.watchPerformance(0.05);
-    const afterSlow = order.indexOf(game.stage.quality.tier);
+    const slow: string[] = [];
+    // Each step needs two slow windows of 120 frames.
+    for (let step = 0; step < 3; step += 1) {
+      for (let i = 0; i < 240; i += 1) game.watchPerformance(0.05);
+      slow.push(look());
+    }
+    // A long smooth stretch earns the sharper picture back, one step at a time.
+    game.stage.setDynamicScale(0.85);
+    for (let i = 0; i < 120 * 40; i += 1) game.watchPerformance(1 / 60);
+    const recovered = look();
     game.stage.setQuality('high');
     game.settings.quality = 'high';
     for (let i = 0; i < 480; i += 1) game.watchPerformance(0.05);
-    return { afterSlow, explicit: game.stage.quality.tier };
+    return { slow, recovered, explicit: look() };
   });
-  expect(result).toEqual({ afterSlow: 1, explicit: 'high' });
+  expect(result).toEqual({ slow: ['high@0.85', 'high@0.72', 'medium@1'], recovered: 'medium@1', explicit: 'high@1' });
 });
 
 test('a hidden tab saves, and coming back pays for the time away exactly once', async ({ page }) => {

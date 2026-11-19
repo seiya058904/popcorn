@@ -443,9 +443,13 @@ export class PostPipeline {
     return this.hdr;
   }
 
+  /** Extra resolution scale chosen at run time by the automatic quality, on top of the tier's own. */
+  dynamicScale = 1;
+
   resize(width: number, height: number): void {
-    const w = Math.max(2, Math.round(width * this.quality.renderScale));
-    const h = Math.max(2, Math.round(height * this.quality.renderScale));
+    const scale = this.quality.renderScale * this.dynamicScale;
+    const w = Math.max(2, Math.round(width * scale));
+    const h = Math.max(2, Math.round(height * scale));
     if (w === this.width && h === this.height) return;
     this.disposeTargets();
     this.width = w;

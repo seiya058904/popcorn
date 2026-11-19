@@ -6,7 +6,7 @@ import { Flames } from '../fx/flames.ts';
 import { SpriteKind } from '../fx/sprites.ts';
 import { addToy, at, Kit, P, Pattern } from '../geometry/kit.ts';
 import { toyMaterials } from '../materials/toy.ts';
-import type { SceneContext, SceneParts, SceneSpec, UnitSlot } from './types.ts';
+import type { SceneContext, SceneBuild, SceneSpec, UnitSlot } from './types.ts';
 import { dressStove } from './dress.ts';
 import { vesselPile } from './vessel.ts';
 
@@ -320,23 +320,34 @@ const steamColor = new THREE.Color(0.9, 0.88, 0.86);
 const q = new THREE.Quaternion();
 const e = new THREE.Euler();
 
-function buildStove(stage: Stage, root: THREE.Group): SceneParts {
+function* buildStove(stage: Stage, root: THREE.Group): SceneBuild {
   const set = new Kit();
   addWall(set);
+  yield;
   addStoveBody(set);
+  yield;
   addBurner(set, 0, 0);
-  for (const slot of PAN_SLOTS.slice(0, BURNER_PANS)) addBurner(set, slot.x, slot.z);
+  for (const slot of PAN_SLOTS.slice(0, BURNER_PANS)) {
+    addBurner(set, slot.x, slot.z);
+    yield;
+  }
   addWindow(set);
+  yield;
   addForeground(set);
+  yield;
   dressStove(set);
+  yield;
   addToy(stage, root, set.build({ frozen: true }));
+  yield;
   // Evening light slanting in through the window.
   addLightBeam(root, new THREE.Vector3(-3.95, 4.3, -3.25), new THREE.Vector3(-0.8, 0.1, 1.1), 1, 2.3, '#ff9ec4', 0.075);
 
   const pot = addToy(stage, root, potGeometry());
+  yield;
 
   // The lid leans on the back guard until the popcorn sends it flying.
   const lid = addToy(stage, root, lidGeometry());
+  yield;
   const lidHome = new THREE.Vector3(3.05, 1.12, -2.62);
   const lidRest = new THREE.Quaternion().setFromEuler(new THREE.Euler(1.3, -0.2, 0, 'YXZ'));
   lid.position.copy(lidHome);

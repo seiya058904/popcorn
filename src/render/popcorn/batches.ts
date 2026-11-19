@@ -1,13 +1,7 @@
 import * as THREE from 'three';
 import type { Stage } from '../core/stage.ts';
 import { createFlakeGeometry, FLAKE_DETAIL_HIGH, FLAKE_DETAIL_LOW, FLAKE_SHAPES } from '../geometry/popcorn.ts';
-import { pieceMaterials } from '../materials/popcorn.ts';
-
-interface Batch {
-  mesh: THREE.InstancedMesh;
-  state: THREE.InstancedBufferAttribute;
-  count: number;
-}
+import { pieceAtlas, pieceMaterials } from '../materials/popcorn.ts';
 
 const heroCache: THREE.BufferGeometry[] = [];
 const lowCache: THREE.BufferGeometry[] = [];
@@ -21,54 +15,99 @@ export function lowFlake(shape: number): THREE.BufferGeometry {
   return (lowCache[shape] ??= createFlakeGeometry(shape, FLAKE_DETAIL_LOW));
 }
 
+/** Rows per shape in a flake atlas, in this order. */
+export const ATLAS_ROWS = ['position', 'normal', 'aKernelPos', 'aKernelNormal', 'aShade'] as const;
+
+export interface FlakeAtlas {
+  /** The shared triangle list and, for bounds only, the first shape's positions. */
+  index: THREE.BufferAttribute;
+  position: THREE.BufferAttribute;
+  /** One texel per vertex, five rows per shape: see ATLAS_ROWS. */
+  texture: THREE.DataTexture;
+}
+
+const atlases = new Map<number, FlakeAtlas>();
+
+/**
+ * Every flake shape is the same subdivided sphere pushed into a different form, so all shapes
+ * share one triangle list. Their vertices go into a texture, and each instance picks its shape:
+ * any number of shapes then costs a single draw call.
+ */
+export function flakeAtlas(detail: number): FlakeAtlas {
+  let atlas = atlases.get(detail);
+  if (atlas) return atlas;
+  const shapes = Array.from({ length: FLAKE_SHAPES }, (_, shape) => (detail === FLAKE_DETAIL_HIGH ? heroFlake(shape) : detail === FLAKE_DETAIL_LOW ? lowFlake(shape) : createFlakeGeometry(shape, detail)));
+  const first = shapes[0]!;
+  const vertices = first.getAttribute('position').count;
+  const data = new Float32Array(vertices * FLAKE_SHAPES * ATLAS_ROWS.length * 4);
+  shapes.forEach((geometry, shape) => {
+    if (geometry.getAttribute('position').count !== vertices) throw new Error('Flake shapes no longer share one topology');
+    ATLAS_ROWS.forEach((name, row) => {
+      const attribute = geometry.getAttribute(name);
+      const offset = (shape * ATLAS_ROWS.length + row) * vertices * 4;
+      for (let i = 0; i < vertices; i += 1) {
+        data[offset + i * 4] = attribute.getX(i);
+        data[offset + i * 4 + 1] = attribute.getY(i);
+        data[offset + i * 4 + 2] = attribute.getZ(i);
+      }
+    });
+  });
+  const texture = new THREE.DataTexture(data, vertices, FLAKE_SHAPES * ATLAS_ROWS.length, THREE.RGBAFormat, THREE.FloatType);
+  texture.minFilter = THREE.NearestFilter;
+  texture.magFilter = THREE.NearestFilter;
+  texture.generateMipmaps = false;
+  texture.needsUpdate = true;
+  atlas = { index: first.getIndex()!, position: first.getAttribute('position') as THREE.BufferAttribute, texture };
+  atlases.set(detail, atlas);
+  return atlas;
+}
+
 /** Near-camera popcorn. Refilled every frame from whatever the director has alive. */
 export class PieceBatches {
   readonly capacityPerShape: number;
   readonly group = new THREE.Group();
-  private readonly batches: Batch[] = [];
+  private readonly mesh: THREE.InstancedMesh;
+  private readonly state: THREE.InstancedBufferAttribute;
+  private readonly capacity: number;
+  private count = 0;
 
   constructor(stage: Stage, parent: THREE.Object3D, capacityPerShape = 48) {
     this.capacityPerShape = capacityPerShape;
+    this.capacity = capacityPerShape * FLAKE_SHAPES;
     parent.add(this.group);
     const materials = pieceMaterials();
-    for (let shape = 0; shape < FLAKE_SHAPES; shape += 1) {
-      const source = heroFlake(shape);
-      const geometry = new THREE.BufferGeometry();
-      geometry.index = source.index;
-      for (const name of ['position', 'normal', 'aKernelPos', 'aKernelNormal', 'aShade']) {
-        geometry.setAttribute(name, source.getAttribute(name));
-      }
-      geometry.boundingSphere = source.boundingSphere;
-      const state = new THREE.InstancedBufferAttribute(new Float32Array(capacityPerShape * 4), 4);
-      state.setUsage(THREE.DynamicDrawUsage);
-      geometry.setAttribute('iState', state);
-      const mesh = new THREE.InstancedMesh(geometry, materials.piece, capacityPerShape);
-      mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-      mesh.frustumCulled = false;
-      mesh.count = 0;
-      this.group.add(mesh);
-      stage.shadow.add(mesh, materials.pieceDepth);
-      this.batches.push({ mesh, state, count: 0 });
-    }
+    const atlas = flakeAtlas(FLAKE_DETAIL_HIGH);
+    pieceAtlas.value = atlas.texture;
+    const geometry = new THREE.BufferGeometry();
+    geometry.index = atlas.index;
+    geometry.setAttribute('position', atlas.position);
+    geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1.6);
+    // x: how far it has popped, y: heat, z: which shape it is.
+    this.state = new THREE.InstancedBufferAttribute(new Float32Array(this.capacity * 4), 4);
+    this.state.setUsage(THREE.DynamicDrawUsage);
+    geometry.setAttribute('iState', this.state);
+    this.mesh = new THREE.InstancedMesh(geometry, materials.piece, this.capacity);
+    this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.mesh.frustumCulled = false;
+    this.mesh.count = 0;
+    this.group.add(this.mesh);
+    stage.shadow.add(this.mesh, materials.pieceDepth);
   }
 
   begin(): void {
-    for (const batch of this.batches) batch.count = 0;
+    this.count = 0;
   }
 
   push(shape: number, matrix: THREE.Matrix4, pop: number, glow: number): void {
-    const batch = this.batches[shape]!;
-    if (batch.count >= this.capacityPerShape) return;
-    batch.mesh.setMatrixAt(batch.count, matrix);
-    batch.state.setXYZW(batch.count, pop, glow, 0, 0);
-    batch.count += 1;
+    if (this.count >= this.capacity) return;
+    this.mesh.setMatrixAt(this.count, matrix);
+    this.state.setXYZW(this.count, pop, glow, shape, 0);
+    this.count += 1;
   }
 
   end(): void {
-    for (const batch of this.batches) {
-      batch.mesh.count = batch.count;
-      batch.mesh.instanceMatrix.needsUpdate = true;
-      batch.state.needsUpdate = true;
-    }
+    this.mesh.count = this.count;
+    this.mesh.instanceMatrix.needsUpdate = true;
+    this.state.needsUpdate = true;
   }
 }

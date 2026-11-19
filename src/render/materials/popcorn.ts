@@ -155,24 +155,35 @@ vec3 popcornShade(vec3 N, vec3 V, vec3 P, float crease, float core, float pop, f
 }
 `;
 
+/**
+ * Every flake shape shares one triangle list; its vertices come from an atlas texture, five rows per
+ * shape: flake position, flake normal, kernel position, kernel normal, toast shading.
+ */
+const flakeAtlas = /* glsl */ `
+uniform highp sampler2D tFlakes;
+vec3 flakeRow(int shape, int row) { return texelFetch(tFlakes, ivec2(gl_VertexID, shape * 5 + row), 0).xyz; }
+`;
+
 const pieceVertex = /* glsl */ `
-attribute vec3 aKernelPos, aKernelNormal, aShade;
+${flakeAtlas}
 attribute vec4 iState;
 varying vec3 vWorld, vNormal, vShade, vObject;
 varying vec2 vPop;
 varying mat3 vRotation;
 void main() {
+  int shape = int(iState.z + 0.5);
+  vec3 flakePos = flakeRow(shape, 0);
   float pop = iState.x;
-  vec3 p = mix(aKernelPos, position, pop);
-  vec3 n = normalize(mix(aKernelNormal, normal, sat(pop * 1.6)));
+  vec3 p = mix(flakeRow(shape, 2), flakePos, pop);
+  vec3 n = normalize(mix(flakeRow(shape, 3), flakeRow(shape, 1), sat(pop * 1.6)));
   mat4 world = modelMatrix * instanceMatrix;
   vec4 wp = world * vec4(p, 1.0);
   vWorld = wp.xyz;
   mat3 normalMat = transpose(inverse(mat3(world)));
   vNormal = normalize(normalMat * n);
   vRotation = normalMat;
-  vObject = position;
-  vShade = aShade;
+  vObject = flakePos;
+  vShade = flakeRow(shape, 4);
   vPop = iState.xy;
   gl_Position = projectionMatrix * viewMatrix * wp;
 }
@@ -197,10 +208,11 @@ void main() {
 `;
 
 const pieceDepthVertex = /* glsl */ `
-attribute vec3 aKernelPos;
+${flakeAtlas}
 attribute vec4 iState;
 void main() {
-  vec3 p = mix(aKernelPos, position, iState.x);
+  int shape = int(iState.z + 0.5);
+  vec3 p = mix(flakeRow(shape, 2), flakeRow(shape, 0), iState.x);
   gl_Position = projectionMatrix * viewMatrix * modelMatrix * instanceMatrix * vec4(p, 1.0);
 }
 `;
@@ -233,8 +245,9 @@ bool pileBridge(vec2 uv) {
 
 const surfaceVertex = /* glsl */ `
 ${pilePars}
+${flakeAtlas}
 uniform float uPieceK;
-attribute vec3 aShade;
+attribute float iShape;
 attribute vec4 iPlace, iQuat;
 varying vec3 vWorld, vLocal, vNormal, vShade, vPileNormal;
 varying float vBury, vDepth, vTone;
@@ -253,13 +266,14 @@ void main() {
   float jiggle = h.g;
   float scale = iPlace.w * reveal * h.a * (1.0 + jiggle * 0.5) * (1.0 - smoothstep(2.0, 2.6, pileCliff(uv)));
   vec4 q = normalize(iQuat + vec4(jiggle * sin(iPlace.x * 31.0 + uTime * 26.0) * 0.7, 0.0, jiggle * cos(iPlace.y * 29.0 + uTime * 23.0) * 0.7, 0.0));
-  vec3 p = rotateQ(q, position * scale);
+  int shape = int(iShape + 0.5);
+  vec3 p = rotateQ(q, flakeRow(shape, 0) * scale);
   vec3 wp = vec3(iPlace.x, h.r + iPlace.z + jiggle * 0.05 * uPieceK, iPlace.y) + p;
   vLocal = wp;
   vWorld = (modelMatrix * vec4(wp, 1.0)).xyz;
-  vNormal = normalize(mat3(modelMatrix) * rotateQ(q, normal));
+  vNormal = normalize(mat3(modelMatrix) * rotateQ(q, flakeRow(shape, 1)));
   vPileNormal = normalize(mat3(modelMatrix) * vPileNormal);
-  vShade = aShade;
+  vShade = flakeRow(shape, 4);
   vBury = iPlace.z;
   gl_Position = projectionMatrix * viewMatrix * vec4(vWorld, 1.0);
 }
@@ -384,18 +398,24 @@ export interface PileMaterials {
 
 let shared: PieceMaterials | null = null;
 
+/** The near-camera flake atlas; the batches fill it in when they are first built. */
+export const pieceAtlas = { value: null as THREE.Texture | null };
+/** The heap-surface flake atlas, shared by every heap. */
+export const surfaceAtlas = { value: null as THREE.Texture | null };
+
 export function pieceMaterials(): PieceMaterials {
   shared ??= {
     piece: new THREE.ShaderMaterial({
       name: 'popcorn-piece',
       vertexShader: satDefine + pieceVertex,
       fragmentShader: fragmentHead + pieceFragment,
-      uniforms: sharedUniforms,
+      uniforms: { ...sharedUniforms, tFlakes: pieceAtlas },
     }),
     pieceDepth: new THREE.ShaderMaterial({
       name: 'popcorn-piece-depth',
       vertexShader: pieceDepthVertex,
       fragmentShader: depthFragment,
+      uniforms: { tFlakes: pieceAtlas },
       colorWrite: false,
     }),
   };
@@ -403,7 +423,7 @@ export function pieceMaterials(): PieceMaterials {
 }
 
 export function createPileMaterials(own: PileUniforms): PileMaterials {
-  const uniforms = { ...sharedUniforms, ...own };
+  const uniforms = { ...sharedUniforms, ...own, tFlakes: surfaceAtlas };
   return {
     surface: new THREE.ShaderMaterial({
       name: 'popcorn-surface',

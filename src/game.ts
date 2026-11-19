@@ -38,6 +38,11 @@ const TIER_ORDER: QualityTier[] = ['low', 'medium', 'high', 'ultra'];
 const PERF_WINDOW_FRAMES = 120;
 const SLOW_FRAME_SECONDS = 0.0215;
 const SLOW_WINDOWS_TO_DROP = 2;
+/** Resolution steps tried before giving up a quality tier: a softer picture beats lost detail. */
+const DYNAMIC_SCALES = [1, 0.85, 0.72];
+/** A window this fast means frames arrive with the display, so there may be room to spare. */
+const SMOOTH_FRAME_SECONDS = 0.0175;
+const RAISE_AFTER_WINDOWS = 10;
 
 /** A cautious first guess; the frame-time watcher corrects it downward if needed. */
 function initialTier(gpuName: string): QualityTier {
@@ -77,6 +82,10 @@ export class Game {
   private perfSum = 0;
   private perfFrames = 0;
   private slowWindows = 0;
+  private smoothWindows = 0;
+  /** Smooth windows needed before trying a sharper picture again; doubles after every retreat. */
+  private raiseAfter = RAISE_AFTER_WINDOWS;
+  private pausedFrames = 0;
 
   constructor(options: GameOptions) {
     this.capture = options.capture;
@@ -118,6 +127,7 @@ export class Game {
         this.hud.showCredits(() => void this.restartRun());
       },
     });
+    this.world.backgroundBuilds = !options.capture;
     this.menus = new Menus(options.uiRoot, {
       settings: this.settings,
       settingsChanged: () => {
@@ -287,6 +297,7 @@ export class Game {
   }
 
   private setTier(tier: QualityTier): void {
+    this.stage.setDynamicScale(1);
     this.stage.setQuality(tier);
     this.world.qualityChanged();
   }
@@ -361,7 +372,10 @@ export class Game {
     this.hud.update(delta, this.world.pendingGain);
     this.clickActivity = Math.max(0, this.clickActivity - delta * 0.12);
     this.audio.update(showIntensity(this.sim.perSecond), this.clickActivity);
-    this.stage.render(this.visualTime);
+    // A paused world does not change, so the last picture stays on screen and the GPU rests.
+    // A resize clears the canvas, so that still gets one new frame.
+    if (!this.paused || this.pausedFrames < 1 || this.stage.needsResize()) this.stage.render(this.visualTime);
+    this.pausedFrames = this.paused ? this.pausedFrames + 1 : 0;
     this.lastFrameCpuMs = performance.now() - startedAt;
     for (const listener of this.frameListeners) listener(delta);
   }
@@ -387,10 +401,22 @@ export class Game {
     this.perfSum = 0;
     this.perfFrames = 0;
     this.slowWindows = average > SLOW_FRAME_SECONDS ? this.slowWindows + 1 : 0;
+    this.smoothWindows = average < SMOOTH_FRAME_SECONDS ? this.smoothWindows + 1 : 0;
+    const step = DYNAMIC_SCALES.indexOf(this.stage.dynamicScale);
     const index = TIER_ORDER.indexOf(this.stage.quality.tier);
-    if (this.slowWindows >= SLOW_WINDOWS_TO_DROP && index > 0) {
+    if (this.slowWindows >= SLOW_WINDOWS_TO_DROP) {
       this.slowWindows = 0;
-      this.setTier(TIER_ORDER[index - 1]!);
+      this.smoothWindows = 0;
+      if (step >= 0 && step < DYNAMIC_SCALES.length - 1) {
+        this.stage.setDynamicScale(DYNAMIC_SCALES[step + 1]!);
+        // Coming back down after trying higher: wait longer before trying again.
+        this.raiseAfter *= 2;
+      } else if (index > 0) {
+        this.setTier(TIER_ORDER[index - 1]!);
+      }
+    } else if (this.smoothWindows >= this.raiseAfter && step > 0) {
+      this.smoothWindows = 0;
+      this.stage.setDynamicScale(DYNAMIC_SCALES[step - 1]!);
     }
   }
 

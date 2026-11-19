@@ -5,7 +5,7 @@ import { SpriteKind } from '../fx/sprites.ts';
 import { addLightBeam } from '../fx/beam.ts';
 import { addToy, at, Kit, P, Pattern } from '../geometry/kit.ts';
 import { toyMaterials } from '../materials/toy.ts';
-import type { SceneContext, SceneParts, SceneSpec, UnitSlot } from './types.ts';
+import type { SceneContext, SceneBuild, SceneSpec, UnitSlot } from './types.ts';
 import { dressKitchen, fridgeBadge } from './dress.ts';
 import { vesselPile } from './vessel.ts';
 
@@ -43,7 +43,7 @@ const smooth = (a: number, b: number, x: number): number => {
   return t * t * (3 - 2 * t);
 };
 
-function addRoom(kit: Kit): void {
+function* addRoom(kit: Kit): Generator<void, void, void> {
   // Checkered floor, built from real tiles so the grout catches light.
   const tile = 3.2;
   for (let ix = -11; ix <= 11; ix += 1) {
@@ -57,7 +57,9 @@ function addRoom(kit: Kit): void {
         matrix: at(ix * tile, GROUND - 0.15, iz * tile - 1.5),
       });
     }
+    if (ix % 8 === 0) yield;
   }
+  yield;
   kit.add(P.box(80, 0.4, 60, 0.02, 1), { color: '#2c1a2a', gloss: 0, outline: 0, matrix: at(0, GROUND - 0.42, 0) });
 
   // Back wall in tall painted panels.
@@ -283,23 +285,32 @@ function lampGeometry(): THREE.BufferGeometry {
 
 const steam = new THREE.Color(0.92, 0.9, 0.88);
 
-function buildKitchen(stage: Stage, root: THREE.Group): SceneParts {
+function* buildKitchen(stage: Stage, root: THREE.Group): SceneBuild {
   const set = new Kit();
-  addRoom(set);
+  yield* addRoom(set);
   addTable(set);
+  yield;
   addFridge(set);
+  yield;
   addWindow(set);
+  yield;
   addCounter(set);
+  yield;
   addDecor(set);
+  yield;
   dressKitchen(set, GROUND, COUNTER_TOP);
+  yield;
   addToy(stage, root, set.build({ frozen: true }));
+  yield;
   // The pool under the pendant lamp, and moonlight falling from the window.
   addLightBeam(root, new THREE.Vector3(0, 10.2, 0), new THREE.Vector3(0, GROUND, 0), 1.9, 10, '#ffd9a4', 0.07);
   addLightBeam(root, new THREE.Vector3(10, 7.2, -16.9), new THREE.Vector3(1, GROUND, -3), 3.2, 6.5, '#c79bff', 0.05);
   const bowl = addToy(stage, root, bowlGeometry());
+  yield;
 
   const door = addToy(stage, root, fridgeDoor());
   door.position.set(-23.9, GROUND + 6.9, -11.35);
+  yield;
 
   // Wall clock over the stove, still telling the time nobody asked for.
   const clockKit = new Kit();
@@ -311,6 +322,7 @@ function buildKitchen(stage: Stage, root: THREE.Group): SceneParts {
   }
   const clock = addToy(stage, root, clockKit.build());
   clock.position.set(-3.2, 9.6, -17.1);
+  yield;
   const hourHand = new THREE.Mesh(clockHand(0.72, 0.13), toyMaterials().body);
   const minuteHand = new THREE.Mesh(clockHand(1.02, 0.09), toyMaterials().body);
   hourHand.position.set(-3.2, 9.6, -16.78);
@@ -319,6 +331,7 @@ function buildKitchen(stage: Stage, root: THREE.Group): SceneParts {
 
   const lamp = addToy(stage, root, lampGeometry());
   lamp.position.set(0, 18, 0);
+  yield;
 
   const moonKit = new Kit();
   moonKit.add(P.sphere(1.25, 40, 28), {
@@ -338,6 +351,7 @@ function buildKitchen(stage: Stage, root: THREE.Group): SceneParts {
   moon.position.copy(moonHome);
   moon.scale.z = 0.08;
   root.add(moon);
+  yield;
 
   // The mouse darts out to steal one flake, then thinks better of it.
   const mouseKit = new Kit();

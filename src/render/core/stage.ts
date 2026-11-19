@@ -77,6 +77,23 @@ export class Stage {
     this.resize();
   }
 
+  /** Renders the scene at a fraction of the tier's resolution; the output size stays the same. */
+  setDynamicScale(scale: number): void {
+    if (this.post.dynamicScale === scale) return;
+    this.post.dynamicScale = scale;
+    this.width = 0;
+    this.resize();
+  }
+
+  get dynamicScale(): number {
+    return this.post.dynamicScale;
+  }
+
+  /** True when the window changed size since the last frame, which also clears the canvas. */
+  needsResize(): boolean {
+    return Math.max(1, this.canvas.clientWidth) !== this.width || Math.max(1, this.canvas.clientHeight) !== this.height;
+  }
+
   /** Pixel size of the final output. */
   get outputWidth(): number {
     return this.renderer.domElement.width;
@@ -188,6 +205,27 @@ export class Stage {
     target.resolveDepthBuffer = true;
     renderer.autoClear = true;
     camera.layers.enable(0);
+  }
+
+  /**
+   * Asks the driver to compile every program `root` will need, exactly as it will be drawn, and
+   * returns at once: with parallel compilation the work happens off the main thread. Wait for
+   * programsReady() before drawing, or the first draw blocks until the compile is done.
+   */
+  requestCompile(root: THREE.Object3D): void {
+    const previous = this.renderer.getRenderTarget();
+    // Every form of the glass, whichever one this machine ends up using.
+    this.showGlass(true, true);
+    this.renderer.setRenderTarget(this.preloadTarget);
+    this.renderer.compile(root, this.camera, this.scene);
+    this.shadow.compile(this.renderer, root, this.scene);
+    this.renderer.setRenderTarget(previous);
+  }
+
+  /** True once the driver has finished every program asked for so far. */
+  programsReady(): boolean {
+    const programs = (this.renderer.info.programs ?? []) as unknown as Array<{ isReady(): boolean }>;
+    return programs.every((program) => program.isReady());
   }
 
   /**
