@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { easeOutCubic, Spring } from '../motion/ease.ts';
 import type { Rng } from '../motion/rng.ts';
 import type { Stage } from './core/stage.ts';
-import { addToyInstances, at, Kit, P, type ToyInstances } from './geometry/kit.ts';
+import { addToyInstances, at, Kit, P, Pattern, type ToyInstances } from './geometry/kit.ts';
 import type { UnitKindName, UnitSlot } from './scenes/types.ts';
 
 const smooth = (a: number, b: number, x: number): number => {
@@ -71,11 +71,11 @@ function cartBody(): THREE.BufferGeometry {
   for (let i = 0; i < 7; i += 1) {
     kit.add(P.box(0.235, 0.74, 0.95, 0.03, 1), { color: i % 2 ? CREAM : RED, gloss: 0.8, outline: i === 0 || i === 6 ? 1 : 0, matrix: at(-0.705 + i * 0.235, 0.82, 0) });
   }
-  kit.add(P.box(1.7, 0.08, 1.05, 0.03, 1), { color: CHROME, gloss: 1, matrix: at(0, 1.22, 0) });
-  kit.add(P.box(1.7, 0.08, 1.05, 0.03, 1), { color: CHROME, gloss: 1, matrix: at(0, 0.43, 0) });
+  kit.add(P.box(1.7, 0.08, 1.05, 0.03, 1), { color: CHROME, gloss: 0.9, metal: 1, pattern: Pattern.Brushed, matrix: at(0, 1.22, 0) });
+  kit.add(P.box(1.7, 0.08, 1.05, 0.03, 1), { color: CHROME, gloss: 0.9, metal: 1, pattern: Pattern.Brushed, matrix: at(0, 0.43, 0) });
   for (const sx of [-1, 1]) {
     for (const sz of [-1, 1]) {
-      kit.add(P.box(0.06, 0.92, 0.06, 0.02, 1), { color: CHROME, gloss: 1, matrix: at(sx * 0.72, 1.7, sz * 0.42) });
+      kit.add(P.box(0.06, 0.92, 0.06, 0.02, 1), { color: CHROME, gloss: 0.9, metal: 1, pattern: Pattern.Brushed, matrix: at(sx * 0.72, 1.7, sz * 0.42) });
     }
   }
   kit.add(P.box(1.56, 0.05, 0.9, 0.015, 1), { color: '#fff4dc', outline: 0, matrix: at(0, 1.27, 0) });
@@ -99,8 +99,8 @@ function cartBody(): THREE.BufferGeometry {
     }
   }
   kit.add(P.capsule(0.04, 2, 2, 6), { color: BUTTER, gloss: 0.8, matrix: at(0, 2.5, 0, [0, 0, Math.PI / 2]) });
-  kit.add(P.sphere(0.09, 10, 8), { color: BUTTER, gloss: 0.9, matrix: at(1.06, 2.5, 0) });
-  kit.add(P.sphere(0.09, 10, 8), { color: BUTTER, gloss: 0.9, matrix: at(-1.06, 2.5, 0) });
+  kit.add(P.sphere(0.09, 10, 8), { color: BUTTER, gloss: 0.85, metal: 0.85, matrix: at(1.06, 2.5, 0) });
+  kit.add(P.sphere(0.09, 10, 8), { color: BUTTER, gloss: 0.85, metal: 0.85, matrix: at(-1.06, 2.5, 0) });
   // Wheels and handle.
   for (const side of [-1, 1]) {
     const wheel = at(-0.32, 0.42, side * 0.56);
@@ -137,9 +137,9 @@ function cartSign(): THREE.BufferGeometry {
 function cinemaBody(): THREE.BufferGeometry {
   const kit = new Kit();
   kit.add(P.box(2.2, 1.2, 1.5, 0.1, 2), { color: RED, gloss: 0.8, matrix: at(0, 0.6, 0) });
-  kit.add(P.box(2.3, 0.1, 1.6, 0.03, 1), { color: BUTTER, gloss: 0.9, matrix: at(0, 1.24, 0) });
-  for (const x of [-1.04, 1.04]) for (const z of [-0.68, 0.68]) kit.add(P.box(0.08, 1.5, 0.08, 0.03, 1), { color: BUTTER, gloss: 0.9, matrix: at(x, 2.02, z) });
-  kit.add(P.box(2.3, 0.1, 1.6, 0.03, 1), { color: BUTTER, gloss: 0.9, matrix: at(0, 2.8, 0) });
+  kit.add(P.box(2.3, 0.1, 1.6, 0.03, 1), { color: BUTTER, gloss: 0.85, metal: 0.85, matrix: at(0, 1.24, 0) });
+  for (const x of [-1.04, 1.04]) for (const z of [-0.68, 0.68]) kit.add(P.box(0.08, 1.5, 0.08, 0.03, 1), { color: BUTTER, gloss: 0.85, metal: 0.85, matrix: at(x, 2.02, z) });
+  kit.add(P.box(2.3, 0.1, 1.6, 0.03, 1), { color: BUTTER, gloss: 0.85, metal: 0.85, matrix: at(0, 2.8, 0) });
   kit.add(P.box(2.4, 0.62, 0.22, 0.09, 2), { color: RED, gloss: 0.7, matrix: at(0, 3.2, 0.1) });
   kit.add(P.box(2.04, 0.38, 0.06, 0.05, 1), { color: CREAM, emissive: 0.5, outline: 0, matrix: at(0, 3.2, 0.23) });
   for (let i = 0; i < 12; i += 1) kit.add(P.sphere(0.2, 8, 6), { color: '#fff3d4', gloss: 0.1, outline: 0.4, matrix: at(-0.8 + (i % 6) * 0.32, 1.42 + (i % 2) * 0.12, -0.4 + (Math.floor(i / 6)) * 0.72) });
@@ -148,7 +148,7 @@ function cinemaBody(): THREE.BufferGeometry {
 
 function cinemaKettle(): THREE.BufferGeometry {
   const kit = new Kit();
-  kit.add(P.lathe([[0, -0.2], [0.34, -0.2], [0.4, 0.12], [0.3, 0.2], [0, 0.22]], 18, 0.05, 2), { color: CHROME, gloss: 1 });
+  kit.add(P.lathe([[0, -0.2], [0.34, -0.2], [0.4, 0.12], [0.3, 0.2], [0, 0.22]], 18, 0.05, 2), { color: CHROME, gloss: 0.9, metal: 1, pattern: Pattern.Brushed });
   kit.add(P.capsule(0.03, 0.4, 2, 6), { color: IRON, matrix: at(0, 0.42, 0) });
   return kit.build();
 }
@@ -212,7 +212,7 @@ function microwaveBody(): THREE.BufferGeometry {
   for (const y of [0.22, 1.14]) kit.add(P.box(1.5, 0.08, 0.16, 0.03, 1), { color: IRON_LIGHT, gloss: 0.7, matrix: at(-0.27, y, 0.62) });
   for (const x of [-1, 0.46]) kit.add(P.box(0.08, 1, 0.16, 0.03, 1), { color: IRON_LIGHT, gloss: 0.7, matrix: at(x, 0.68, 0.62) });
   kit.add(P.box(1.2, 0.05, 0.02, 0.01, 1), { color: '#ffcf7a', emissive: 0.9, outline: 0, matrix: at(-0.27, 1.05, 0.59) });
-  kit.add(P.capsule(0.035, 0.6, 3, 8), { color: CHROME, gloss: 1, matrix: at(0.38, 0.68, 0.74) });
+  kit.add(P.capsule(0.035, 0.6, 3, 8), { color: CHROME, gloss: 0.9, metal: 1, pattern: Pattern.Brushed, matrix: at(0.38, 0.68, 0.74) });
   // Control panel.
   kit.add(P.box(0.42, 0.98, 0.05, 0.03, 1), { color: '#dcc9aa', gloss: 0.5, outline: 0, matrix: at(0.76, 0.68, 0.56) });
   kit.add(P.box(0.32, 0.15, 0.02, 0.01, 1), { color: '#7ce0b8', emissive: 0.9, outline: 0, matrix: at(0.76, 1.02, 0.59) });
@@ -245,10 +245,10 @@ function truckBody(): THREE.BufferGeometry {
   kit.add(P.box(1.7, 0.72, 0.05, 0.03, 1), { color: '#3a3346', gloss: 0.6, outline: 0, matrix: at(-0.55, 1.78, 0.87) });
   kit.add(P.box(1.9, 0.07, 0.56, 0.02, 1), { color: BUTTER, gloss: 0.8, matrix: at(-0.55, 2.2, 1.08, [0.3, 0, 0]) });
   // Cab.
-  kit.add(P.box(1.4, 1.35, 1.66, 0.16, 3), { color: BUTTER, gloss: 0.9, matrix: at(2.05, 1.38, 0) });
+  kit.add(P.box(1.4, 1.35, 1.66, 0.16, 3), { color: BUTTER, gloss: 0.85, metal: 0.85, matrix: at(2.05, 1.38, 0) });
   kit.add(P.box(0.06, 0.56, 1.36, 0.02, 1), { color: '#a9dbe9', gloss: 1, emissive: 0.1, outline: 0, matrix: at(2.76, 1.68, 0) });
   for (const z of [-0.84, 0.84]) kit.add(P.box(0.8, 0.5, 0.04, 0.02, 1), { color: '#a9dbe9', gloss: 1, outline: 0, matrix: at(2.1, 1.68, z) });
-  kit.add(P.box(0.14, 0.26, 1.72, 0.05, 1), { color: CHROME, gloss: 1, matrix: at(2.86, 0.72, 0) });
+  kit.add(P.box(0.14, 0.26, 1.72, 0.05, 1), { color: CHROME, gloss: 0.9, metal: 1, pattern: Pattern.Brushed, matrix: at(2.86, 0.72, 0) });
   for (const z of [-0.56, 0.56]) kit.add(P.sphere(0.12, 10, 8), { color: '#fff3c4', emissive: 1, outline: 0, matrix: at(2.8, 1.02, z) });
   // A giant bucket on the roof, so it reads from far away.
   kit.add(P.lathe([[0, 0], [0.5, 0], [0.72, 0.95], [0.66, 0.95], [0, 0.2]], 18, 0.02, 1), { color: RED, gloss: 0.7, matrix: at(-0.8, 2.66, 0) });
@@ -262,7 +262,7 @@ function truckAxle(): THREE.BufferGeometry {
   for (const side of [-1, 1]) {
     const flat: [number, number, number] = [Math.PI / 2, 0, 0];
     kit.add(P.puck(0.44, 0.44, 0.28, 18, 0.05), { color: IRON, gloss: 0.3, matrix: at(0, 0, side * 0.82 - 0.14, flat) });
-    kit.add(P.puck(0.22, 0.22, 0.04, 12, 0.01), { color: CHROME, gloss: 1, outline: 0, matrix: at(0, 0, side * 0.82 + side * 0.14 - 0.02, flat) });
+    kit.add(P.puck(0.22, 0.22, 0.04, 12, 0.01), { color: CHROME, gloss: 0.9, metal: 1, pattern: Pattern.Brushed, outline: 0, matrix: at(0, 0, side * 0.82 + side * 0.14 - 0.02, flat) });
     for (let i = 0; i < 3; i += 1) kit.add(P.box(0.4, 0.05, 0.03, 0.01, 1), { color: IRON_LIGHT, outline: 0, matrix: at(0, 0, side * 0.98, [0, 0, (i / 3) * Math.PI]) });
   }
   return kit.build();
@@ -294,15 +294,15 @@ function airshipBody(): THREE.BufferGeometry {
 
 function airshipProp(): THREE.BufferGeometry {
   const kit = new Kit();
-  for (let i = 0; i < 3; i += 1) kit.add(P.box(0.05, 0.9, 0.14, 0.02, 1), { color: IRON_LIGHT, gloss: 0.8, outline: 0.5, matrix: at(0, 0, 0, [(i / 3) * Math.PI, 0, 0]) });
-  kit.add(P.sphere(0.09, 10, 8), { color: CHROME, gloss: 1, outline: 0 });
+  for (let i = 0; i < 3; i += 1) kit.add(P.box(0.05, 0.9, 0.14, 0.02, 1), { color: IRON_LIGHT, gloss: 0.7, metal: 0.8, wear: 0.6, outline: 0.5, matrix: at(0, 0, 0, [(i / 3) * Math.PI, 0, 0]) });
+  kit.add(P.sphere(0.09, 10, 8), { color: CHROME, gloss: 0.9, metal: 1, pattern: Pattern.Brushed, outline: 0 });
   return kit.build();
 }
 
 function orbitalBody(): THREE.BufferGeometry {
   const kit = new Kit();
-  kit.add(P.puck(0.62, 0.5, 0.9, 8, 0.06), { color: CHROME, gloss: 1, matrix: at(0, -0.3, 0) });
-  kit.add(P.torus(0.58, 0.05, 8, 24), { color: BUTTER, gloss: 0.9, outline: 0, matrix: at(0, 0.1, 0, [Math.PI / 2, 0, 0]) });
+  kit.add(P.puck(0.62, 0.5, 0.9, 8, 0.06), { color: CHROME, gloss: 0.9, metal: 1, pattern: Pattern.Brushed, matrix: at(0, -0.3, 0) });
+  kit.add(P.torus(0.58, 0.05, 8, 24), { color: BUTTER, gloss: 0.85, metal: 0.85, outline: 0, matrix: at(0, 0.1, 0, [Math.PI / 2, 0, 0]) });
   for (const side of [-1, 1]) {
     kit.add(P.box(0.9, 0.06, 0.06, 0.01, 1), { color: IRON_LIGHT, matrix: at(side * 0.95, 0.1, 0) });
     kit.add(P.box(2.3, 0.05, 1, 0.02, 1), { color: '#2a4fa0', gloss: 0.9, matrix: at(side * 2.5, 0.1, 0) });
@@ -359,9 +359,9 @@ export function cannonDrum(): THREE.BufferGeometry {
       0.08,
       4,
     ),
-    { color: IRON, gloss: 0.75, matrix: at(0, 0, 0, toX) },
+    { color: IRON, gloss: 0.7, metal: 0.75, wear: 0.5, matrix: at(0, 0, 0, toX) },
   );
-  for (const x of [-0.55, 0, 0.55]) kit.add(P.torus(0.5, 0.035, 6, 28), { color: IRON_LIGHT, gloss: 0.8, outline: 0, matrix: at(x, 0, 0, [0, Math.PI / 2, 0]) });
+  for (const x of [-0.55, 0, 0.55]) kit.add(P.torus(0.5, 0.035, 6, 28), { color: IRON_LIGHT, gloss: 0.7, metal: 0.8, wear: 0.6, outline: 0, matrix: at(x, 0, 0, [0, Math.PI / 2, 0]) });
   for (let i = 0; i < 6; i += 1) {
     const a = (i / 6) * Math.PI * 2;
     kit.add(P.sphere(0.038, 6, 5), { color: BUTTER, gloss: 0.8, outline: 0, matrix: at(0.28, Math.cos(a) * 0.5, Math.sin(a) * 0.5) });
@@ -373,7 +373,7 @@ export function cannonDrum(): THREE.BufferGeometry {
 export function cannonCap(): THREE.BufferGeometry {
   const kit = new Kit();
   kit.add(P.lathe([[0, 0], [0.3, 0], [0.3, 0.08], [0.14, 0.16], [0, 0.17]], 20, 0.03, 2), { color: RED, gloss: 0.9 });
-  kit.add(P.sphere(0.06, 10, 7), { color: BUTTER, gloss: 0.9, matrix: at(0, 0.2, 0) });
+  kit.add(P.sphere(0.06, 10, 7), { color: BUTTER, gloss: 0.85, metal: 0.85, matrix: at(0, 0.2, 0) });
   return kit.build();
 }
 

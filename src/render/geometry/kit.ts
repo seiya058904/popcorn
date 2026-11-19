@@ -3,11 +3,42 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { toyMaterials } from '../materials/toy.ts';
 import type { Stage } from '../core/stage.ts';
 
+/** Surface relief, painted by the shader. The fraction picks the scale: .5 is the default. */
+export const Pattern = {
+  Brushed: 1.5,
+  Enamel: 2.5,
+  Wood: 3.5,
+  Brick: 4.5,
+  Fabric: 5.5,
+  Rubber: 6.5,
+  Plaster: 7.5,
+} as const;
+
+/** 0 keeps only the main shapes, 1 adds medium parts, 2 adds the finest. */
+let detailLevel = 2;
+
+export function setKitDetail(level: number): void {
+  detailLevel = level;
+}
+
 export interface Paint {
   color: THREE.ColorRepresentation;
   /** 0 is matte, 1 is wet enamel. */
   gloss?: number;
   emissive?: number;
+  /** 1 is bare metal: reflections take the paint color and diffuse light goes away. */
+  metal?: number;
+  /** A clear lacquer over the paint; on floors it also enables reflections. */
+  coat?: number;
+  pattern?: number;
+  /** Worn, brighter edges. */
+  wear?: number;
+  /** Stays this color when the machine gets a per-copy tint. */
+  fixedColor?: boolean;
+  /** Goes into the see-through pass instead of the solid body. */
+  glass?: boolean;
+  /** Skipped when the quality level is below this. */
+  detail?: number;
   /** Baked occlusion; a function receives the transformed vertex. */
   ao?: number | ((p: THREE.Vector3, n: THREE.Vector3) => number);
   /** Outline width multiplier; 0 removes the part from the ink pass. */
@@ -26,9 +57,21 @@ export class Kit {
   private normals: number[] = [];
   private colors: number[] = [];
   private mats: number[] = [];
+  private mats2: number[] = [];
+  private tints: number[] = [];
   private indices: number[] = [];
+  private glass: Kit | null = null;
 
   add(geometry: THREE.BufferGeometry, paint: Paint): this {
+    if ((paint.detail ?? 0) > detailLevel) {
+      geometry.dispose();
+      return this;
+    }
+    if (paint.glass) {
+      this.glass ??= new Kit();
+      this.glass.add(geometry, { ...paint, glass: false });
+      return this;
+    }
     const pos = geometry.getAttribute('position');
     const nor = geometry.getAttribute('normal');
     const base = this.positions.length / 3;
@@ -38,6 +81,10 @@ export class Kit {
     const gloss = paint.gloss ?? 0.25;
     const emissive = paint.emissive ?? 0;
     const outline = paint.outline ?? 1;
+    const metal = paint.metal ?? 0;
+    const coat = paint.coat ?? 0;
+    const pattern = paint.pattern ?? 0;
+    const wear = paint.wear ?? 0;
     for (let i = 0; i < pos.count; i += 1) {
       tempP.fromBufferAttribute(pos, i);
       tempN.fromBufferAttribute(nor, i);
@@ -52,6 +99,8 @@ export class Kit {
       this.colors.push(tempC.r, tempC.g, tempC.b);
       const ao = typeof paint.ao === 'function' ? paint.ao(tempP, tempN) : (paint.ao ?? 1);
       this.mats.push(gloss, emissive, ao, outline);
+      this.mats2.push(metal, coat, pattern, wear);
+      this.tints.push(paint.fixedColor ? 0 : 1);
     }
     const index = geometry.getIndex();
     if (index) {
@@ -69,8 +118,11 @@ export class Kit {
     geometry.setAttribute('normal', new THREE.Float32BufferAttribute(this.normals, 3));
     geometry.setAttribute('color', new THREE.Float32BufferAttribute(this.colors, 3));
     geometry.setAttribute('aMat', new THREE.Float32BufferAttribute(this.mats, 4));
+    geometry.setAttribute('aMat2', new THREE.Float32BufferAttribute(this.mats2, 4));
+    geometry.setAttribute('aTint', new THREE.Float32BufferAttribute(this.tints, 1));
     geometry.setIndex(this.indices);
     geometry.computeBoundingSphere();
+    if (this.glass) geometry.userData.glass = this.glass.build();
     return geometry;
   }
 }
@@ -155,6 +207,12 @@ export function addToy(
   group.add(body);
   if (options.shadow !== false) stage.shadow.add(body, materials.depth);
   if (options.outline !== false) group.add(new THREE.Mesh(geometry, materials.outline));
+  const glass = geometry.userData.glass as THREE.BufferGeometry | undefined;
+  if (glass) {
+    const pane = new THREE.Mesh(glass, materials.glass);
+    pane.renderOrder = 2;
+    group.add(pane);
+  }
   parent.add(group);
   return group;
 }
@@ -185,6 +243,16 @@ export function addToyInstances(
   ink.count = 0;
   if (castShadow) stage.shadow.add(body, materials.depth);
   parent.add(body, ink);
+  const glassGeometry = geometry.userData.glass as THREE.BufferGeometry | undefined;
+  let glass: THREE.InstancedMesh | null = null;
+  if (glassGeometry) {
+    glass = new THREE.InstancedMesh(glassGeometry, materials.glass, capacity);
+    glass.instanceMatrix = body.instanceMatrix;
+    glass.frustumCulled = false;
+    glass.count = 0;
+    glass.renderOrder = 2;
+    parent.add(glass);
+  }
   return {
     body,
     ink,
@@ -192,6 +260,7 @@ export function addToyInstances(
     commit(count) {
       body.count = count;
       ink.count = count;
+      if (glass) glass.count = count;
       body.instanceMatrix.needsUpdate = true;
     },
   };

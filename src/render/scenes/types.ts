@@ -1,6 +1,6 @@
 import type * as THREE from 'three';
 import type { Rng } from '../../motion/rng.ts';
-import type { LightRig } from '../core/globals.ts';
+import type { Lamp, LightRig } from '../core/globals.ts';
 import type { Stage } from '../core/stage.ts';
 import type { Sprites } from '../fx/sprites.ts';
 import type { PopDirector } from '../popcorn/director.ts';
@@ -87,6 +87,8 @@ export interface SceneParts {
 export interface SceneSpec {
   id: number;
   light: LightRig;
+  /** Practical lights that spill onto everything nearby. */
+  lamps?: Lamp[];
   grade: Grade;
   camera: CameraPose;
   /** Opening framing, easing to `camera` as the heap needs room. */

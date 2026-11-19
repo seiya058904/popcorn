@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { Spring } from '../../motion/ease.ts';
 import type { Stage } from '../core/stage.ts';
 import { SpriteKind } from '../fx/sprites.ts';
-import { addToy, at, Kit, P } from '../geometry/kit.ts';
+import { addToy, at, Kit, P, Pattern } from '../geometry/kit.ts';
 import { toyMaterials } from '../materials/toy.ts';
 import type { SceneContext, SceneParts, SceneSpec, UnitSlot } from './types.ts';
 import { vesselPile } from './vessel.ts';
@@ -48,6 +48,8 @@ function addRoom(kit: Kit): void {
     for (let iz = -6; iz <= 8; iz += 1) {
       kit.add(P.box(tile - 0.07, 0.3, tile - 0.07, 0.05, 1), {
         color: (ix + iz) & 1 ? C.floorA : C.floorB,
+        coat: 0.42,
+        pattern: Pattern.Enamel,
         gloss: 0.55,
         outline: 0,
         matrix: at(ix * tile, GROUND - 0.15, iz * tile - 1.5),
@@ -480,6 +482,10 @@ export const kitchenSpec: SceneSpec = {
   steamY: BOWL.rimY,
   spreadRadius: 24,
   nest: { position: new THREE.Vector3(-41.2, -2.4, -4.9), scale: 0.16, rise: 0.62 },
+  lamps: [
+    { position: [0, 10, 0], color: '#ffd59a', intensity: 1.15, radius: 24 },
+    { position: [10, 6.6, -14.5], color: '#c48cff', intensity: 0.55, radius: 11 },
+  ],
   slots: {
     pan: [
       onCounter(3.9, -14.6, 0.4),

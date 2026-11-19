@@ -8,7 +8,7 @@ import { Rng } from '../motion/rng.ts';
 import { tuning } from '../motion/tuning.ts';
 import { showIntensity } from '../sim/economy.ts';
 import type { Simulation } from '../sim/simulation.ts';
-import { applyLightRig, globals, type LightRig } from './core/globals.ts';
+import { applyLamps, applyLightRig, globals, type LightRig } from './core/globals.ts';
 import { QUALITY } from './core/quality.ts';
 import type { Stage } from './core/stage.ts';
 import { SceneRuntime, type RuntimeHooks } from './scene-runtime.ts';
@@ -41,6 +41,9 @@ const HOPPER_HIT_RADIUS_REM = 5.2;
 /** How many camera positions are tried when fitting the machines into the picture. */
 const FRAMING_STEPS = 12;
 const FRAMING_MARGIN = 0.05;
+/** Keeps the whole play area sharp; only the distant background goes soft. */
+const FOCUS_DEPTH = 1.8;
+const REFLECTION_REACH = 14;
 
 const ndc = new THREE.Vector2();
 const v = new THREE.Vector3();
@@ -617,7 +620,7 @@ export class World {
       target,
       fov: spec.camera.fov,
       focusDistance: position.distanceTo(spec.focusPoint),
-      focusRange: spec.focusRange * near,
+      focusRange: spec.focusRange * near * FOCUS_DEPTH,
       aoRadius: spec.aoRadius,
       shadowCenter: spec.close.target.clone().lerp(spec.shadow.center, t),
       shadowRadius: spec.shadow.radius * shadowTight,
@@ -722,6 +725,7 @@ export class World {
     camera.updateProjectionMatrix();
 
     applyLightRig(pose.rig);
+    applyLamps(this.current?.spec.lamps ?? [], this.time, this.stage.quality.lamps);
     shadow.setFrustum(pose.shadowCenter, pose.shadowRadius);
     globals.uOutlineRefDist.value = distance * 0.72;
 
@@ -729,6 +733,7 @@ export class World {
     p.focusDistance = pose.focusDistance;
     p.focusRange = pose.focusRange;
     p.aoRadius = pose.aoRadius;
+    p.reflectionRange = pose.aoRadius * REFLECTION_REACH;
     p.exposure = pose.grade.exposure;
     p.contrast = pose.grade.contrast;
     p.saturation = pose.grade.saturation;

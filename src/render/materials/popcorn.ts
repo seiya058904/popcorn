@@ -114,7 +114,8 @@ vec3 popcornShade(vec3 N, vec3 V, vec3 P, float crease, float core, float pop, f
   vec3 base = mix(shade, cream, band);
   base = mix(base * mix(uPopCool, vec3(1.0), sat(N.y * 0.6 + 0.66)), base, band);
   float crevice = sat(crease * (1.0 - band * 0.45));
-  base = mix(base, deep, crevice * 0.9);
+  // Crevices stay a tint rather than a dark line, so strong flavors still look puffed and airy.
+  base = mix(base, deep, crevice * 0.62);
   base = mix(base, hull, smoothstep(0.3, 0.85, core));
   flavorEffect(wave > 0.5 ? uEffect.y : uEffect.x, base, N, V, P, band, shadow);
   // A bright band rides the leading edge of a new flavor as it spreads.
@@ -133,6 +134,7 @@ vec3 popcornShade(vec3 N, vec3 V, vec3 P, float crease, float core, float pop, f
   float rim = pow(1.0 - ndv, 3.0) * sat(dot(N, uRimDir) * 0.8 + 0.4);
   base += uRimColor * rim * 0.6 * ao;
   base *= (uSunColor * 0.5 + 0.38) * mix(0.66, 1.0, pool);
+  base += cream * lampDiffuse(P, N) * 0.42 * ao;
 
   // The unpopped kernel: glossy amber that heats up before it bursts.
   float kernelBand = toonBand(min(sat(ndl * 0.5 + 0.5), mix(0.25, 1.0, shadow)));

@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 
+export const MAX_LAMPS = 12;
+
 /** Uniform objects shared by reference across every material. */
 export const globals = {
   uTime: { value: 0 },
@@ -21,6 +23,14 @@ export const globals = {
   /** Pool of key light: xyz center, radius in w. */
   uPool: { value: new THREE.Vector4(0, 0, 0, 100) },
   uPoolFloor: { value: 0.5 },
+  /** Small local lights: xyz position and radius, then color times intensity. */
+  uLampPos: { value: Array.from({ length: MAX_LAMPS }, () => new THREE.Vector4()) },
+  uLampColor: { value: Array.from({ length: MAX_LAMPS }, () => new THREE.Color(0, 0, 0)) },
+  uLampCount: { value: 0 },
+  /** What shiny surfaces see: the room above, around and below them. */
+  uEnvTop: { value: new THREE.Color(0.5, 0.5, 0.6) },
+  uEnvHorizon: { value: new THREE.Color(0.3, 0.3, 0.3) },
+  uEnvBottom: { value: new THREE.Color(0.12, 0.1, 0.1) },
   uResolution: { value: new THREE.Vector2(1280, 720) },
   uOutlinePx: { value: 2 },
   uOutlineRefDist: { value: 10 },
@@ -46,6 +56,26 @@ export interface LightRig {
   poolFloor: number;
 }
 
+export interface Lamp {
+  position: [number, number, number];
+  color: THREE.ColorRepresentation;
+  intensity: number;
+  radius: number;
+  /** 0 is steady; higher values make it waver like a flame. */
+  flicker?: number;
+}
+
+export function applyLamps(lamps: readonly Lamp[], time: number, limit: number): void {
+  const count = Math.min(lamps.length, limit, MAX_LAMPS);
+  globals.uLampCount.value = count;
+  for (let i = 0; i < count; i += 1) {
+    const lamp = lamps[i]!;
+    const waver = lamp.flicker ? 1 + lamp.flicker * (Math.sin(time * 11 + i * 2.1) * 0.6 + Math.sin(time * 23 + i) * 0.4) : 1;
+    globals.uLampPos.value[i]!.set(lamp.position[0], lamp.position[1], lamp.position[2], lamp.radius);
+    globals.uLampColor.value[i]!.set(lamp.color).multiplyScalar(lamp.intensity * waver);
+  }
+}
+
 export function applyLightRig(rig: LightRig): void {
   globals.uSunDir.value.set(...rig.sunDir).normalize();
   globals.uSunColor.value.set(rig.sunColor).multiplyScalar(rig.sunIntensity);
@@ -58,4 +88,7 @@ export function applyLightRig(rig: LightRig): void {
   globals.uFogRange.value.set(...rig.fogRange);
   globals.uPool.value.set(...rig.pool);
   globals.uPoolFloor.value = rig.poolFloor;
+  globals.uEnvTop.value.set(rig.sky).multiplyScalar(0.85);
+  globals.uEnvHorizon.value.set(rig.fog).multiplyScalar(0.8);
+  globals.uEnvBottom.value.set(rig.ground).multiplyScalar(0.5);
 }

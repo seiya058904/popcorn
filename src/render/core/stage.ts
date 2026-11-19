@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { setKitDetail } from '../geometry/kit.ts';
 import { globals } from './globals.ts';
 import { PostPipeline } from './pipeline.ts';
 import { QUALITY, type QualitySettings, type QualityTier } from './quality.ts';
@@ -37,6 +38,7 @@ export class Stage {
   constructor(options: StageOptions) {
     this.canvas = options.canvas;
     this.quality = QUALITY[options.quality ?? 'ultra'];
+    setKitDetail(this.quality.detail);
     this.renderer = new THREE.WebGLRenderer({
       canvas: options.canvas,
       antialias: false,
@@ -56,6 +58,7 @@ export class Stage {
 
   setQuality(tier: QualityTier): void {
     this.quality = QUALITY[tier];
+    setKitDetail(this.quality.detail);
     this.post.setQuality(this.quality);
     this.shadow.setSize(this.quality.shadowSize);
     this.width = 0;
@@ -85,7 +88,7 @@ export class Stage {
     this.camera.updateProjectionMatrix();
     this.post.resize(this.outputWidth, this.outputHeight);
     globals.uResolution.value.set(this.outputWidth, this.outputHeight);
-    globals.uOutlinePx.value = Math.max(1.2, this.outputHeight / 400);
+    globals.uOutlinePx.value = Math.max(0.9, this.outputHeight / 640);
   }
 
   setTime(time: number): void {

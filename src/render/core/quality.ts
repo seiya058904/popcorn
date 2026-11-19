@@ -7,6 +7,12 @@ export interface QualitySettings {
   shadowSize: number;
   ambientOcclusion: boolean;
   depthOfField: boolean;
+  /** Screen-space reflections on polished floors. */
+  reflections: boolean;
+  /** How many local lights are evaluated per pixel. */
+  lamps: number;
+  /** Model detail: 0 main shapes, 1 medium parts, 2 everything. */
+  detail: number;
   bloomLevels: number;
   pileInstances: number;
   pileGrid: number;
@@ -20,6 +26,9 @@ export const QUALITY: Record<QualityTier, QualitySettings> = {
     shadowSize: 1024,
     ambientOcclusion: false,
     depthOfField: false,
+    reflections: false,
+    lamps: 3,
+    detail: 0,
     bloomLevels: 3,
     pileInstances: 1200,
     pileGrid: 100,
@@ -31,6 +40,9 @@ export const QUALITY: Record<QualityTier, QualitySettings> = {
     shadowSize: 1536,
     ambientOcclusion: false,
     depthOfField: true,
+    reflections: false,
+    lamps: 6,
+    detail: 1,
     bloomLevels: 4,
     pileInstances: 2600,
     pileGrid: 140,
@@ -42,6 +54,9 @@ export const QUALITY: Record<QualityTier, QualitySettings> = {
     shadowSize: 2048,
     ambientOcclusion: true,
     depthOfField: true,
+    reflections: true,
+    lamps: 12,
+    detail: 2,
     bloomLevels: 5,
     pileInstances: 4000,
     pileGrid: 160,
@@ -53,6 +68,9 @@ export const QUALITY: Record<QualityTier, QualitySettings> = {
     shadowSize: 3072,
     ambientOcclusion: true,
     depthOfField: true,
+    reflections: true,
+    lamps: 12,
+    detail: 2,
     bloomLevels: 5,
     pileInstances: 5200,
     pileGrid: 180,

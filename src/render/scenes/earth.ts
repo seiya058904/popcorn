@@ -500,6 +500,7 @@ export const earthSpec: SceneSpec = {
   steamY: CRATER.rimY,
   spreadRadius: 46,
   nest: null,
+  lamps: [{ position: [0, CRATER.rimY + 1, 0], color: '#ff7a30', intensity: 1.3, radius: 26, flicker: 0.1 }],
   slots: {
     airship: [
       { x: -27, y: 7, z: -6, rotation: 0.2, scale: 1.5 },

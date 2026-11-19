@@ -15,6 +15,8 @@ export interface PostParams {
   maxBlurPx: number;
   aoRadius: number;
   aoStrength: number;
+  /** How far reflections search, in world units. */
+  reflectionRange: number;
   aoTint: THREE.Color;
   flash: number;
   flashColor: THREE.Color;
@@ -35,9 +37,10 @@ export function defaultPostParams(): PostParams {
     bloom: 0.55,
     focusDistance: 10,
     focusRange: 3.2,
-    maxBlurPx: 11,
+    maxBlurPx: 8,
     aoRadius: 0.42,
     aoStrength: 1,
+    reflectionRange: 6,
     aoTint: new THREE.Color('#1c0f22'),
     flash: 0,
     flashColor: new THREE.Color(1, 0.95, 0.85),
@@ -69,7 +72,7 @@ ${depthHelpers}
 uniform float uRadius;
 uniform vec2 uPixel;
 varying vec2 vUv;
-const int TAPS = 14;
+const int TAPS = 18;
 void main() {
   vec3 P = viewPosition(vUv);
   if (-P.z > uNearFar.y * 0.95) { gl_FragColor = vec4(1.0); return; }
@@ -83,13 +86,16 @@ void main() {
   for (int i = 0; i < TAPS; i++) {
     float t = (float(i) + 0.5) / float(TAPS);
     float a = angle + t * 43.98;
-    vec2 uv = vUv + vec2(cos(a), sin(a)) * t * pxRadius * uPixel;
+    // Every other tap stays close, for the tight dark line where things touch.
+    bool contact = mod(float(i), 2.0) > 0.5;
+    float reach = contact ? 0.26 : 1.0;
+    vec2 uv = vUv + vec2(cos(a), sin(a)) * t * pxRadius * reach * uPixel;
     vec3 v = viewPosition(uv) - P;
     float vv = dot(v, v);
-    float falloff = max(0.0, 1.0 - vv / r2);
-    sum += falloff * max(0.0, dot(v, N) / sqrt(vv + 1e-5) - 0.12);
+    float falloff = max(0.0, 1.0 - vv / (r2 * reach * reach));
+    sum += falloff * max(0.0, dot(v, N) / sqrt(vv + 1e-5) - 0.12) * (contact ? 1.25 : 1.0);
   }
-  float ao = clamp(1.0 - 2.3 * sum / float(TAPS), 0.0, 1.0);
+  float ao = clamp(1.0 - 2.5 * sum / float(TAPS), 0.0, 1.0);
   gl_FragColor = vec4(vec3(ao), 1.0);
 }
 `;
@@ -120,7 +126,8 @@ uniform vec2 uPixel;
 uniform float uFocus, uRange, uMaxBlur;
 varying vec2 vUv;
 const int TAPS = 26;
-float cocAt(float z) { return clamp((abs(z - uFocus) - uRange * 0.35) / uRange, 0.0, 1.0); }
+// Things nearer than the focus stay sharper: the player's machines live there.
+float cocAt(float z) { float d = z - uFocus; return clamp(((d > 0.0 ? d : -d * 0.45) - uRange * 0.35) / uRange, 0.0, 1.0); }
 void main() {
   float zCenter = linearDepth(vUv);
   float center = cocAt(zCenter);
@@ -139,6 +146,52 @@ void main() {
     weight += w;
   }
   gl_FragColor = vec4(sum / weight, center);
+}
+`;
+
+const reflectFragment = /* glsl */ `
+${depthHelpers}
+uniform sampler2D tColor;
+uniform float uRange;
+uniform vec3 uUp;
+varying vec2 vUv;
+const int STEPS = 26;
+vec2 toUv(vec3 q) { return (q.xy / -q.z * uProjScale - uProjShift) * 0.5 + 0.5; }
+void main() {
+  float mask = 1.0 - textureLod(tColor, vUv, 0.0).a;
+  if (mask < 0.02) { gl_FragColor = vec4(0.0); return; }
+  vec3 P = viewPosition(vUv);
+  // Only floors ask for reflections, so the surface normal is simply "up".
+  vec3 N = uUp;
+  vec3 V = normalize(P);
+  vec3 R = reflect(V, N);
+  float stride = uRange / float(STEPS);
+  vec3 q = P + N * stride * 0.25;
+  float found = 0.0;
+  vec2 uv = vUv;
+  float travelled = 0.0;
+  for (int i = 0; i < STEPS; i++) {
+    float grow = stride * (1.0 + float(i) * 0.07);
+    q += R * grow;
+    travelled += grow;
+    if (q.z > -0.02) break;
+    uv = toUv(q);
+    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) break;
+    float gap = -q.z - linearDepth(uv);
+    if (gap > 0.0 && gap < grow * 2.5) {
+      vec3 a = q - R * grow, b = q;
+      for (int k = 0; k < 4; k++) {
+        vec3 m = (a + b) * 0.5;
+        if (-m.z - linearDepth(toUv(m)) > 0.0) b = m; else a = m;
+      }
+      uv = toUv(b);
+      found = 1.0;
+      break;
+    }
+  }
+  vec2 border = min(uv, 1.0 - uv);
+  float fade = found * smoothstep(0.0, 0.07, min(border.x, border.y)) * (1.0 - smoothstep(0.55, 1.0, travelled / (uRange * 1.9)));
+  gl_FragColor = vec4(min(textureLod(tColor, uv, 0.0).rgb, vec3(6.0)), mask * fade);
 }
 `;
 
@@ -195,9 +248,10 @@ void main() {
 
 const compositeFragment = /* glsl */ `
 ${depthHelpers}
-uniform sampler2D tColor, tBloom, tAo, tBlur;
+uniform sampler2D tColor, tBloom, tAo, tBlur, tReflect;
 uniform float uExposure, uContrast, uSaturation, uVignette, uGrain, uBloom, uTime, uFlash, uChroma, uAoStrength, uAspect;
-uniform float uHasBlur, uHasAo, uFocus, uRange;
+uniform float uHasBlur, uHasAo, uHasReflect, uFocus, uRange;
+uniform vec2 uMirrorPixel;
 uniform vec3 uShadowTint, uHighlightTint, uFlashColor, uAoTint;
 uniform vec4 uShock;
 varying vec2 vUv;
@@ -227,7 +281,8 @@ vec3 sampleScene(vec2 uv) {
   vec3 col = texture2D(tColor, uv).rgb;
   if (uHasBlur > 0.5) {
     // Full-resolution depth decides the mix, so in-focus silhouettes stay crisp.
-    float coc = clamp((abs(linearDepth(uv) - uFocus) - uRange * 0.35) / uRange, 0.0, 1.0);
+    float d = linearDepth(uv) - uFocus;
+    float coc = clamp(((d > 0.0 ? d : -d * 0.45) - uRange * 0.35) / uRange, 0.0, 1.0);
     col = mix(col, texture2D(tBlur, uv).rgb, smoothstep(0.02, 0.4, coc));
   }
   return col;
@@ -247,6 +302,16 @@ void main() {
     col = vec3(sampleScene(uv + off).r, sampleScene(uv).g, sampleScene(uv - off).b);
   } else {
     col = sampleScene(uv);
+  }
+  if (uHasReflect > 0.5) {
+    // A small blur turns the reflection into a soft sheen on polished tile.
+    vec4 mirror = texture2D(tReflect, uv) * 0.28;
+    mirror += texture2D(tReflect, uv + uMirrorPixel * vec2(1.6, 0.7)) * 0.18;
+    mirror += texture2D(tReflect, uv + uMirrorPixel * vec2(-1.6, -0.7)) * 0.18;
+    mirror += texture2D(tReflect, uv + uMirrorPixel * vec2(0.7, -2.4)) * 0.18;
+    mirror += texture2D(tReflect, uv + uMirrorPixel * vec2(-0.7, 2.4)) * 0.18;
+    float amount = clamp(mirror.a, 0.0, 1.0);
+    if (amount > 0.001) col = mix(col, mirror.rgb / max(mirror.a, 0.001) * amount + col * (1.0 - amount), amount);
   }
   if (uHasAo > 0.5) {
     float ao = texture2D(tAo, uv).r;
@@ -296,6 +361,7 @@ export class PostPipeline {
   private aoA!: THREE.WebGLRenderTarget;
   private aoB!: THREE.WebGLRenderTarget;
   private blur!: THREE.WebGLRenderTarget;
+  private mirror!: THREE.WebGLRenderTarget;
   private mips: Mip[] = [];
   private width = 0;
   private height = 0;
@@ -317,6 +383,7 @@ export class PostPipeline {
     { tColor: { value: null }, uPixel: { value: new THREE.Vector2() }, uFocus: { value: 10 }, uRange: { value: 3 }, uMaxBlur: { value: 10 } },
     true,
   );
+  private readonly reflectMat = this.pass(reflectFragment, { tColor: { value: null }, uRange: { value: 6 }, uUp: { value: new THREE.Vector3(0, 1, 0) } }, true);
   private readonly prefilterMat = this.pass(prefilterFragment, { tSource: { value: null }, uPixel: { value: new THREE.Vector2() } });
   private readonly downMat = this.pass(downFragment, { tSource: { value: null }, uPixel: { value: new THREE.Vector2() } });
   private readonly upMat = this.pass(upFragment, { tSource: { value: null }, uPixel: { value: new THREE.Vector2() } }, false, true);
@@ -327,8 +394,11 @@ export class PostPipeline {
       tBloom: { value: null },
       tAo: { value: null },
       tBlur: { value: null },
+      tReflect: { value: null },
       uHasBlur: { value: 0 },
       uHasAo: { value: 0 },
+      uHasReflect: { value: 0 },
+      uMirrorPixel: { value: new THREE.Vector2() },
       uFocus: { value: 10 },
       uRange: { value: 3 },
       uExposure: { value: 1 },
@@ -392,6 +462,7 @@ export class PostPipeline {
     this.aoA = new THREE.WebGLRenderTarget(hw, hh, aoOptions);
     this.aoB = new THREE.WebGLRenderTarget(hw, hh, aoOptions);
     this.blur = new THREE.WebGLRenderTarget(hw, hh, hdrOptions);
+    this.mirror = new THREE.WebGLRenderTarget(hw, hh, hdrOptions);
     this.mips = [];
     let mw = hw;
     let mh = hh;
@@ -441,6 +512,13 @@ export class PostPipeline {
       this.draw(this.dofMat, this.blur);
     }
 
+    if (this.quality.reflections) {
+      this.reflectMat.uniforms.tColor!.value = color;
+      this.reflectMat.uniforms.uRange!.value = p.reflectionRange;
+      this.reflectMat.uniforms.uUp!.value.set(0, 1, 0).transformDirection(camera.matrixWorldInverse);
+      this.draw(this.reflectMat, this.mirror);
+    }
+
     this.runBloom(color);
 
     const c = this.compositeMat.uniforms;
@@ -448,6 +526,9 @@ export class PostPipeline {
     c.tBloom!.value = this.mips[0]!.up.texture;
     c.tAo!.value = this.aoA.texture;
     c.tBlur!.value = this.blur.texture;
+    c.tReflect!.value = this.mirror.texture;
+    c.uHasReflect!.value = this.quality.reflections ? 1 : 0;
+    c.uMirrorPixel!.value.set(1 / this.mirror.width, 1 / this.mirror.height);
     c.uHasBlur!.value = hasBlur ? 1 : 0;
     c.uHasAo!.value = hasAo ? 1 : 0;
     c.uFocus!.value = p.focusDistance;
@@ -541,6 +622,7 @@ export class PostPipeline {
     this.aoA.dispose();
     this.aoB.dispose();
     this.blur.dispose();
+    this.mirror.dispose();
     for (const mip of this.mips) {
       mip.down.dispose();
       mip.up.dispose();

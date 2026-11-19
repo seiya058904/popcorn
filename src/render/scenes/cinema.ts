@@ -460,6 +460,15 @@ export const cinemaSpec: SceneSpec = {
   steamY: BUCKET.rimY,
   spreadRadius: 46,
   nest: { position: new THREE.Vector3(-25, 1.9, -24.5), scale: 0.2, rise: 0.85 },
+  lamps: [
+    ...[0.5, 1.55, 2.6, 3.65, 4.7, 5.75].map((a) => ({
+      position: [Math.cos(a) * (STAGE_R - 0.75), 0.9, Math.sin(a) * (STAGE_R - 0.75)] as [number, number, number],
+      color: '#ffc774',
+      intensity: 0.75,
+      radius: 9,
+    })),
+    { position: [0, 20, -34], color: '#8d9dff', intensity: 0.9, radius: 52 },
+  ],
   slots: {
     pan: [stageSlot(2.5, 11.5, 2.2), stageSlot(0.7, 11.5, 2.2), stageSlot(3.3, 11.8, 2.2), stageSlot(-0.1, 11.8, 2.2), stageSlot(2.0, 8.6, 2), stageSlot(1.15, 8.6, 2)],
     cart: [floorSlot(-24, 8, 0.6, 4), floorSlot(24, 8, -0.6, 4), floorSlot(-33, 14, 0.9, 4), floorSlot(33, 14, -0.9, 4)],

@@ -3,7 +3,7 @@ import { lerp, Spring } from '../../motion/ease.ts';
 import type { Stage } from '../core/stage.ts';
 import { Flames } from '../fx/flames.ts';
 import { SpriteKind } from '../fx/sprites.ts';
-import { addToy, at, Kit, P } from '../geometry/kit.ts';
+import { addToy, at, Kit, P, Pattern } from '../geometry/kit.ts';
 import { toyMaterials } from '../materials/toy.ts';
 import type { SceneContext, SceneParts, SceneSpec, UnitSlot } from './types.ts';
 import { vesselPile } from './vessel.ts';
@@ -95,7 +95,7 @@ function addWall(kit: Kit): void {
 
 function addStoveBody(kit: Kit): void {
   const contact = (p: THREE.Vector3): number => lerp(0.5, 1, smooth(1.15, 2.4, Math.hypot(p.x, p.z)));
-  kit.add(P.box(14.4, 0.34, 6.5, 0.14, 4), { color: C.mint, gloss: 0.62, ao: contact, matrix: at(0, -0.17, -0.3) });
+  kit.add(P.box(14.4, 0.34, 6.5, 0.14, 4), { color: C.mint, gloss: 0.62, coat: 0.24, pattern: Pattern.Enamel, ao: contact, matrix: at(0, -0.17, -0.3) });
   kit.add(P.box(14.7, 0.1, 6.8, 0.05, 2), { color: C.chrome, gloss: 1, matrix: at(0, -0.38, -0.3) });
   kit.add(P.box(14.4, 1.75, 0.7, 0.12, 3), { color: C.cream, gloss: 0.55, matrix: at(0, -1.3, 2.72) });
   kit.add(P.box(14.4, 4, 6, 0.1, 1), { color: C.mintDeep, gloss: 0.3, outline: 0, matrix: at(0, -3.2, -0.4) });
@@ -517,6 +517,10 @@ export const stoveSpec: SceneSpec = {
   steamY: POT.rimY,
   spreadRadius: 7.5,
   nest: { position: new THREE.Vector3(-8.2, -3.3, -15.2), scale: 0.42 },
+  lamps: [
+    { position: [0, 0.5, 0], color: '#5f9dff', intensity: 0.9, radius: 3.4, flicker: 0.14 },
+    { position: [-3.95, 3.6, -2.5], color: '#e86ea0', intensity: 0.5, radius: 5 },
+  ],
   slots: { pan: PAN_SLOTS, microwave: MICROWAVE_SLOTS },
   cannon: null,
   perches: [],
