@@ -1,16 +1,16 @@
 :root {
-  --ink: #3a1d28;
-  --paper: #fff0d4;
-  --paper-deep: #f2d7ab;
-  --red: #dc3038;
-  --red-deep: #a11d2a;
-  --butter: #ffc93f;
-  --mint: #6fdcbc;
-  --sky: #7cc4ff;
+  /* Older names, kept as aliases of the design tokens in base.css. */
+  --red: var(--accent);
+  --red-deep: var(--accent-deep);
+  --paper-deep: var(--paper-sunk);
   --night: #1e0f1a;
-  --panel: rgb(34 15 28 / 90%);
+  --panel: var(--glass);
   --digits: 'Fredoka', 'Kuaile', sans-serif;
-  --shop-width: 41rem;
+  --shop-width: 44rem;
+  --gauge-size: 21rem;
+  --corner-size: 5.6rem;
+  /* Middle of the play area, between the window's left edge and the shop. */
+  --hud-center: calc((100% - var(--shop-width) - var(--edge)) / 2);
 }
 
 .num {
@@ -19,23 +19,32 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Frosted panel over the 3D world: blurred, tinted, with a hairline of light on its edge. */
+.glass {
+  background: var(--glass);
+  backdrop-filter: var(--blur);
+  box-shadow: inset 0 0 0 0.1rem var(--glass-edge), inset 0 0.1rem 0 rgb(255 255 255 / 8%), var(--e2);
+  color: var(--on-dark);
+}
+
 /* Marquee counter ------------------------------------------------------- */
 
 .marquee {
   position: absolute;
-  top: 1.6rem;
-  left: calc((100% - var(--shop-width) - 1.6rem) / 2);
+  top: var(--edge);
+  left: var(--hud-center);
   width: 50rem;
-  height: 12.4rem;
+  height: 12rem;
   margin-left: -25rem;
-  padding: 1.5rem 2rem 0;
+  padding: 1.4rem 2rem 0;
   text-align: center;
-  border-radius: 2.4rem;
-  background: linear-gradient(180deg, #a51f2c, #7c1524);
+  border-radius: var(--r-l);
+  background: linear-gradient(180deg, #ab2230, #7c1524);
   box-shadow:
-    0 0 0 0.35rem #ffdf9c,
-    0 0 0 0.75rem #58111f,
-    0 1rem 2.6rem rgb(10 2 8 / 55%);
+    inset 0 0.1rem 0 rgb(255 255 255 / 18%),
+    0 0 0 0.3rem #ffdf9c,
+    0 0 0 0.7rem #58111f,
+    var(--e2);
 }
 
 .marquee::before,
@@ -43,7 +52,7 @@
   content: '';
   position: absolute;
   inset: 0.45rem;
-  border-radius: 2rem;
+  border-radius: calc(var(--r-l) - 0.45rem);
   pointer-events: none;
   background:
     radial-gradient(circle, #fff3c4 0 0.24rem, rgb(255 214 120 / 45%) 0.3rem, transparent 0.5rem) 0 0 / 2.5rem 100% repeat-x,
@@ -84,7 +93,7 @@
 .marquee-rate {
   display: flex;
   justify-content: center;
-  gap: 0.8rem;
+  gap: var(--s-2);
   margin-top: 0.6rem;
   font-size: 2rem;
   color: #ffe2a6;
@@ -94,19 +103,30 @@
   font-weight: 500;
 }
 
-.frenzy {
+/* Callouts under the counter: one pill each, stepping down when several are up. */
+.frenzy,
+.hopper-call,
+.hint {
   position: absolute;
-  top: 15.6rem;
-  left: calc((100% - var(--shop-width) - 1.6rem) / 2);
+  top: calc(var(--edge) + 12rem + var(--s-5));
+  left: var(--hud-center);
   transform: translateX(-50%);
-  padding: 0.6rem 2rem;
-  border-radius: 99rem;
-  background: var(--butter);
-  color: var(--ink);
-  font-size: 2.2rem;
-  box-shadow: 0 0 2rem rgb(255 200 70 / 80%);
+  display: flex;
+  align-items: center;
+  height: 4.6rem;
+  padding: 0 var(--s-5);
+  border-radius: var(--r-pill);
+  font-size: 2.1rem;
+  white-space: nowrap;
   opacity: 0;
-  transition: opacity 0.15s;
+  transition: opacity 0.2s;
+  pointer-events: none;
+}
+
+.frenzy {
+  background: linear-gradient(180deg, #ffd765, var(--butter));
+  color: var(--ink);
+  box-shadow: inset 0 0.1rem 0 rgb(255 255 255 / 50%), 0 0 2.4rem rgb(255 196 64 / 65%), var(--e1);
 }
 
 .frenzy.is-on {
@@ -115,36 +135,76 @@
 }
 
 @keyframes frenzy-beat {
-  to { transform: translateX(-50%) scale(1.07); }
+  to { transform: translateX(-50%) scale(1.06); }
+}
+
+.hopper-call {
+  background: linear-gradient(180deg, #84e6c9, var(--mint));
+  color: var(--ink);
+  box-shadow: inset 0 0.1rem 0 rgb(255 255 255 / 50%), var(--e1);
+}
+
+.hopper-call.is-on {
+  opacity: 1;
+  animation: nudge 0.5s ease-in-out infinite alternate;
+}
+
+.hint {
+  background: var(--paper-raised);
+  color: var(--ink);
+  font-size: 2.3rem;
+  box-shadow: inset 0 0 0 0.1rem var(--paper-line), var(--e2);
+  opacity: 1;
+  animation: hint-bob 1.1s ease-in-out infinite alternate;
+}
+
+.hint.is-gone {
+  opacity: 0;
+}
+
+@keyframes hint-bob {
+  to { transform: translate(-50%, 0.5rem); }
+}
+
+.frenzy.is-on ~ .hopper-call,
+.frenzy.is-on ~ .hint,
+.hopper-call.is-on ~ .hint {
+  top: calc(var(--edge) + 12rem + var(--s-5) + 5.8rem);
 }
 
 /* Stage progress ---------------------------------------------------------- */
 
 .stagebar {
   position: absolute;
-  bottom: 2.2rem;
-  left: calc((100% - var(--shop-width) - 1.6rem) / 2);
+  bottom: var(--edge);
+  /* Centered in the play area, but never under the gauge in a narrow window. */
+  left: max(var(--hud-center), calc(var(--edge) * 2 + var(--gauge-size) + 31rem));
   width: 62rem;
   margin-left: -31rem;
-  padding: 1rem 2rem 1.2rem;
-  border-radius: 1.8rem;
-  background: var(--panel);
-  box-shadow: 0 0 0 0.25rem rgb(255 223 156 / 28%);
+  padding: var(--s-3) var(--s-5) var(--s-3);
+  border-radius: var(--r-l);
 }
 
 .stagebar-label {
   display: flex;
   justify-content: space-between;
+  align-items: baseline;
   font-size: 1.9rem;
-  color: #ffe9c4;
+  color: var(--on-dark);
+}
+
+.stagebar-label .num {
+  font-weight: 500;
+  color: var(--butter);
 }
 
 .stagebar-track {
   position: relative;
-  height: 1.3rem;
-  margin-top: 0.8rem;
-  border-radius: 99rem;
-  background: #3f2130;
+  height: 1.2rem;
+  margin-top: var(--s-2);
+  border-radius: var(--r-pill);
+  background: rgb(255 240 214 / 12%);
+  box-shadow: inset 0 0.1rem 0.2rem rgb(0 0 0 / 30%);
   overflow: hidden;
 }
 
@@ -154,16 +214,17 @@
   transform-origin: 0 50%;
   transform: scaleX(0);
   border-radius: inherit;
-  background: linear-gradient(90deg, var(--butter), #fff1c4);
+  background: linear-gradient(90deg, var(--butter-deep), var(--butter) 60%, #fff1c4);
+  box-shadow: 0 0 1rem rgb(255 200 80 / 55%);
   will-change: transform;
 }
 
 .stagebar-dots {
   display: flex;
   justify-content: space-between;
-  margin-top: 0.7rem;
-  font-size: 1.5rem;
-  color: rgb(255 233 196 / 45%);
+  margin-top: var(--s-2);
+  font-size: var(--t-caption);
+  color: rgb(255 240 214 / 42%);
 }
 
 .stagebar-dots .is-done {
@@ -176,57 +237,99 @@
 
 /* Shop ------------------------------------------------------------------- */
 
+/*
+ * A paper card floating at the right edge. It is only as tall as what it holds, up to the full
+ * height, so a short list never leaves a slab of empty paper. Corners are concentric:
+ * card radius = control radius + padding.
+ */
 .shop {
+  --pad: var(--s-3);
   position: absolute;
-  top: 1.6rem;
-  right: 1.6rem;
-  bottom: 1.6rem;
+  top: var(--edge);
+  right: var(--edge);
   width: var(--shop-width);
+  max-height: calc(100% - var(--edge) * 2);
   display: flex;
   flex-direction: column;
-  border-radius: 2.2rem;
-  background: var(--panel);
+  border-radius: calc(var(--r-m) + var(--pad));
+  background: var(--paper);
   box-shadow:
-    0 0 0 0.3rem rgb(255 223 156 / 32%),
-    0 1rem 3rem rgb(8 2 6 / 55%);
+    inset 0 0 0 0.1rem rgb(255 255 255 / 55%),
+    var(--e2);
   pointer-events: auto;
   overflow: hidden;
 }
 
-.shop-tabs {
-  display: flex;
-  gap: 0.6rem;
-  padding: 1rem 1rem 0;
+.shop-head {
+  padding: var(--pad) var(--pad) var(--s-2);
 }
 
-.shop-tab {
+/* Segmented control: a sunken track with a raised thumb under the chosen item. */
+.seg {
+  --count: 3;
+  --index: 0;
+  --inset: 0.5rem;
   position: relative;
-  flex: 1;
-  height: 4.6rem;
-  border-radius: 1.2rem 1.2rem 0 0;
-  background: #47222f;
-  color: #e7c9a8;
-  font-size: 2.1rem;
-  transition: transform 0.1s;
+  display: grid;
+  grid-template-columns: repeat(var(--count), 1fr);
+  padding: var(--inset);
+  border-radius: var(--r-m);
+  background: var(--paper-sunk);
+  box-shadow: inset 0 0.1rem 0.25rem rgb(110 74 58 / 18%);
 }
 
-.shop-tab.is-active {
-  background: var(--paper);
+.seg-thumb {
+  position: absolute;
+  top: var(--inset);
+  bottom: var(--inset);
+  left: var(--inset);
+  width: calc((100% - var(--inset) * 2) / var(--count));
+  border-radius: calc(var(--r-m) - var(--inset));
+  background: var(--paper-raised);
+  box-shadow: 0 0.1rem 0.2rem rgb(70 30 20 / 18%), 0 0.3rem 0.8rem rgb(70 30 20 / 12%);
+  transform: translateX(calc(var(--index) * 100%));
+}
+
+.seg-item {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-1);
+  height: 4.8rem;
+  color: var(--ink-2);
+  font-size: 2.1rem;
+}
+
+.seg-item.is-active {
   color: var(--ink);
 }
 
+.seg.is-small {
+  --inset: 0.4rem;
+  border-radius: var(--r-s);
+}
+
+.seg.is-small .seg-thumb {
+  border-radius: calc(var(--r-s) - var(--inset));
+}
+
+.seg.is-small .seg-item {
+  height: 3.6rem;
+  min-width: 6.2rem;
+  font-size: 1.7rem;
+}
+
 .shop-tab .badge {
-  position: absolute;
-  top: 0.4rem;
-  right: 0.8rem;
-  min-width: 2rem;
-  height: 2rem;
-  padding: 0 0.5rem;
-  border-radius: 99rem;
-  background: var(--red);
+  min-width: 2.2rem;
+  height: 2.2rem;
+  padding: 0 0.6rem;
+  border-radius: var(--r-pill);
+  background: var(--accent);
   color: #fff;
   font-size: 1.3rem;
-  line-height: 2rem;
+  line-height: 2.2rem;
+  box-shadow: 0 0.1rem 0.3rem rgb(160 20 30 / 35%);
 }
 
 .shop-tab .badge:empty {
@@ -234,19 +337,20 @@
 }
 
 .shop-body {
-  flex: 1;
+  flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-  padding: 1rem;
-  background: var(--paper);
+  padding: var(--s-1) var(--pad) var(--pad);
   scrollbar-width: thin;
-  scrollbar-color: #c9a67c transparent;
+  scrollbar-color: rgb(110 74 58 / 30%) transparent;
+  /* The list fades out under the edge instead of being cut by it. */
+  mask-image: linear-gradient(180deg, transparent 0, #000 var(--s-2), #000 calc(100% - var(--s-3)), transparent);
 }
 
 .shop-body > section {
   display: none;
   flex-direction: column;
-  gap: 0.8rem;
+  gap: var(--s-2);
 }
 
 .shop-body > section.is-active {
@@ -255,115 +359,123 @@
 
 .bulk {
   display: flex;
-  gap: 0.5rem;
   align-items: center;
-  margin-bottom: 0.2rem;
-  color: #7a5240;
-  font-size: 1.7rem;
+  justify-content: space-between;
+  gap: var(--s-3);
+  padding: var(--s-1) 0 var(--s-1) var(--s-1);
 }
 
-.bulk span {
-  margin-right: auto;
+.bulk-label {
+  color: var(--ink-2);
+  font-size: var(--t-caption);
 }
 
-.bulk button {
-  min-width: 5rem;
-  height: 3.2rem;
-  border-radius: 0.9rem;
-  background: var(--paper-deep);
-  color: var(--ink);
-  font-size: 1.6rem;
-}
-
-.bulk button.is-active {
-  background: var(--ink);
-  color: var(--butter);
-}
-
-/* A ticket: paper body, punched notches, and a tear-off price stub. */
+/*
+ * A ticket: paper body, punched notches and a perforated tear-off stub that holds the count
+ * and the price.
+ */
 .ticket {
-  --notch: 0.7rem;
-  --stub: 11rem;
+  --notch: 0.75rem;
+  --stub: 11.2rem;
   position: relative;
   display: grid;
-  grid-template-columns: 5.6rem 1fr var(--stub);
+  grid-template-columns: 6.6rem 1fr var(--stub);
   align-items: center;
   width: 100%;
-  min-height: 8.4rem;
+  min-height: 8.8rem;
   text-align: left;
   color: var(--ink);
-  filter: drop-shadow(0 0.25rem 0 rgb(120 76 44 / 45%));
+  filter: drop-shadow(0 0.1rem 0.15rem rgb(90 50 30 / 22%)) drop-shadow(0 0.4rem 0.8rem rgb(90 50 30 / 12%));
   will-change: transform;
 }
 
 .ticket-paper {
   position: absolute;
   inset: 0;
-  border-radius: 1rem;
+  border-radius: var(--r-m);
   background:
-    linear-gradient(90deg, transparent calc(100% - var(--stub) - 0.08rem), rgb(120 76 44 / 35%) 0 calc(100% - var(--stub) + 0.08rem), transparent 0),
-    linear-gradient(180deg, #fff9ea, #ffeccb);
+    linear-gradient(180deg, transparent 0.9rem, rgb(110 74 58 / 30%) 0 calc(100% - 0.9rem), transparent 0) calc(100% - var(--stub)) 0 / 0.12rem 100% no-repeat,
+    linear-gradient(90deg, var(--paper-raised) 0 calc(100% - var(--stub)), #fbefdc 0);
   -webkit-mask:
     radial-gradient(circle var(--notch) at calc(100% - var(--stub)) 0, transparent 98%, #000) top / 100% 51% no-repeat,
     radial-gradient(circle var(--notch) at calc(100% - var(--stub)) 100%, transparent 98%, #000) bottom / 100% 51% no-repeat;
   mask:
     radial-gradient(circle var(--notch) at calc(100% - var(--stub)) 0, transparent 98%, #000) top / 100% 51% no-repeat,
     radial-gradient(circle var(--notch) at calc(100% - var(--stub)) 100%, transparent 98%, #000) bottom / 100% 51% no-repeat;
-  transition: background 0.2s;
 }
 
 .ticket-progress {
   position: absolute;
-  left: 0.6rem;
-  right: calc(var(--stub) + 0.8rem);
-  bottom: 0.45rem;
-  height: 0.35rem;
-  border-radius: 99rem;
-  background: rgb(120 76 44 / 16%);
+  left: 6.6rem;
+  right: calc(var(--stub) + var(--s-3));
+  bottom: var(--s-2);
+  height: 0.4rem;
+  border-radius: var(--r-pill);
+  background: var(--paper-line);
   overflow: hidden;
+}
+
+/* Nothing to wait for: affordable and locked tickets show no progress line. */
+.ticket.is-ready .ticket-progress,
+.ticket.is-locked .ticket-progress {
+  opacity: 0;
 }
 
 .ticket-progress i {
   display: block;
   height: 100%;
+  border-radius: inherit;
   transform-origin: 0 50%;
   transform: scaleX(0);
-  background: var(--red);
+  background: linear-gradient(90deg, var(--butter-deep), var(--accent));
 }
 
+/* The icon sits in a little well, like a picture on the ticket. */
 .ticket-icon {
   position: relative;
-  width: 4.8rem;
-  height: 4.8rem;
-  margin-left: 0.6rem;
+  display: grid;
+  place-items: center;
+  width: 5.2rem;
+  height: 5.2rem;
+  margin-left: var(--s-3);
+  border-radius: var(--r-s);
+  background: linear-gradient(180deg, #f7e6c8, #f0dbb7);
+  box-shadow: inset 0 0.1rem 0.2rem rgb(110 74 58 / 22%);
 }
 
 .ticket-icon svg {
-  width: 100%;
-  height: 100%;
+  width: 3.8rem;
+  height: 3.8rem;
 }
 
 .ticket-main {
   position: relative;
   min-width: 0;
-  padding: 0.5rem 0.6rem 0.7rem;
+  padding: var(--s-2) var(--s-3) var(--s-3);
 }
 
 .ticket-name {
   display: block;
-  font-size: 2.1rem;
-  line-height: 1.15;
+  font-size: 2.2rem;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .ticket-blurb {
-  display: block;
-  margin-top: 0.2rem;
-  font-size: 1.4rem;
-  line-height: 1.25;
-  color: #8a6650;
+  display: -webkit-box;
+  margin-top: 0.3rem;
+  font-size: 1.5rem;
+  line-height: 1.35;
+  color: var(--ink-2);
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .ticket.is-unit .ticket-blurb {
+  display: block;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -374,36 +486,41 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.1rem;
-  padding: 0 0.5rem;
+  gap: 0.2rem;
+  padding: 0 var(--s-2);
 }
 
 .ticket-owned {
-  font-size: 2.6rem;
+  font-size: 2.8rem;
   line-height: 1;
 }
 
 .ticket-price {
-  font-size: 1.7rem;
+  font-size: 1.9rem;
   line-height: 1.2;
-  color: var(--red-deep);
+  color: var(--accent-deep);
   white-space: nowrap;
-}
-
-.ticket.is-dim {
-  filter: saturate(0.45) drop-shadow(0 0.25rem 0 rgb(120 76 44 / 25%));
 }
 
 .ticket.is-dim .ticket-paper {
   background:
-    linear-gradient(90deg, transparent calc(100% - var(--stub) - 0.08rem), rgb(120 76 44 / 25%) 0 calc(100% - var(--stub) + 0.08rem), transparent 0),
-    linear-gradient(180deg, #f1e3c9, #e9d6b6);
+    linear-gradient(180deg, transparent 0.9rem, rgb(110 74 58 / 22%) 0 calc(100% - 0.9rem), transparent 0) calc(100% - var(--stub)) 0 / 0.12rem 100% no-repeat,
+    linear-gradient(90deg, #fbf1e1 0 calc(100% - var(--stub)), #f3e4cc 0);
+}
+
+.ticket.is-dim .ticket-icon svg {
+  opacity: 0.78;
+}
+
+.ticket.is-dim .ticket-price {
+  color: var(--ink-2);
 }
 
 .ticket.is-ready .ticket-paper {
   background:
-    linear-gradient(90deg, transparent calc(100% - var(--stub) - 0.08rem), rgb(120 76 44 / 40%) 0 calc(100% - var(--stub) + 0.08rem), transparent 0),
-    linear-gradient(90deg, #fff9ea 0 calc(100% - var(--stub)), var(--butter) 0);
+    linear-gradient(180deg, transparent 0.9rem, rgb(140 90 20 / 38%) 0 calc(100% - 0.9rem), transparent 0) calc(100% - var(--stub)) 0 / 0.12rem 100% no-repeat,
+    linear-gradient(90deg, var(--paper-raised) 0 calc(100% - var(--stub)), transparent 0),
+    linear-gradient(180deg, #ffd45e, var(--butter));
 }
 
 .ticket.is-ready .ticket-price {
@@ -417,94 +534,112 @@
 .ticket.is-next::after {
   content: '点这里！';
   position: absolute;
-  right: 1rem;
-  top: -1.2rem;
-  padding: 0.2rem 0.9rem;
-  border-radius: 0.8rem;
-  background: var(--red);
+  right: var(--s-3);
+  top: -1.3rem;
+  padding: 0.2rem var(--s-3);
+  border-radius: var(--r-pill);
+  background: var(--accent);
   color: #fff;
-  font-size: 1.6rem;
-  animation: nudge 0.55s ease-in-out infinite alternate;
+  font-size: var(--t-caption);
+  box-shadow: 0 0.3rem 0.8rem rgb(160 20 30 / 35%);
+  animation: nudge 0.7s ease-in-out infinite alternate;
 }
 
 @keyframes nudge {
-  to { transform: translateY(-0.5rem); }
+  to { transform: translateY(-0.4rem); }
 }
 
 .ticket.is-locked {
-  filter: grayscale(0.7) drop-shadow(0 0.25rem 0 rgb(120 76 44 / 20%));
   cursor: default;
 }
 
+.ticket.is-locked .ticket-icon svg {
+  filter: grayscale(1);
+  opacity: 0.5;
+}
+
 .ticket.is-locked .ticket-name {
-  color: #7a6a60;
+  color: var(--ink-3);
+  letter-spacing: 0.2em;
 }
 
 .ticket.is-small {
-  --stub: 9.4rem;
-  grid-template-columns: 4.6rem 1fr var(--stub);
-  min-height: 7.2rem;
+  --stub: 10rem;
+  grid-template-columns: 5.6rem 1fr var(--stub);
+  min-height: 7.6rem;
 }
 
 .ticket.is-small .ticket-icon {
-  width: 3.8rem;
-  height: 3.8rem;
+  width: 4.4rem;
+  height: 4.4rem;
+  margin-left: var(--s-2);
+}
+
+.ticket.is-small .ticket-icon svg {
+  width: 3.2rem;
+  height: 3.2rem;
+}
+
+.ticket.is-small .ticket-progress {
+  left: 5.6rem;
 }
 
 .ticket.is-small .ticket-name {
-  font-size: 1.8rem;
+  font-size: 1.9rem;
 }
 
 .ticket.is-small .ticket-blurb {
-  font-size: 1.3rem;
+  font-size: 1.45rem;
 }
 
 .album {
   display: grid;
   grid-template-columns: repeat(6, 1fr);
-  gap: 0.5rem;
-  margin-top: 0.4rem;
+  gap: var(--s-1);
+  margin-top: var(--s-2);
 }
 
 .album span {
-  height: 4.4rem;
-  border-radius: 0.8rem;
+  height: 4.6rem;
+  border-radius: var(--r-s);
   display: grid;
   place-items: center;
-  font-size: 1.3rem;
-  line-height: 1;
-  background: #ead8b7;
-  color: #a68d76;
   padding: 0 0.2rem;
+  font-size: 1.4rem;
+  line-height: 1;
   text-align: center;
+  background: var(--paper-sunk);
+  color: var(--ink-3);
+  box-shadow: inset 0 0.1rem 0.2rem rgb(110 74 58 / 16%);
 }
 
 .album span.is-owned {
   color: var(--ink);
-  box-shadow: inset 0 -0.35rem 0 rgb(0 0 0 / 14%);
+  box-shadow: inset 0 0.1rem 0 rgb(255 255 255 / 40%), inset 0 -0.3rem 0 rgb(0 0 0 / 12%), 0 0.1rem 0.3rem rgb(70 30 20 / 18%);
 }
 
 .empty-note {
-  padding: 2rem 1rem;
-  font-size: 1.8rem;
+  padding: var(--s-5) var(--s-3);
+  font-size: var(--t-body);
   text-align: center;
-  color: #8a6650;
+  color: var(--ink-2);
 }
 
 /* Cannon gauge ------------------------------------------------------------ */
 
 .gauge {
   position: absolute;
-  left: 2rem;
-  bottom: 2rem;
-  width: 22rem;
-  height: 22rem;
+  left: var(--edge);
+  bottom: var(--edge);
+  width: var(--gauge-size);
+  height: var(--gauge-size);
   border-radius: 50%;
-  background: radial-gradient(circle at 50% 40%, #4d2a3a, #24101b 72%);
+  background: radial-gradient(circle at 50% 38%, #53303f, #24101b 72%);
   box-shadow:
-    0 0 0 0.4rem #d9b98a,
-    0 0 0 0.9rem #4a2430,
-    0 1rem 2.4rem rgb(8 2 6 / 60%);
+    inset 0 0.2rem 0.4rem rgb(255 255 255 / 8%),
+    0 0 0 0.35rem #e8c893,
+    0 0 0 0.8rem #4a2430,
+    var(--e2);
   pointer-events: auto;
   cursor: pointer;
   touch-action: none;
@@ -531,10 +666,10 @@
   position: absolute;
   left: 0;
   right: 0;
-  bottom: 3.1rem;
+  bottom: 2.9rem;
   text-align: center;
-  font-size: 2rem;
-  color: #ffe9c4;
+  font-size: 1.9rem;
+  color: var(--on-dark);
 }
 
 .gauge.is-ready .gauge-caption {
@@ -542,31 +677,32 @@
 }
 
 .gauge.is-ready {
-  animation: gauge-ready 0.9s ease-in-out infinite alternate;
+  animation: gauge-ready 1.2s ease-in-out infinite alternate;
 }
 
 @keyframes gauge-ready {
   to {
     box-shadow:
-      0 0 0 0.4rem #ffe2a6,
-      0 0 0 0.9rem #6a2d36,
-      0 0 2.8rem rgb(255 200 90 / 70%);
+      inset 0 0.2rem 0.4rem rgb(255 255 255 / 8%),
+      0 0 0 0.35rem #ffe2a6,
+      0 0 0 0.8rem #6a2d36,
+      0 0 3rem rgb(255 200 90 / 60%);
   }
 }
 
 .gauge-result {
   position: absolute;
   left: 50%;
-  top: -3.6rem;
+  top: -3.8rem;
   transform: translateX(-50%);
   white-space: nowrap;
   font-size: 3rem;
   color: var(--butter);
-  text-shadow: 0 0.25rem 0 #5b1f25;
+  text-shadow: 0 0.25rem 0 #5b1f25, 0 0 1.2rem rgb(255 190 80 / 60%);
   opacity: 0;
 }
 
-/* Floating gains, toasts and dialogs ------------------------------------- */
+/* Floating gains, toasts and corner buttons -------------------------------- */
 
 .float {
   position: absolute;
@@ -579,85 +715,92 @@
   will-change: transform, opacity;
 }
 
-.hint {
-  position: absolute;
-  left: calc((100% - var(--shop-width) - 1.6rem) / 2);
-  top: 17rem;
-  transform: translateX(-50%);
-  padding: 0.8rem 2.2rem;
-  border-radius: 99rem;
-  background: var(--paper);
-  color: var(--ink);
-  font-size: 2.6rem;
-  box-shadow: 0 0.4rem 0 rgb(120 76 44 / 60%);
-  transition: opacity 0.25s;
-  animation: hint-bob 0.7s ease-in-out infinite alternate;
-}
-
-.hint.is-gone {
-  opacity: 0;
-}
-
-@keyframes hint-bob {
-  to { transform: translate(-50%, 0.7rem); }
-}
-
 .toasts {
   position: absolute;
-  top: 16.5rem;
-  left: 2rem;
+  top: calc(var(--edge) + var(--corner-size) + var(--s-4));
+  left: var(--edge);
   display: flex;
   flex-direction: column;
-  gap: 0.8rem;
-  width: 36rem;
+  gap: var(--s-2);
+  width: 38rem;
+}
+
+/*
+ * Narrow windows run the interface at its minimum scale, where the play area is too slim for the
+ * toasts beside the counter: they move down, under the callouts.
+ */
+@media (max-width: 1228px) {
+  .toasts {
+    top: calc(var(--edge) + 12rem + var(--s-5) + 11rem);
+  }
 }
 
 .toast {
   display: grid;
-  grid-template-columns: 4.8rem 1fr;
-  gap: 0.8rem;
+  grid-template-columns: 5.2rem 1fr;
+  gap: var(--s-3);
   align-items: center;
-  padding: 0.8rem 1.2rem;
-  border-radius: 1.1rem;
-  background: var(--paper);
+  padding: var(--s-2) var(--s-4) var(--s-2) var(--s-2);
+  border-radius: var(--r-m);
+  background: var(--paper-raised);
   color: var(--ink);
-  box-shadow: 0 0.3rem 0 rgb(120 76 44 / 55%), 0 0.6rem 1.8rem rgb(8 2 6 / 45%);
+  box-shadow: inset 0 0 0 0.1rem rgb(255 255 255 / 60%), var(--e2);
+}
+
+.toast-icon {
+  display: grid;
+  place-items: center;
+  width: 5.2rem;
+  height: 5.2rem;
+  border-radius: calc(var(--r-m) - var(--s-2));
+  background: linear-gradient(180deg, #ffe7a8, #ffd36a);
+  box-shadow: inset 0 -0.2rem 0 rgb(160 100 20 / 25%);
 }
 
 .toast svg {
-  width: 4.4rem;
-  height: 4.4rem;
+  width: 3.6rem;
+  height: 3.6rem;
 }
 
 .toast b {
   display: block;
   font-size: 2rem;
   font-weight: 400;
+  line-height: 1.2;
 }
 
 .toast small {
-  display: block;
-  font-size: 1.45rem;
-  color: #8a6650;
+  display: -webkit-box;
+  margin-top: 0.2rem;
+  font-size: 1.5rem;
+  line-height: 1.35;
+  color: var(--ink-2);
+  text-wrap: balance;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .corner {
   position: absolute;
-  top: 1.6rem;
-  left: 2rem;
+  top: var(--edge);
+  left: var(--edge);
   display: flex;
-  gap: 0.8rem;
+  gap: var(--s-2);
   pointer-events: auto;
 }
 
-.corner button {
-  width: 5.6rem;
-  height: 5.6rem;
-  padding: 0.8rem;
-  border-radius: 1.4rem;
-  background: var(--panel);
-  color: #ffe9c4;
-  box-shadow: 0 0 0 0.2rem rgb(255 223 156 / 32%);
+/* Round-cornered glass keys: the trophy here, the menu next to it. */
+.corner button,
+.menu-button {
+  width: var(--corner-size);
+  height: var(--corner-size);
+  padding: 1.2rem;
+  border-radius: var(--r-m);
+  background: var(--glass);
+  backdrop-filter: var(--blur);
+  color: var(--on-dark);
+  box-shadow: inset 0 0 0 0.1rem var(--glass-edge), inset 0 0.1rem 0 rgb(255 255 255 / 8%), var(--e1);
 }
 
 .corner svg {
@@ -665,12 +808,69 @@
   height: 100%;
 }
 
+/*
+ * Buttons: a pill with a soft layered shadow and a faint lip along the bottom, like a candy key.
+ * Primary is red; quiet sits on paper; glass sits on the dark world.
+ */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-2);
+  min-width: 18rem;
+  height: 5.2rem;
+  padding: 0 var(--s-6);
+  border-radius: var(--r-pill);
+  background: linear-gradient(180deg, #ef4a4f, var(--accent) 52%, #d02e37);
+  color: #fff8ec;
+  font-size: 2.2rem;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  box-shadow:
+    inset 0 0.12rem 0 rgb(255 255 255 / 32%),
+    inset 0 -0.3rem 0 rgb(110 8 20 / 30%),
+    0 0.5rem 1.4rem rgb(150 20 30 / 26%);
+}
+
+.btn.is-quiet {
+  background: linear-gradient(180deg, var(--paper-raised), #fbeedb);
+  color: var(--ink);
+  box-shadow:
+    inset 0 0 0 0.1rem var(--paper-line),
+    inset 0 -0.3rem 0 rgb(110 74 58 / 12%),
+    var(--e1);
+}
+
+.btn.is-glass {
+  background: rgb(255 240 214 / 12%);
+  color: var(--on-dark);
+  box-shadow:
+    inset 0 0 0 0.1rem var(--glass-edge),
+    inset 0 0.1rem 0 rgb(255 255 255 / 10%);
+  backdrop-filter: var(--blur);
+}
+
+.btn.is-danger {
+  color: var(--accent-deep);
+}
+
+.btn.is-large {
+  min-width: 30rem;
+  height: 6.4rem;
+  font-size: 3rem;
+}
+
+/* Dialogs ------------------------------------------------------------------- */
+
 .dialog-veil {
   position: absolute;
   inset: 0;
+  z-index: 25;
   display: none;
   place-items: center;
-  background: rgb(18 7 14 / 62%);
+  padding: var(--edge);
+  background: rgb(18 7 14 / 50%);
+  backdrop-filter: blur(0.6rem) saturate(1.1);
   pointer-events: auto;
 }
 
@@ -678,96 +878,153 @@
   display: grid;
 }
 
+/* Three widths: narrow for messages, medium for menus, wide for lists. */
 .dialog {
-  width: min(84rem, 92vw);
-  max-height: 86vh;
+  width: min(88rem, 100%);
+  max-height: 84vh;
   overflow-y: auto;
-  padding: 2.4rem;
-  border-radius: 2.2rem;
+  padding: var(--s-6);
+  border-radius: var(--r-l);
   background: var(--paper);
   color: var(--ink);
-  box-shadow: 0 0 0 0.4rem #d9b98a, 0 1.6rem 4rem rgb(8 2 6 / 60%);
+  box-shadow: inset 0 0 0 0.1rem rgb(255 255 255 / 60%), var(--e3);
+  scrollbar-width: thin;
+  scrollbar-color: rgb(110 74 58 / 30%) transparent;
 }
 
 .dialog.is-narrow {
-  width: min(52rem, 92vw);
+  width: min(52rem, 100%);
   text-align: center;
 }
 
 .dialog h2 {
-  margin: 0 0 1.2rem;
-  font-size: 3.4rem;
+  margin: 0 0 var(--s-3);
+  font-size: var(--t-title);
   font-weight: 400;
+  line-height: 1.15;
 }
 
 .dialog p {
-  margin: 0.6rem 0;
-  font-size: 2rem;
-  line-height: 1.4;
+  margin: var(--s-2) 0;
+  font-size: var(--t-body);
+  line-height: 1.45;
+  color: var(--ink-2);
 }
 
 .dialog .big {
-  font-size: 4.6rem;
-  color: var(--red-deep);
+  margin: var(--s-4) 0 var(--s-2);
+  font-size: 5.6rem;
+  line-height: 1;
+  color: var(--accent-deep);
 }
 
-.btn {
-  display: inline-block;
-  min-width: 16rem;
-  margin: 1rem 0.5rem 0;
-  padding: 0.9rem 2.2rem;
-  border-radius: 1.3rem;
-  background: var(--red);
-  color: #fff6e3;
-  font-size: 2.2rem;
-  box-shadow: 0 0.4rem 0 var(--red-deep);
+.dialog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--s-3);
+  margin-top: var(--s-5);
 }
 
-.btn:active {
-  transform: translateY(0.3rem);
-  box-shadow: 0 0.1rem 0 var(--red-deep);
+.dialog-actions .btn {
+  margin: 0;
 }
 
-.btn.is-quiet {
-  background: var(--paper-deep);
-  color: var(--ink);
-  box-shadow: 0 0.4rem 0 #cdaa78;
+.dialog-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-4);
+  margin-bottom: var(--s-4);
 }
 
+.dialog-head h2 {
+  margin: 0;
+}
+
+.count-chip {
+  padding: 0.3rem var(--s-3);
+  border-radius: var(--r-pill);
+  background: var(--paper-sunk);
+  color: var(--ink-2);
+  font-size: 1.8rem;
+}
+
+.meter {
+  height: 0.8rem;
+  margin-bottom: var(--s-5);
+  border-radius: var(--r-pill);
+  background: var(--paper-sunk);
+  overflow: hidden;
+}
+
+.meter i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--butter-deep), var(--butter));
+}
+
+/* Achievements: cards with a trophy; locked ones show a lock and keep their secret. */
 .achievement-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 0.8rem;
+  gap: var(--s-2);
 }
 
 .achievement {
-  padding: 0.9rem 1.1rem;
-  border-radius: 1rem;
-  background: #fff9ea;
-  box-shadow: 0 0.2rem 0 rgb(120 76 44 / 35%);
+  display: grid;
+  grid-template-columns: 4.4rem 1fr;
+  gap: var(--s-3);
+  align-items: center;
+  padding: var(--s-3);
+  border-radius: var(--r-m);
+  background: var(--paper-raised);
+  box-shadow: inset 0 0 0 0.1rem rgb(255 255 255 / 60%), var(--e1);
+}
+
+.achievement-icon {
+  display: grid;
+  place-items: center;
+  width: 4.4rem;
+  height: 4.4rem;
+  border-radius: calc(var(--r-m) - var(--s-3));
+  background: linear-gradient(180deg, #ffe7a8, #ffd36a);
+}
+
+.achievement-icon svg {
+  width: 3rem;
+  height: 3rem;
 }
 
 .achievement b {
   display: block;
   font-size: 1.9rem;
   font-weight: 400;
+  line-height: 1.2;
 }
 
 .achievement small {
   display: block;
-  margin-top: 0.2rem;
-  font-size: 1.4rem;
-  line-height: 1.3;
-  color: #8a6650;
+  margin-top: 0.3rem;
+  font-size: 1.5rem;
+  line-height: 1.35;
+  color: var(--ink-2);
 }
 
 .achievement.is-locked {
-  background: #ead8b7;
-  color: #a68d76;
+  background: var(--paper-sunk);
+  box-shadow: inset 0 0.1rem 0.2rem rgb(110 74 58 / 14%);
 }
 
+.achievement.is-locked .achievement-icon {
+  background: rgb(110 74 58 / 12%);
+  color: var(--ink-3);
+}
+
+.achievement.is-locked b,
 .achievement.is-locked small {
-  color: #b39d86;
+  color: var(--ink-3);
 }
 
 /* Breakout staging --------------------------------------------------------- */
@@ -775,7 +1032,7 @@
 .slate {
   position: absolute;
   top: 42%;
-  left: calc((100% - var(--shop-width) - 1.6rem) / 2);
+  left: var(--hud-center);
   font-size: 11rem;
   white-space: nowrap;
   color: #fff6e0;
@@ -785,14 +1042,16 @@
 
 .skip {
   position: absolute;
-  right: calc(var(--shop-width) + 4rem);
-  bottom: 3rem;
-  padding: 0.7rem 1.8rem;
-  border-radius: 99rem;
-  background: var(--panel);
-  color: #ffe9c4;
+  right: calc(var(--shop-width) + var(--edge) * 2);
+  bottom: var(--edge);
+  height: 4.8rem;
+  padding: 0 var(--s-5);
+  border-radius: var(--r-pill);
+  background: var(--glass);
+  backdrop-filter: var(--blur);
+  color: var(--on-dark);
   font-size: 2rem;
-  box-shadow: 0 0 0 0.2rem rgb(255 223 156 / 32%);
+  box-shadow: inset 0 0 0 0.1rem var(--glass-edge), var(--e1);
   pointer-events: auto;
   display: none;
 }
@@ -805,13 +1064,13 @@
 
 .news {
   position: absolute;
-  left: 2rem;
-  bottom: 27rem;
-  width: 31rem;
-  padding: 1rem 5rem 1rem 1rem;
-  border-radius: 1.6rem;
-  background: linear-gradient(180deg, #8a5a34, #6b4226);
-  box-shadow: 0 0 0 0.25rem #3f2616, 0 0.8rem 2rem rgb(8 2 6 / 50%);
+  left: var(--edge);
+  bottom: calc(var(--edge) + var(--gauge-size) + var(--s-6));
+  width: 32rem;
+  padding: var(--s-3) 5.2rem var(--s-3) var(--s-3);
+  border-radius: var(--r-l);
+  background: linear-gradient(180deg, #8f5e37, #6b4226);
+  box-shadow: inset 0 0.1rem 0 rgb(255 220 170 / 30%), inset 0 -0.3rem 0 rgb(40 20 8 / 35%), var(--e2);
   display: none;
 }
 
@@ -821,56 +1080,68 @@
 
 .news-screen {
   min-height: 9.4rem;
-  padding: 0.8rem 1rem;
-  border-radius: 1.2rem / 1.6rem;
+  padding: var(--s-2) var(--s-3);
+  border-radius: calc(var(--r-l) - var(--s-3)) / calc(var(--r-l) - var(--s-2));
   background:
     repeating-linear-gradient(180deg, rgb(255 255 255 / 5%) 0 0.12rem, transparent 0.12rem 0.34rem),
-    radial-gradient(circle at 50% 40%, #33526e, #16263a);
+    radial-gradient(circle at 50% 40%, #35557a, #16263a);
+  box-shadow: inset 0 0 1.2rem rgb(0 0 0 / 50%);
   color: #e8f4ff;
 }
 
 .news-screen b {
   display: inline-block;
-  padding: 0 0.6rem;
-  border-radius: 0.3rem;
-  background: var(--red);
+  padding: 0 var(--s-2);
+  border-radius: 0.4rem;
+  background: var(--accent);
   color: #fff;
   font-size: 1.4rem;
   font-weight: 400;
 }
 
 .news-screen p {
-  margin: 0.5rem 0 0;
+  margin: var(--s-1) 0 0;
   font-size: 1.7rem;
-  line-height: 1.3;
+  line-height: 1.35;
 }
 
 .news-knob {
   position: absolute;
-  right: 1.4rem;
-  top: 1.6rem;
+  right: 1.5rem;
+  top: 1.8rem;
   width: 2.2rem;
   height: 2.2rem;
   border-radius: 50%;
   background: radial-gradient(circle at 40% 35%, #ffe2a6, #b9801f);
-  box-shadow: 0 0 0 0.15rem #3f2616;
+  box-shadow: 0 0 0 0.15rem #3f2616, 0 0.2rem 0.3rem rgb(0 0 0 / 40%);
 }
 
 .news-knob.is-low {
-  top: 5.2rem;
+  top: 5.4rem;
 }
 
+/* The ending ---------------------------------------------------------------- */
+
 .dialog.is-credits {
-  background: #1b1030;
+  background: linear-gradient(180deg, #23143d, #170c2a);
   color: #fff3dc;
-  box-shadow: 0 0 0 0.4rem #f0b73a, 0 1.6rem 4rem rgb(8 2 6 / 70%);
+  box-shadow: inset 0 0 0 0.1rem rgb(240 183 58 / 35%), inset 0 0.1rem 0 rgb(255 255 255 / 10%), var(--e3);
+}
+
+.dialog.is-credits h2 {
+  color: #ffd27a;
+  text-shadow: 0 0 2rem rgb(255 190 80 / 35%);
+}
+
+.dialog.is-credits p {
+  color: rgb(255 243 220 / 78%);
 }
 
 .credits {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 0.5rem 1.4rem;
-  margin: 1.4rem 0;
+  gap: var(--s-2) var(--s-5);
+  margin: var(--s-5) 0;
   font-size: 1.9rem;
 }
 
@@ -885,9 +1156,86 @@
 }
 
 .credits-stats {
-  font-size: 1.7rem !important;
-  color: #dcd0f0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--s-2);
+  margin: var(--s-3) 0;
 }
+
+.credits-stats span {
+  padding: 0.4rem var(--s-3);
+  border-radius: var(--r-pill);
+  background: rgb(255 243 220 / 10%);
+  box-shadow: inset 0 0 0 0.1rem rgb(255 243 220 / 14%);
+  font-size: 1.6rem;
+  color: #f1e6ff;
+}
+
+.dialog.is-credits .credits-note {
+  font-size: 1.7rem;
+}
+
+/*
+ * Continuous-curvature corners where the browser has them, as on iOS. A squircle reads tighter
+ * than a circle of the same radius, so the radius grows to keep the same feel.
+ */
+@supports (corner-shape: squircle) {
+  .shop,
+  .dialog,
+  .toast,
+  .menu-group,
+  .achievement,
+  .stagebar,
+  .ticket-paper,
+  .seg,
+  .seg-thumb,
+  .ticket-icon,
+  .toast-icon,
+  .achievement-icon,
+  .corner button,
+  .menu-button,
+  .news {
+    corner-shape: squircle;
+  }
+
+  .shop {
+    border-radius: calc((var(--r-m) + var(--pad)) * 1.5);
+  }
+
+  .dialog,
+  .stagebar,
+  .news {
+    border-radius: calc(var(--r-l) * 1.5);
+  }
+
+  .toast,
+  .menu-group,
+  .achievement,
+  .ticket-paper,
+  .seg,
+  .corner button,
+  .menu-button {
+    border-radius: calc(var(--r-m) * 1.5);
+  }
+
+  .seg-thumb,
+  .ticket-icon,
+  .toast-icon,
+  .achievement-icon {
+    border-radius: calc(var(--r-s) * 1.5);
+  }
+
+  .seg.is-small {
+    border-radius: calc(var(--r-s) * 1.5);
+  }
+
+  .seg.is-small .seg-thumb {
+    border-radius: calc(var(--r-xs) * 1.5);
+  }
+}
+
+/* Whole-screen states ------------------------------------------------------- */
 
 #ui > * {
   transition: opacity 0.9s ease;
@@ -899,36 +1247,10 @@
 }
 
 #ui.is-cinematic .skip {
-  right: 3rem;
+  right: var(--edge);
 }
 
 #ui.is-title > *:not(.title, .menu-veil) {
   opacity: 0 !important;
   pointer-events: none !important;
-}
-
-.hopper-call {
-  position: absolute;
-  top: 15.6rem;
-  left: calc((100% - var(--shop-width) - 1.6rem) / 2);
-  transform: translateX(-50%);
-  padding: 0.6rem 2rem;
-  border-radius: 99rem;
-  background: var(--mint);
-  color: var(--ink);
-  font-size: 2.2rem;
-  opacity: 0;
-  transition: opacity 0.15s;
-}
-
-.hopper-call.is-on {
-  opacity: 1;
-  animation: nudge 0.4s ease-in-out infinite alternate;
-}
-
-/* These callouts share one spot under the counter, so later ones step down. */
-.frenzy.is-on ~ .hopper-call,
-.frenzy.is-on ~ .hint,
-.hopper-call.is-on ~ .hint {
-  top: 21rem;
 }

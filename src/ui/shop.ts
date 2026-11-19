@@ -75,27 +75,37 @@ export class Shop {
   private readonly upgrades = new Map<string, TicketParts>();
   private readonly noUpgrades: HTMLElement;
   private readonly bulkButtons: HTMLButtonElement[] = [];
+  private readonly tabRow: HTMLElement;
+  private readonly bulkRow: HTMLElement;
 
   constructor(parent: HTMLElement, sim: Simulation) {
     this.sim = sim;
     this.root = el('div', 'shop', parent);
-    const tabs = el('div', 'shop-tabs', this.root);
+    const head = el('div', 'shop-head', this.root);
+    // A segmented control: the thumb slides under whichever tab is chosen.
+    this.tabRow = el('div', 'seg shop-tabs', head);
+    el('i', 'seg-thumb', this.tabRow);
     const body = el('div', 'shop-body', this.root);
     for (const label of ['设备', '口味', '升级']) {
-      const button = el('button', 'shop-tab', tabs, label);
+      const button = el('button', 'seg-item shop-tab', this.tabRow);
+      el('span', '', button, label);
       const badge = el('span', 'badge num', button);
       const section = el('section', '', body);
       const index = this.tabs.length;
       button.addEventListener('pointerdown', () => this.selectTab(index));
       this.tabs.push({ button, section, badge: new Text(badge) });
     }
+    this.tabRow.style.setProperty('--count', String(this.tabs.length));
     this.selectTab(0);
 
     const unitSection = this.tabs[0]!.section;
     const bulkRow = el('div', 'bulk', unitSection);
-    el('span', '', bulkRow, '一次买');
+    el('span', 'bulk-label', bulkRow, '一次买');
+    this.bulkRow = el('div', 'seg is-small', bulkRow);
+    this.bulkRow.style.setProperty('--count', String(BULK_OPTIONS.length));
+    el('i', 'seg-thumb', this.bulkRow);
     for (const [value, label] of BULK_OPTIONS) {
-      const button = el('button', 'num', bulkRow, label);
+      const button = el('button', 'seg-item num', this.bulkRow, label);
       button.addEventListener('pointerdown', () => {
         this.bulk = value;
         pressBounce(button);
@@ -143,6 +153,7 @@ export class Shop {
   }
 
   private selectTab(index: number): void {
+    this.tabRow.style.setProperty('--index', String(index));
     this.tabs.forEach((tab, i) => {
       setClass(tab.button, 'is-active', i === index);
       setClass(tab.section, 'is-active', i === index);
@@ -150,6 +161,7 @@ export class Shop {
   }
 
   private syncBulk(): void {
+    this.bulkRow.style.setProperty('--index', String(BULK_OPTIONS.findIndex(([value]) => value === this.bulk)));
     this.bulkButtons.forEach((button, i) => setClass(button, 'is-active', BULK_OPTIONS[i]![0] === this.bulk));
   }
 

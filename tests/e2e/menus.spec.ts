@@ -36,8 +36,10 @@ test('pause stops production and settings persist across a reload', async ({ pag
   await page.waitForTimeout(500);
   expect(await qa(page, (api) => api.game.sim.state.totalEarned)).toBe(before);
 
-  await page.locator('.menu-list .btn', { hasText: '设置' }).dispatchEvent('pointerdown');
-  await page.locator('.menu-row', { hasText: '屏幕震动' }).locator('.menu-chip', { hasText: '关' }).dispatchEvent('pointerdown');
+  await page.locator('.menu-list .menu-item', { hasText: '设置' }).dispatchEvent('pointerdown');
+  await expect(page.locator('.menu-row', { hasText: '屏幕震动' }).locator('.switch')).toHaveAttribute('aria-checked', 'true');
+  await page.locator('.menu-row', { hasText: '屏幕震动' }).locator('.switch').dispatchEvent('pointerdown');
+  await expect(page.locator('.menu-row', { hasText: '屏幕震动' }).locator('.switch')).toHaveAttribute('aria-checked', 'false');
   await page.locator('.menu-row', { hasText: '演出速度' }).locator('.menu-chip', { hasText: '2×' }).dispatchEvent('pointerdown');
   await page.locator('.menu-row', { hasText: '画质' }).locator('.menu-chip', { hasText: '低' }).dispatchEvent('pointerdown');
   expect(await qa(page, (api) => api.game.stage.quality.tier)).toBe('low');
@@ -62,7 +64,7 @@ test('a save exported here can be imported into a fresh browser profile', async 
   await fresh.goto('/?play=1');
   await ready(fresh);
   await fresh.keyboard.press('Escape');
-  await fresh.locator('.menu-list .btn', { hasText: '存档管理' }).dispatchEvent('pointerdown');
+  await fresh.locator('.menu-list .menu-item', { hasText: '存档管理' }).dispatchEvent('pointerdown');
   await fresh.locator('.menu-text').fill('garbage');
   await press(fresh, '[data-action="import"]');
   await expect(fresh.locator('.menu-status')).toContainText('不是有效的存档');
@@ -79,7 +81,7 @@ test('a save travels from Chromium to Firefox and back', async ({ page, browser,
     await target.goto(`${baseURL}/?play=1`);
     await ready(target);
     await target.keyboard.press('Escape');
-    await target.locator('.menu-list .btn', { hasText: '存档管理' }).dispatchEvent('pointerdown');
+    await target.locator('.menu-list .menu-item', { hasText: '存档管理' }).dispatchEvent('pointerdown');
     await target.locator('.menu-text').fill(text);
     await Promise.all([target.waitForNavigation(), press(target, '[data-action="import"]')]);
     await ready(target);
@@ -123,7 +125,7 @@ test('wiping needs confirmation and really clears the save', async ({ page }) =>
     return api.game.saves.save();
   });
   await page.keyboard.press('Escape');
-  await page.locator('.menu-list .btn', { hasText: '存档管理' }).dispatchEvent('pointerdown');
+  await page.locator('.menu-list .menu-item', { hasText: '存档管理' }).dispatchEvent('pointerdown');
   await press(page, '[data-action="wipe"]');
   expect(await qa(page, (api) => api.game.sim.state.owned[0])).toBe(3);
   await Promise.all([page.waitForNavigation(), press(page, '[data-action="wipe"]')]);

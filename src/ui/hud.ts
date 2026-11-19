@@ -76,7 +76,7 @@ export class Hud {
     this.frenzyText = new Text(this.frenzy);
     this.hopperCall = el('div', 'hopper-call', root, '跳跳粒出现了，快点它！');
 
-    const stagebar = el('div', 'stagebar', root);
+    const stagebar = el('div', 'stagebar glass', root);
     const label = el('div', 'stagebar-label', stagebar);
     this.stageLabel = new Text(el('span', '', label));
     this.stageGoal = new Text(el('span', 'num', label));
@@ -170,7 +170,7 @@ export class Hud {
   toast(icon: string, title: string, body: string): void {
     while (this.toasts.childElementCount >= MAX_TOASTS) this.toasts.firstElementChild!.remove();
     const toast = el('div', 'toast', this.toasts);
-    el('span', '', toast).innerHTML = icon;
+    el('span', 'toast-icon', toast).innerHTML = icon;
     const text = el('div', '', toast);
     el('b', '', text, title);
     el('small', '', text, body);
@@ -236,7 +236,8 @@ export class Hud {
     el('h2', '', dialog, '欢迎回来');
     el('p', '', dialog, `你离开的 ${formatDuration(seconds)}里，锅一直没停。`);
     el('p', 'big num', dialog, `+${formatAmount(gained)}`);
-    el('button', 'btn', dialog, '收下').addEventListener('pointerdown', () => this.closeDialog());
+    const actions = el('div', 'dialog-actions', dialog);
+    el('button', 'btn', actions, '收下').addEventListener('pointerdown', () => this.closeDialog());
   }
 
   showCredits(onRestart: () => void): void {
@@ -251,33 +252,42 @@ export class Hud {
       el('dt', '', list, role);
       el('dd', '', list, name);
     }
-    el('p', 'credits-stats', dialog, `本锅用时 ${minutes} 分钟 · 点击 ${formatAmount(s.stats.clicks)} 次 · 累计爆出 ${formatAmount(s.totalEarned)}`);
-    el('p', 'credits-stats', dialog, '再来一锅：从头开始，永久产量 +25%，图鉴和成就保留，并解锁新的锅。');
-    const restart = el('button', 'btn', dialog, '再来一锅');
+    const stats = el('div', 'credits-stats', dialog);
+    for (const text of [`用时 ${minutes} 分钟`, `点击 ${formatAmount(s.stats.clicks)} 次`, `累计爆出 ${formatAmount(s.totalEarned)}`]) el('span', '', stats, text);
+    el('p', 'credits-note', dialog, '再来一锅：从头开始，永久产量 +25%，图鉴和成就保留，并解锁一口新的锅。');
+    const actions = el('div', 'dialog-actions', dialog);
+    const restart = el('button', 'btn', actions, '再来一锅');
     restart.dataset.action = 'restart';
     restart.addEventListener('pointerdown', () => onRestart());
-    el('button', 'btn is-quiet', dialog, '再看一会儿').addEventListener('pointerdown', () => this.closeDialog());
+    el('button', 'btn is-glass', actions, '再看一会儿').addEventListener('pointerdown', () => this.closeDialog());
   }
 
   showNotice(title: string, body: string): void {
     const dialog = this.openDialog(true);
     el('h2', '', dialog, title);
     el('p', '', dialog, body);
-    el('button', 'btn', dialog, '知道了').addEventListener('pointerdown', () => this.closeDialog());
+    const actions = el('div', 'dialog-actions', dialog);
+    el('button', 'btn', actions, '知道了').addEventListener('pointerdown', () => this.closeDialog());
   }
 
   showAchievements(): void {
     const dialog = this.openDialog(false);
     const earned = new Set(this.sim.state.legacy.achievements);
-    el('h2', '', dialog, `成就 ${earned.size} / ${ACHIEVEMENTS.length}`);
+    const head = el('div', 'dialog-head', dialog);
+    el('h2', '', head, '成就');
+    el('span', 'count-chip num', head, `${earned.size} / ${ACHIEVEMENTS.length}`);
+    el('i', '', el('div', 'meter', dialog)).style.width = `${(earned.size / ACHIEVEMENTS.length) * 100}%`;
     const grid = el('div', 'achievement-grid', dialog);
     for (const def of ACHIEVEMENTS) {
       const got = earned.has(def.id);
       const card = el('div', `achievement${got ? '' : ' is-locked'}`, grid);
-      el('b', '', card, got ? def.name : '？？？');
-      el('small', '', card, got ? def.blurb : '还没发生。');
+      el('span', 'achievement-icon', card).innerHTML = got ? ICONS.trophy : ICONS.lock;
+      const text = el('div', '', card);
+      el('b', '', text, got ? def.name : '？？？');
+      el('small', '', text, got ? def.blurb : '还没发生。');
     }
-    el('button', 'btn is-quiet', dialog, '关闭').addEventListener('pointerdown', () => this.closeDialog());
+    const actions = el('div', 'dialog-actions', dialog);
+    el('button', 'btn is-quiet', actions, '关闭').addEventListener('pointerdown', () => this.closeDialog());
   }
 
   update(deltaSeconds: number, pendingGain: number): void {

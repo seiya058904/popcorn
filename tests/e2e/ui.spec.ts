@@ -25,22 +25,36 @@ for (const size of [
   { width: 1920, height: 1080 },
   { width: 2560, height: 1440 },
   { width: 3840, height: 2160 },
+  { width: 1024, height: 768 },
+  { width: 900, height: 1200 },
 ]) {
   test(`layout holds at ${size.width}×${size.height}`, async ({ page }) => {
     await page.setViewportSize(size);
     await page.goto('/?capture=1');
     await ready(page);
+    // Everything that can be on screen at once: toasts, a frenzy and a hopper callout.
     await qa(page, (api) => {
-      api.set({ stage: 2 });
+      api.set({ stage: 2, frenzy: 15 });
       api.earn(5e7);
-      api.advance(0.3);
+      api.showHopper();
+      for (const id of ['first-pop', 'hundred', 'first-pan']) api.game.bus.emit('achievement_unlocked', { id });
+      api.advance(1.3);
     });
+    // Entrances run to their end; endless pulses are stopped so boxes are measured at rest.
+    await page.evaluate(() =>
+      document.getAnimations().forEach((animation) => {
+        if (Number.isFinite(Number(animation.effect?.getComputedTiming().endTime))) animation.finish();
+        else animation.cancel();
+      }),
+    );
     const issues = await page.evaluate(() => {
       const found: string[] = [];
       const { innerWidth: w, innerHeight: h } = window;
-      const boxes = ['.marquee', '.shop', '.stagebar', '.gauge', '.corner'].map((selector) => {
+      const edge = parseFloat(getComputedStyle(document.documentElement).fontSize) * 2.4 - 1;
+      const boxes = ['.marquee', '.shop', '.stagebar', '.gauge', '.corner', '.menu-button', '.toasts', '.frenzy', '.hopper-call'].map((selector) => {
         const box = document.querySelector(selector)!.getBoundingClientRect();
-        if (box.left < 0 || box.top < 0 || box.right > w + 0.5 || box.bottom > h + 0.5) found.push(`${selector} leaves the window`);
+        // Nothing may come closer to the window edge than the safe margin.
+        if (box.left < edge || box.top < edge || box.right > w - edge || box.bottom > h - edge) found.push(`${selector} is closer than the safe margin to the edge`);
         return { selector, box };
       });
       for (let i = 0; i < boxes.length; i += 1) {
@@ -52,6 +66,22 @@ for (const size of [
       }
       for (const node of document.querySelectorAll<HTMLElement>('.ticket-name, .ticket-price, .marquee-count')) {
         if (node.offsetParent && node.scrollWidth > node.clientWidth + 2 && node.className.includes('marquee')) found.push('counter overflows');
+      }
+      // Small text on paper keeps at least 4.5:1 contrast.
+      const luminance = (css: string): number => {
+        const [r, g, b] = css.match(/[\d.]+/g)!.slice(0, 3).map((value) => {
+          const c = Number(value) / 255;
+          return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+        });
+        return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
+      };
+      const paper = luminance('rgb(255, 250, 242)');
+      for (const selector of ['.ticket-blurb', '.toast small', '.bulk-label']) {
+        const node = document.querySelector(selector);
+        if (!node) continue;
+        const text = luminance(getComputedStyle(node).color);
+        const ratio = (Math.max(paper, text) + 0.05) / (Math.min(paper, text) + 0.05);
+        if (ratio < 4.5) found.push(`${selector} contrast ${ratio.toFixed(2)}`);
       }
       return found;
     });

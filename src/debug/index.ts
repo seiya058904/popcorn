@@ -90,8 +90,28 @@ export function installDebug(game: Game): void {
     } else if (event.key === 'F3') {
       event.preventDefault();
       perf.toggle();
+    } else if (event.key === 'F4') {
+      event.preventDefault();
+      toggleGrid();
     }
   });
+  // Alignment check for the interface: the spacing grid and the safe margin around the window.
+  let grid: HTMLElement | null = null;
+  const toggleGrid = (): void => {
+    if (grid) {
+      grid.remove();
+      grid = null;
+      return;
+    }
+    grid = document.createElement('div');
+    grid.style.cssText = [
+      'position:fixed', 'inset:0', 'z-index:99', 'pointer-events:none',
+      'background-image:linear-gradient(rgb(0 200 255 / 18%) 1px, transparent 1px),linear-gradient(90deg, rgb(0 200 255 / 18%) 1px, transparent 1px)',
+      'background-size:0.8rem 0.8rem',
+      'box-shadow:inset 0 0 0 2.4rem rgb(255 60 60 / 12%)',
+    ].join(';');
+    document.body.append(grid);
+  };
 
   window.__pop = {
     game,

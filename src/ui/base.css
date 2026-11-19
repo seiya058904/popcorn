@@ -24,9 +24,72 @@
   box-sizing: border-box;
 }
 
+/*
+ * Design tokens. Every size, radius, color and shadow in the interface comes from here;
+ * docs/INTERACTION.md explains each one.
+ */
+:root {
+  /* Radii. Nested corners stay concentric: inner = outer - padding. */
+  --r-xs: 0.8rem;
+  --r-s: 1.2rem;
+  --r-m: 1.8rem;
+  --r-l: 2.8rem;
+  --r-pill: 999rem;
+
+  /* Spacing. */
+  --s-1: 0.4rem;
+  --s-2: 0.8rem;
+  --s-3: 1.2rem;
+  --s-4: 1.6rem;
+  --s-5: 2.4rem;
+  --s-6: 3.2rem;
+  --s-7: 4.8rem;
+  /* Nothing comes closer to the window edge than this. */
+  --edge: 2.4rem;
+
+  /* Type. Titles, names and buttons use the rounded display face; small descriptive text uses the
+     system face, which stays crisp at caption sizes. */
+  --font-text: 'Microsoft YaHei UI', 'PingFang SC', 'Noto Sans SC', 'Microsoft YaHei', sans-serif;
+  --t-display: 6.4rem;
+  --t-title: 3.6rem;
+  --t-headline: 2.4rem;
+  --t-body: 2rem;
+  --t-caption: 1.6rem;
+
+  /* Colors. Text on paper keeps at least 4.5:1 contrast down to the caption size. */
+  --ink: #3a1d28;
+  --ink-2: #6e4a3a;
+  --ink-3: #9b7c68;
+  --paper: #fff4e2;
+  --paper-raised: #fffaf2;
+  --paper-sunk: #f1dfc1;
+  --paper-line: rgb(110 74 58 / 16%);
+  --on-dark: #fff0d6;
+  --on-dark-2: rgb(255 240 214 / 74%);
+  --accent: #e2383f;
+  --accent-deep: #a9202d;
+  --butter: #ffc93f;
+  --butter-deep: #e3a11a;
+  --mint: #5fd6b2;
+  --sky: #7cc4ff;
+  /* Frosted panels floating over the 3D world. */
+  --glass: rgb(40 17 31 / 72%);
+  --glass-strong: rgb(30 12 24 / 88%);
+  --glass-edge: rgb(255 228 186 / 16%);
+  --blur: blur(1.6rem) saturate(1.3);
+
+  /* Elevation: soft, warm, layered. */
+  --e1: 0 0.1rem 0.2rem rgb(70 30 20 / 16%), 0 0.4rem 1.2rem rgb(70 30 20 / 12%);
+  --e2: 0 0.2rem 0.6rem rgb(16 4 12 / 22%), 0 1.2rem 3.2rem rgb(16 4 12 / 32%);
+  --e3: 0 0.4rem 1.2rem rgb(16 4 12 / 28%), 0 2.8rem 7rem rgb(16 4 12 / 48%);
+}
+
 html {
-  /* One unit scales the whole interface: 1rem is 10px at 1920×1080. */
-  font-size: min(calc(100vw / 192), calc(100vh / 108));
+  /*
+   * One unit scales the whole interface: 1rem is 10px at 1920×1080. A floor keeps text readable
+   * in tall or narrow windows, where the width alone would shrink everything to a few pixels.
+   */
+  font-size: max(6.4px, min(calc(100vw / 192), calc(100vh / 108)));
 }
 
 html,
@@ -69,8 +132,27 @@ button {
 }
 
 button:focus-visible {
-  outline: 0.3rem solid #8fe0c8;
-  outline-offset: 0.2rem;
+  outline: 0.3rem solid var(--mint);
+  outline-offset: 0.3rem;
+}
+
+/* Small descriptive text, set in the system face for legibility. */
+.ticket-blurb,
+.toast small,
+.achievement small,
+.bulk-label,
+.menu-group-title,
+.title-hint > span,
+.credits-stats span,
+.dialog .menu-status {
+  font-family: var(--font-text);
+}
+
+/* Long Chinese lines wrap without leaving a lone character on the last line. */
+p,
+small,
+dd {
+  text-wrap: pretty;
 }
 
 .unsupported {

@@ -67,7 +67,8 @@ export class Menus {
   showTitle(root: HTMLElement, hasProgress: boolean): Promise<void> {
     return new Promise((resolve) => {
       const title = el('div', 'title', root);
-      const logo = el('h1', 'title-logo', title);
+      const stack = el('div', 'title-stack', title);
+      const logo = el('h1', 'title-logo', stack);
       const big = el('span', 'title-pop', logo);
       for (const [index, char] of [...'砰！'].entries()) {
         const letter = el('span', '', big, char);
@@ -78,13 +79,23 @@ export class Menus {
         const letter = el('span', '', rest, char);
         letter.style.animationDelay = `${0.32 + index * 0.05}s`;
       }
-      el('p', 'title-line', title, '从一粒玉米开始，一路爆到月亮。');
-      const start = el('button', 'btn title-start', title, hasProgress ? '继续这一锅' : '开锅');
+      el('p', 'title-line', stack, '从一粒玉米开始，一路爆到月亮。');
+      const start = el('button', 'btn is-large title-start', stack, hasProgress ? '继续这一锅' : '开锅');
       start.dataset.action = 'start';
-      const row = el('div', 'title-row', title);
-      el('button', 'btn is-quiet', row, '设置').addEventListener('pointerdown', () => this.showSettings(false));
-      el('button', 'btn is-quiet', row, '存档').addEventListener('pointerdown', () => this.showSaves(false));
-      el('p', 'title-hint', title, '点击或按住爆玉米 · 按住空格或压力表开炮 · Esc 打开菜单');
+      const row = el('div', 'title-row', stack);
+      el('button', 'btn is-glass', row, '设置').addEventListener('pointerdown', () => this.showSettings(false));
+      el('button', 'btn is-glass', row, '存档').addEventListener('pointerdown', () => this.showSaves(false));
+      // The controls, each with the key or action it needs shown as a little key cap.
+      const hints = el('div', 'title-hints', stack);
+      for (const [key, text] of [
+        ['点击', '爆玉米，按住连爆'],
+        ['空格', '按住蓄压，松手开炮'],
+        ['Esc', '菜单'],
+      ] as const) {
+        const hint = el('span', 'title-hint', hints);
+        el('kbd', '', hint, key);
+        el('span', '', hint, text);
+      }
       start.addEventListener('pointerdown', () => {
         this.host.unlockAudio();
         this.playing = true;
@@ -119,15 +130,44 @@ export class Menus {
     if (this.playing) this.host.setPaused(false);
   }
 
+  /** Title bar of a menu page: a back key on the left, the title in the middle. */
+  private head(title: string, back: { label: string; action: () => void } | null): void {
+    const head = el('div', 'menu-head', this.panel);
+    if (back) {
+      const button = el('button', 'menu-back', head);
+      button.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>';
+      el('span', '', button, back.label);
+      button.addEventListener('pointerdown', back.action);
+    } else {
+      el('span', 'menu-back is-empty', head);
+    }
+    el('h2', '', head, title);
+    el('span', 'menu-back is-empty', head);
+  }
+
+  private back(fromPause: boolean): { label: string; action: () => void } {
+    return fromPause ? { label: '返回', action: () => this.showPause() } : { label: '关闭', action: () => this.close() };
+  }
+
+  /** A titled group of rows, like a section of a settings screen. */
+  private group(title: string | null): HTMLElement {
+    if (title) el('h3', 'menu-group-title', this.panel, title);
+    return el('div', 'menu-group', this.panel);
+  }
+
   showPause(): void {
     this.open();
-    el('h2', '', this.panel, '暂停一下');
-    el('p', '', this.panel, '锅还在，爆米花也不会跑。');
-    const list = el('div', 'menu-list', this.panel);
+    this.head('暂停一下', null);
+    el('p', 'menu-sub', this.panel, '锅还在，爆米花也不会跑。');
+    el('button', 'btn is-large menu-resume', this.panel, '继续').addEventListener('pointerdown', () => this.close());
+    const list = this.group(null);
+    list.classList.add('menu-list');
     const add = (label: string, action: () => void): void => {
-      el('button', 'btn', list, label).addEventListener('pointerdown', action);
+      const item = el('button', 'menu-item', list);
+      el('span', '', item, label);
+      item.insertAdjacentHTML('beforeend', '<svg class="menu-chevron" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>');
+      item.addEventListener('pointerdown', action);
     };
-    add('继续', () => this.close());
     add('成就', () => {
       this.close();
       this.host.showAchievements();
@@ -136,35 +176,32 @@ export class Menus {
     add('存档管理', () => this.showSaves(true));
   }
 
-  private backRow(fromPause: boolean): void {
-    const row = el('div', 'menu-list', this.panel);
-    el('button', 'btn is-quiet', row, fromPause ? '返回' : '关闭').addEventListener('pointerdown', () => {
-      if (fromPause) this.showPause();
-      else this.close();
-    });
-  }
-
   private slider(parent: HTMLElement, label: string, get: () => number, set: (value: number) => void): void {
     const row = el('label', 'menu-row', parent);
-    el('span', '', row, label);
-    const input = el('input', '', row);
+    el('span', 'menu-label', row, label);
+    const input = el('input', 'slider', row);
     input.type = 'range';
     input.min = '0';
     input.max = '100';
     input.value = String(Math.round(get() * 100));
     input.setAttribute('aria-label', label);
+    const paint = (): void => input.style.setProperty('--value', `${input.value}%`);
+    paint();
     input.addEventListener('input', () => {
       set(Number(input.value) / 100);
+      paint();
       this.host.settingsChanged();
     });
   }
 
   private chips<T>(parent: HTMLElement, label: string, options: ReadonlyArray<readonly [T, string]>, get: () => T, set: (value: T) => void): void {
     const row = el('div', 'menu-row', parent);
-    el('span', '', row, label);
-    const group = el('div', 'menu-chips', row);
+    el('span', 'menu-label', row, label);
+    const group = el('div', 'seg is-small menu-chips', row);
+    group.style.setProperty('--count', String(options.length));
+    el('i', 'seg-thumb', group);
     const buttons = options.map(([value, text]) => {
-      const button = el('button', 'menu-chip', group, text);
+      const button = el('button', 'seg-item menu-chip', group, text);
       button.addEventListener('pointerdown', () => {
         set(value);
         this.host.settingsChanged();
@@ -172,40 +209,61 @@ export class Menus {
       });
       return { button, value };
     });
-    const refresh = (): void => buttons.forEach(({ button, value }) => setClass(button, 'is-active', value === get()));
+    const refresh = (): void => {
+      group.style.setProperty('--index', String(Math.max(0, options.findIndex(([value]) => value === get()))));
+      buttons.forEach(({ button, value }) => setClass(button, 'is-active', value === get()));
+    };
     refresh();
   }
 
+  /** An on/off switch: the thumb sits on the right, on a green track, when it is on. */
   private toggle(parent: HTMLElement, label: string, get: () => boolean, set: (value: boolean) => void): void {
-    this.chips(parent, label, [[true, '开'], [false, '关']] as const, get, set);
+    const row = el('div', 'menu-row', parent);
+    el('span', 'menu-label', row, label);
+    const button = el('button', 'switch', row);
+    button.setAttribute('role', 'switch');
+    button.setAttribute('aria-label', label);
+    el('i', 'switch-thumb', button);
+    const refresh = (): void => {
+      button.setAttribute('aria-checked', String(get()));
+      setClass(button, 'is-on', get());
+    };
+    button.addEventListener('pointerdown', () => {
+      set(!get());
+      this.host.settingsChanged();
+      refresh();
+    });
+    refresh();
   }
 
   showSettings(fromPause: boolean): void {
     this.open();
     const s = this.host.settings;
-    el('h2', '', this.panel, '设置');
-    const form = el('div', 'menu-form', this.panel);
-    this.slider(form, '总音量', () => s.master, (v) => (s.master = v));
-    this.slider(form, '音乐', () => s.music, (v) => (s.music = v));
-    this.slider(form, '音效', () => s.effects, (v) => (s.effects = v));
-    this.chips(form, '画质', QUALITY_LABELS, () => s.quality, (v) => (s.quality = v));
-    this.chips(form, '演出速度', SHOW_SPEEDS.map((v) => [v, `${v}×`] as const), () => s.showSpeed, (v) => (s.showSpeed = v));
-    this.toggle(form, '减少镜头运动', () => s.reduceMotion, (v) => (s.reduceMotion = v));
-    this.toggle(form, '屏幕震动', () => s.screenShake, (v) => (s.screenShake = v));
-    this.chips(form, '语言', [['zh-CN', '简体中文']] as const, () => s.language, (v) => (s.language = v));
-    this.backRow(fromPause);
+    this.head('设置', this.back(fromPause));
+    const sound = this.group('声音');
+    this.slider(sound, '总音量', () => s.master, (v) => (s.master = v));
+    this.slider(sound, '音乐', () => s.music, (v) => (s.music = v));
+    this.slider(sound, '音效', () => s.effects, (v) => (s.effects = v));
+    const picture = this.group('画面');
+    this.chips(picture, '画质', QUALITY_LABELS, () => s.quality, (v) => (s.quality = v));
+    this.chips(picture, '演出速度', SHOW_SPEEDS.map((v) => [v, `${v}×`] as const), () => s.showSpeed, (v) => (s.showSpeed = v));
+    const comfort = this.group('舒适');
+    this.toggle(comfort, '减少镜头运动', () => s.reduceMotion, (v) => (s.reduceMotion = v));
+    this.toggle(comfort, '屏幕震动', () => s.screenShake, (v) => (s.screenShake = v));
+    const language = this.group('语言');
+    this.chips(language, '语言', [['zh-CN', '简体中文']] as const, () => s.language, (v) => (s.language = v));
   }
 
   showSaves(fromPause: boolean): void {
     this.open();
-    el('h2', '', this.panel, '存档管理');
-    el('p', '', this.panel, '游戏会自动保存。导出的文本可以在其他浏览器里导入。');
+    this.head('存档管理', this.back(fromPause));
+    el('p', 'menu-sub', this.panel, '游戏会自动保存。导出的文本可以在其他浏览器里导入。');
     const box = el('textarea', 'menu-text', this.panel);
     box.spellcheck = false;
     box.placeholder = '在这里粘贴存档文本，然后点“导入”。';
     box.setAttribute('aria-label', '存档文本');
     const status = el('p', 'menu-status', this.panel);
-    const row = el('div', 'menu-list is-row', this.panel);
+    const row = el('div', 'menu-actions', this.panel);
     const add = (label: string, quiet: boolean, action: () => void): HTMLButtonElement => {
       const button = el('button', `btn${quiet ? ' is-quiet' : ''}`, row, label);
       button.addEventListener('pointerdown', action);
@@ -228,14 +286,17 @@ export class Menus {
       link.click();
       URL.revokeObjectURL(url);
     });
-    add('导入', false, () => {
+    add('导入', true, () => {
       void this.host.importSave(box.value).then((error) => {
         if (error) status.textContent = LOAD_ERRORS[error];
         else this.host.reload();
       });
     }).dataset.action = 'import';
+    // The one thing here that cannot be undone sits apart, in red.
+    const danger = el('div', 'menu-danger', this.panel);
     let armed = false;
-    const wipe = add('清空存档', true, () => {
+    const wipe = el('button', 'btn is-quiet is-danger', danger, '清空存档');
+    wipe.addEventListener('pointerdown', () => {
       if (!armed) {
         armed = true;
         wipe.textContent = '再点一次确认清空';
@@ -245,6 +306,5 @@ export class Menus {
       void this.host.wipeSave().then(() => this.host.reload());
     });
     wipe.dataset.action = 'wipe';
-    this.backRow(fromPause);
   }
 }
