@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { globals } from '../core/globals.ts';
-import { GLSL_LIGHT_PARS, GLSL_UTIL } from './glsl.ts';
+import { GLSL_LIGHT_PARS, GLSL_UTIL, SHADOW_DEPTH_FRAGMENT } from './glsl.ts';
 
 /** Values a flavor controls. Linear colors, swapped live by flavor upgrades. */
 export const popcornUniforms = {
@@ -19,6 +19,8 @@ export const popcornUniforms = {
   uSheenB: { value: 0.3 },
   uWave: { value: new THREE.Vector3(0, 0, -1) },
   uEffect: { value: new THREE.Vector2(0, 0) },
+  /** 0 to 1 while a frenzy is on: the popcorn glitters and runs a little warmer. */
+  uFrenzy: { value: 0 },
 };
 
 /** Each heap owns one of these, so two scenes can show their heaps at once during a transition. */
@@ -46,7 +48,7 @@ export interface PileUniforms {
 
 const shading = /* glsl */ `
 uniform vec3 uPopCream, uPopShade, uPopDeep, uPopHull, uPopCool, uKernel;
-uniform float uPopSheen, uSheenB;
+uniform float uPopSheen, uSheenB, uFrenzy;
 uniform vec3 uCreamB, uShadeB, uDeepB, uHullB, uWave;
 uniform vec2 uEffect;
 
@@ -135,6 +137,13 @@ vec3 popcornShade(vec3 N, vec3 V, vec3 P, float crease, float core, float pop, f
   base += uRimColor * rim * 0.6 * ao;
   base *= (uSunColor * 0.5 + 0.38) * mix(0.66, 1.0, pool);
   base += cream * lampDiffuse(P, N) * 0.42 * ao;
+  if (uFrenzy > 0.0) {
+    // Frenzy: buttery warmth and a glitter of sugar that sparkles on and off.
+    base *= mix(vec3(1.0), vec3(1.08, 1.0, 0.86), uFrenzy);
+    // Cells of a few pixels, so the glitter is the same size in every scene.
+    float grain = hash31(vec3(floor(gl_FragCoord.xy / 3.0), floor(uTime * 7.0)));
+    base += vec3(1.4, 1.1, 0.6) * step(0.985, grain) * uFrenzy * mix(0.5, 1.0, shadow) * (1.0 - crevice);
+  }
 
   // The unpopped kernel: glossy amber that heats up before it bursts.
   float kernelBand = toonBand(min(sat(ndl * 0.5 + 0.5), mix(0.25, 1.0, shadow)));
@@ -375,14 +384,14 @@ void main() {
   vec2 uv = pileUv(vXZ);
   vec4 h = texture2D(uPileTex, uv);
   if (h.r - h.b < 0.015 * uPieceK || pileBridge(uv)) discard;
-  gl_FragColor = vec4(1.0);
+  gl_FragColor = vec4(gl_FragCoord.z, 0.0, 0.0, 1.0);
 }
 `;
 
 const sharedUniforms = { ...globals, ...popcornUniforms };
 const hash31 = 'float hash31(vec3 p) { p = fract(p * 0.1031); p += dot(p, p.zyx + 31.32); return fract((p.x + p.y) * p.z); }\n';
 const fragmentHead = `${GLSL_UTIL}\n${hash31}${GLSL_LIGHT_PARS}\n${shading}\n`;
-const depthFragment = 'void main() { gl_FragColor = vec4(1.0); }';
+const depthFragment = SHADOW_DEPTH_FRAGMENT;
 const satDefine = '#define sat(x) clamp(x, 0.0, 1.0)\n';
 
 export interface PieceMaterials {
@@ -416,7 +425,6 @@ export function pieceMaterials(): PieceMaterials {
       vertexShader: pieceDepthVertex,
       fragmentShader: depthFragment,
       uniforms: { tFlakes: pieceAtlas },
-      colorWrite: false,
     }),
   };
   return shared;
@@ -442,7 +450,6 @@ export function createPileMaterials(own: PileUniforms): PileMaterials {
       vertexShader: heapDepthVertex,
       fragmentShader: heapDepthFragment,
       uniforms,
-      colorWrite: false,
     }),
   };
 }

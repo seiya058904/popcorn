@@ -1,4 +1,5 @@
 import { AudioEngine } from './audio/engine.ts';
+import { MUSIC_HOME } from './audio/music.ts';
 import { HOLD_POP } from './content/skills.ts';
 import { EventBus } from './events/bus.ts';
 import type { GameEvents } from './events/game-events.ts';
@@ -126,6 +127,8 @@ export class Game {
       onMachineSound: (name) => this.audio.machine(name),
       onCombo: (count) => this.audio.effect('combo', 'small', Math.min(1.6, 0.9 + count / 150)),
       onBreakBeat: (beat, stage) => this.onBreakBeat(beat, stage),
+      // Without music yet, a steady beat at the opening tempo stands in.
+      beatPhase: () => this.audio.beatPhase() ?? (this.visualTime * (MUSIC_HOME.bpm / 60)) % 1,
       onFinaleBeat: (beat) => this.onFinaleBeat(beat),
       onFinaleDone: () => {
         this.audio.duck(false);

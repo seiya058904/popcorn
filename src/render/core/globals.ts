@@ -1,6 +1,18 @@
 import * as THREE from 'three';
 
-export const MAX_LAMPS = 12;
+export const MAX_LAMPS = 16;
+
+/**
+ * Lit things in a scene (windows, bulbs, neon) belong to numbered groups that the scene switches
+ * on and off as it fills up; a group at 0 shows them as dark glass. Each scene owns eight.
+ */
+export const LIGHT_GROUPS = 40;
+export const GROUPS_PER_SCENE = 8;
+
+/** The number to paint with for one of a scene's light groups; `index` runs from 0 to 7. */
+export function lightGroup(scene: number, index: number): number {
+  return scene * GROUPS_PER_SCENE + index + 1;
+}
 
 /** Refracting glass, drawn after everything else so it can look at the finished scene. */
 export const GLASS_LAYER = 2;
@@ -23,6 +35,15 @@ export const globals = {
   uShadowSoftness: { value: 5 },
   /** World size of one shadow texel, so bias follows the scale of the current scene. */
   uShadowOffset: { value: 0.005 },
+  /** Nearest depth seen by the light, readable without comparison, for working out penumbras. */
+  uShadowDepth: { value: null as THREE.Texture | null },
+  /**
+   * Soft shadows that harden where things touch: x is 1 when on, y the penumbra in texels per
+   * unit of depth between blocker and receiver, z and w the narrowest and widest filter in texels.
+   */
+  uShadowPenumbra: { value: new THREE.Vector4(0, 0, 1.5, 14) },
+  /** Brightness of each light group, 0 off to 1 on. */
+  uLit: { value: new Float32Array(LIGHT_GROUPS).fill(1) },
   /** Pool of key light: xyz center, radius in w. */
   uPool: { value: new THREE.Vector4(0, 0, 0, 100) },
   uPoolFloor: { value: 0.5 },
@@ -68,15 +89,25 @@ export interface Lamp {
   flicker?: number;
 }
 
-export function applyLamps(lamps: readonly Lamp[], time: number, limit: number): void {
-  const count = Math.min(lamps.length, limit, MAX_LAMPS);
-  globals.uLampCount.value = count;
-  for (let i = 0; i < count; i += 1) {
-    const lamp = lamps[i]!;
-    const waver = lamp.flicker ? 1 + lamp.flicker * (Math.sin(time * 11 + i * 2.1) * 0.6 + Math.sin(time * 23 + i) * 0.4) : 1;
-    globals.uLampPos.value[i]!.set(lamp.position[0], lamp.position[1], lamp.position[2], lamp.radius);
-    globals.uLampColor.value[i]!.set(lamp.color).multiplyScalar(lamp.intensity * waver);
+/**
+ * Up to `limit` of the scene's own lamps, then any short-lived event lights that are lit. Lamps
+ * switched off are skipped, so they cost nothing per pixel.
+ */
+export function applyLamps(lamps: readonly Lamp[], time: number, limit: number, events: readonly Lamp[] = []): void {
+  let count = 0;
+  const write = (lamp: Lamp, seed: number): void => {
+    const waver = lamp.flicker ? 1 + lamp.flicker * (Math.sin(time * 11 + seed * 2.1) * 0.6 + Math.sin(time * 23 + seed) * 0.4) : 1;
+    globals.uLampPos.value[count]!.set(lamp.position[0], lamp.position[1], lamp.position[2], lamp.radius);
+    globals.uLampColor.value[count]!.set(lamp.color).multiplyScalar(lamp.intensity * waver);
+    count += 1;
+  };
+  for (let i = 0; i < lamps.length && count < Math.min(limit, MAX_LAMPS); i += 1) {
+    if (lamps[i]!.intensity > 0.004) write(lamps[i]!, i);
   }
+  for (let i = 0; i < events.length && count < MAX_LAMPS; i += 1) {
+    if (events[i]!.intensity > 0.004) write(events[i]!, i + 7);
+  }
+  globals.uLampCount.value = count;
 }
 
 export function applyLightRig(rig: LightRig): void {

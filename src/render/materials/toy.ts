@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { globals } from '../core/globals.ts';
-import { GLSL_INSTANCE_WORLD, GLSL_LIGHT_PARS, GLSL_RIG_SKIP, GLSL_UTIL } from './glsl.ts';
+import { GLSL_INSTANCE_WORLD, GLSL_LIGHT_PARS, GLSL_RIG_SKIP, GLSL_UTIL, SHADOW_DEPTH_FRAGMENT } from './glsl.ts';
 
 const toyVertex = /* glsl */ `
 attribute vec4 aMat, aMat2;
@@ -143,6 +143,17 @@ void main() {
   float gloss = vMat.x, emissive = vMat.y, ao = vMat.z;
   float metal = vMat2.x, coat = vMat2.y, wear = vMat2.w;
   vec3 albedo = vColor;
+  if (emissive > 1.5) {
+    // Part of a light group. Switched off, a window or bulb is dark, glossy glass; a painted
+    // part (group numbers past 40) just stops glowing.
+    float code = floor(emissive * 0.5);
+    float painted = step(40.5, code);
+    float lit = uLit[int(code - painted * 40.0) - 1];
+    emissive = (emissive - code * 2.0) * lit;
+    float glass = (1.0 - painted) * (1.0 - lit);
+    albedo *= mix(vec3(1.0), vec3(0.3, 0.34, 0.42), glass);
+    gloss = mix(gloss, 0.9, glass);
+  }
 
   // Curvature in the model's own units: a bevel catches light at any distance.
   float curve = length(fwidth(N)) / (length(fwidth(vLocal)) + 1e-5);
@@ -470,10 +481,10 @@ function makeToyMaterials(extra: Record<string, THREE.IUniform>, defines: Record
     depth: new THREE.ShaderMaterial({
       name: 'toy-depth',
       vertexShader: depthVertex,
-      fragmentShader: 'void main() { gl_FragColor = vec4(1.0); }',
+      // The depth also goes into a color copy that the soft shadows read without comparing.
+      fragmentShader: SHADOW_DEPTH_FRAGMENT,
       uniforms: extra,
       defines,
-      colorWrite: false,
       // Back faces in the shadow map remove self-shadow streaks on grazing walls.
       side: THREE.BackSide,
     }),

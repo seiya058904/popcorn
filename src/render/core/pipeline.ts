@@ -23,6 +23,11 @@ export interface PostParams {
   chroma: number;
   /** Radial screen distortion: uv center, ring radius, strength. */
   shock: THREE.Vector4;
+  /**
+   * Miniature-photography focus band: strength 0 to 1, the band's height on screen (0 bottom,
+   * 1 top) and its half width. Above and below it, anything off the focus distance goes soft.
+   */
+  tilt: THREE.Vector3;
 }
 
 export function defaultPostParams(): PostParams {
@@ -46,6 +51,7 @@ export function defaultPostParams(): PostParams {
     flashColor: new THREE.Color(1, 0.95, 0.85),
     chroma: 0,
     shock: new THREE.Vector4(0.5, 0.5, 0, 0),
+    tilt: new THREE.Vector3(0, 0.45, 0.2),
   };
 }
 
@@ -67,36 +73,89 @@ vec3 viewPosition(vec2 uv) {
 }
 `;
 
+/**
+ * Ground-truth-style ambient occlusion (after Jimenez et al. 2016, as in XeGTAO): in a few
+ * vertical slices through the view, the highest horizon on each side of the pixel is found and
+ * the visible arc between them is integrated against the surface normal. Worked out at half size;
+ * the composite brings it back up to full size without bleeding across silhouettes.
+ */
 const aoFragment = /* glsl */ `
 ${depthHelpers}
 uniform float uRadius;
 uniform vec2 uPixel;
 varying vec2 vUv;
-const int TAPS = 18;
+const int SLICES = 2;
+const int STEPS = 5;
+const float PI = 3.14159265;
+const float HALF_PI = 1.5707963;
+float fastAcos(float x) {
+  float a = abs(x);
+  float r = (-0.156583 * a + HALF_PI) * sqrt(1.0 - a);
+  return x >= 0.0 ? r : PI - r;
+}
 void main() {
   vec3 P = viewPosition(vUv);
   if (-P.z > uNearFar.y * 0.95) { gl_FragColor = vec4(1.0); return; }
   vec3 N = normalize(cross(dFdx(P), dFdy(P)));
+  vec3 V = normalize(-P);
+  float pxRadius = min(uRadius * uProjScale.y * 0.5 / -P.z / uPixel.y, 90.0);
+  if (pxRadius < 1.0) { gl_FragColor = vec4(1.0); return; }
+  // A different slice angle and step offset in every pixel of a small tile; the blur evens it out.
   float noise = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
-  float angle = noise * 6.2831853;
-  float pxRadius = uRadius * uProjScale.y * 0.5 / -P.z / uPixel.y;
-  pxRadius = min(pxRadius, 90.0);
-  float sum = 0.0;
-  float r2 = uRadius * uRadius;
-  for (int i = 0; i < TAPS; i++) {
-    float t = (float(i) + 0.5) / float(TAPS);
-    float a = angle + t * 43.98;
-    // Every other tap stays close, for the tight dark line where things touch.
-    bool contact = mod(float(i), 2.0) > 0.5;
-    float reach = contact ? 0.26 : 1.0;
-    vec2 uv = vUv + vec2(cos(a), sin(a)) * t * pxRadius * reach * uPixel;
-    vec3 v = viewPosition(uv) - P;
-    float vv = dot(v, v);
-    float falloff = max(0.0, 1.0 - vv / (r2 * reach * reach));
-    sum += falloff * max(0.0, dot(v, N) / sqrt(vv + 1e-5) - 0.12) * (contact ? 1.25 : 1.0);
+  float jitter = fract(noise * 5.3 + 0.37);
+  float visibility = 0.0;
+  for (int slice = 0; slice < SLICES; slice++) {
+    float phi = (float(slice) + noise) * (PI / float(SLICES));
+    vec2 omega = vec2(cos(phi), sin(phi));
+    vec3 direction = vec3(omega, 0.0);
+    vec3 ortho = direction - dot(direction, V) * V;
+    vec3 axis = normalize(cross(ortho, V));
+    vec3 projected = N - axis * dot(N, axis);
+    float projectedLength = length(projected);
+    float cosN = clamp(dot(projected, V) / max(projectedLength, 1e-4), 0.0, 1.0);
+    float n = sign(dot(ortho, projected)) * fastAcos(cosN);
+    // Until something rises above it, the horizon on each side is the surface itself.
+    float low0 = cos(n + HALF_PI), low1 = cos(n - HALF_PI);
+    float h0 = low0, h1 = low1;
+    for (int s = 0; s < STEPS; s++) {
+      float t = (float(s) + jitter) / float(STEPS);
+      // Steps bunch up near the pixel, where contact shadows live.
+      vec2 offset = omega * (t * t * pxRadius + 1.0) * uPixel;
+      vec3 d0 = viewPosition(vUv + offset) - P;
+      vec3 d1 = viewPosition(vUv - offset) - P;
+      float l0 = length(d0), l1 = length(d1);
+      // Far-off geometry fades back to the open horizon instead of darkening everything.
+      float w0 = clamp((uRadius - l0) / (0.62 * uRadius), 0.0, 1.0);
+      float w1 = clamp((uRadius - l1) / (0.62 * uRadius), 0.0, 1.0);
+      h0 = max(h0, mix(low0, dot(d0, V) / max(l0, 1e-4), w0));
+      h1 = max(h1, mix(low1, dot(d1, V) / max(l1, 1e-4), w1));
+    }
+    float a0 = n + clamp(-fastAcos(h1) - n, -HALF_PI, HALF_PI);
+    float a1 = n + clamp(fastAcos(h0) - n, -HALF_PI, HALF_PI);
+    float sinN = sin(n);
+    float arc0 = (cosN + 2.0 * a0 * sinN - cos(2.0 * a0 - n)) * 0.25;
+    float arc1 = (cosN + 2.0 * a1 * sinN - cos(2.0 * a1 - n)) * 0.25;
+    visibility += mix(projectedLength, 1.0, 0.05) * (arc0 + arc1);
   }
-  float ao = clamp(1.0 - 2.5 * sum / float(TAPS), 0.0, 1.0);
+  float ao = pow(clamp(visibility / float(SLICES), 0.0, 1.0), 1.5);
   gl_FragColor = vec4(vec3(ao), 1.0);
+}
+`;
+
+/** Focus falloff shared by the blur pass and the composite. */
+const focusHelpers = /* glsl */ `
+uniform float uFocus, uRange;
+uniform vec3 uTilt;
+// How far out of focus a point at distance z is, 0 to 1. Things nearer than the focus stay sharper:
+// the player's machines live there. Above and below a band across the picture, whatever is off the
+// focus distance goes soft sooner, the way a tilted lens makes a real place look like a model.
+float cocAt(float z, vec2 uv) {
+  float d = z - uFocus;
+  float depth = clamp(((d > 0.0 ? d : -d * 0.45) - uRange * 0.35) / uRange, 0.0, 1.0);
+  if (uTilt.x <= 0.0) return depth;
+  float band = smoothstep(uTilt.z, uTilt.z + 0.3, abs(uv.y - uTilt.y));
+  float away = smoothstep(0.15, 0.85, abs(d) / uRange);
+  return max(depth, band * away * uTilt.x);
 }
 `;
 
@@ -121,16 +180,15 @@ void main() {
 
 const dofFragment = /* glsl */ `
 ${depthHelpers}
+${focusHelpers}
 uniform sampler2D tColor;
 uniform vec2 uPixel;
-uniform float uFocus, uRange, uMaxBlur;
+uniform float uMaxBlur;
 varying vec2 vUv;
 const int TAPS = 26;
-// Things nearer than the focus stay sharper: the player's machines live there.
-float cocAt(float z) { float d = z - uFocus; return clamp(((d > 0.0 ? d : -d * 0.45) - uRange * 0.35) / uRange, 0.0, 1.0); }
 void main() {
   float zCenter = linearDepth(vUv);
-  float center = cocAt(zCenter);
+  float center = cocAt(zCenter, vUv);
   vec3 sum = textureLod(tColor, vUv, 0.0).rgb;
   float weight = 1.0;
   float radius = center * uMaxBlur;
@@ -140,7 +198,7 @@ void main() {
     vec2 uv = vUv + vec2(cos(a), sin(a)) * t * max(radius, 1.0) * uPixel;
     float z = linearDepth(uv);
     // Something sharp in front must not bleed into the blurred background behind it.
-    float w = z < zCenter - 0.15 ? cocAt(z) : 1.0;
+    float w = z < zCenter - 0.15 ? cocAt(z, uv) : 1.0;
     vec3 c = min(textureLod(tColor, uv, 0.0).rgb, vec3(6.0));
     sum += c * w;
     weight += w;
@@ -248,13 +306,33 @@ void main() {
 
 const compositeFragment = /* glsl */ `
 ${depthHelpers}
+${focusHelpers}
 uniform sampler2D tColor, tBloom, tAo, tBlur, tReflect;
 uniform float uExposure, uContrast, uSaturation, uVignette, uGrain, uBloom, uTime, uFlash, uChroma, uAoStrength, uAspect;
-uniform float uHasBlur, uHasAo, uHasReflect, uFocus, uRange;
-uniform vec2 uMirrorPixel;
+uniform float uHasBlur, uHasAo, uHasReflect;
+uniform vec2 uMirrorPixel, uAoSize;
 uniform vec3 uShadowTint, uHighlightTint, uFlashColor, uAoTint;
 uniform vec4 uShock;
 varying vec2 vUv;
+
+// Occlusion is worked out at half size. Of the four nearest half-size texels, those at this
+// pixel's own depth count most, so a dark rim never spills across a silhouette.
+float aoAt(vec2 uv) {
+  vec2 t = uv * uAoSize - 0.5;
+  vec2 base = floor(t);
+  vec2 f = t - base;
+  float z = linearDepth(uv);
+  float sum = 0.0, weight = 0.0;
+  for (int i = 0; i < 4; i++) {
+    vec2 o = vec2(float(i & 1), float(i >> 1));
+    vec2 tuv = (base + o + 0.5) / uAoSize;
+    vec2 b = mix(1.0 - f, f, o);
+    float w = b.x * b.y * exp(-abs(linearDepth(tuv) - z) / (z * 0.03)) + 1e-4;
+    sum += textureLod(tAo, tuv, 0.0).r * w;
+    weight += w;
+  }
+  return sum / weight;
+}
 
 // Khronos neutral tone mapping keeps candy colors true and only rolls off highlights.
 vec3 neutral(vec3 color) {
@@ -282,8 +360,7 @@ vec3 sampleScene(vec2 uv) {
   vec3 col = scene.rgb;
   if (uHasBlur > 0.5) {
     // Full-resolution depth decides the mix, so in-focus silhouettes stay crisp.
-    float d = linearDepth(uv) - uFocus;
-    float coc = clamp(((d > 0.0 ? d : -d * 0.45) - uRange * 0.35) / uRange, 0.0, 1.0);
+    float coc = cocAt(linearDepth(uv), uv);
     // Alpha above 1 marks refracting glass. What it shows no longer lines up with the depth
     // buffer, so it has done its own focus blur already.
     float glass = clamp(scene.a - 1.0, 0.0, 1.0);
@@ -318,8 +395,7 @@ void main() {
     if (amount > 0.001) col = mix(col, mirror.rgb / max(mirror.a, 0.001) * amount + col * (1.0 - amount), amount);
   }
   if (uHasAo > 0.5) {
-    float ao = texture2D(tAo, uv).r;
-    ao = mix(1.0, ao, uAoStrength);
+    float ao = mix(1.0, aoAt(uv), uAoStrength);
     col *= mix(uAoTint * 2.2, vec3(1.0), ao);
   }
   col += texture2D(tBloom, uv).rgb * uBloom;
@@ -373,6 +449,7 @@ export class PostPipeline {
   private readonly quadScene = new THREE.Scene();
   private readonly quadCamera = new THREE.Camera();
   private readonly quad: THREE.Mesh;
+  private readonly aoPixel = new THREE.Vector2();
 
   private readonly depthUniforms = {
     tDepth: { value: null as THREE.Texture | null },
@@ -384,7 +461,7 @@ export class PostPipeline {
   private readonly aoBlurMat = this.pass(aoBlurFragment, { tSource: { value: null }, uDirection: { value: new THREE.Vector2() } }, true);
   private readonly dofMat = this.pass(
     dofFragment,
-    { tColor: { value: null }, uPixel: { value: new THREE.Vector2() }, uFocus: { value: 10 }, uRange: { value: 3 }, uMaxBlur: { value: 10 } },
+    { tColor: { value: null }, uPixel: { value: new THREE.Vector2() }, uFocus: { value: 10 }, uRange: { value: 3 }, uMaxBlur: { value: 10 }, uTilt: { value: new THREE.Vector3() } },
     true,
   );
   private readonly reflectMat = this.pass(reflectFragment, { tColor: { value: null }, uRange: { value: 6 }, uUp: { value: new THREE.Vector3(0, 1, 0) } }, true);
@@ -403,6 +480,8 @@ export class PostPipeline {
       uHasAo: { value: 0 },
       uHasReflect: { value: 0 },
       uMirrorPixel: { value: new THREE.Vector2() },
+      uAoSize: { value: new THREE.Vector2(1, 1) },
+      uTilt: { value: new THREE.Vector3() },
       uFocus: { value: 10 },
       uRange: { value: 3 },
       uExposure: { value: 1 },
@@ -497,7 +576,7 @@ export class PostPipeline {
 
     const hasAo = this.quality.ambientOcclusion && p.aoStrength > 0;
     if (hasAo) {
-      const pixel = new THREE.Vector2(1 / this.aoA.width, 1 / this.aoA.height);
+      const pixel = this.aoPixel.set(1 / this.aoA.width, 1 / this.aoA.height);
       this.aoMat.uniforms.uRadius!.value = p.aoRadius;
       this.aoMat.uniforms.uPixel!.value.copy(pixel);
       this.draw(this.aoMat, this.aoA);
@@ -517,6 +596,7 @@ export class PostPipeline {
       u.uFocus!.value = p.focusDistance;
       u.uRange!.value = p.focusRange;
       u.uMaxBlur!.value = p.maxBlurPx * (this.height / 1080);
+      u.uTilt!.value.copy(p.tilt);
       this.draw(this.dofMat, this.blur);
     }
 
@@ -537,6 +617,8 @@ export class PostPipeline {
     c.tReflect!.value = this.mirror.texture;
     c.uHasReflect!.value = this.quality.reflections ? 1 : 0;
     c.uMirrorPixel!.value.set(1 / this.mirror.width, 1 / this.mirror.height);
+    c.uAoSize!.value.set(this.aoA.width, this.aoA.height);
+    c.uTilt!.value.copy(p.tilt);
     c.uHasBlur!.value = hasBlur ? 1 : 0;
     c.uHasAo!.value = hasAo ? 1 : 0;
     c.uFocus!.value = p.focusDistance;

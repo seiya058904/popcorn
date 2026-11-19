@@ -123,7 +123,8 @@ export function dressCinema(kit: Kit, ground: number, stageR: number): void {
 
 // Town ----------------------------------------------------------------------------
 
-export function dressPlaza(kit: Kit, rng: Rng, ringRoad: number): void {
+/** lampLight is the light group of the street lamps. */
+export function dressPlaza(kit: Kit, rng: Rng, ringRoad: number, lampLight = 0): void {
   // Paving in concentric courses.
   for (let ring = 0; ring < 6; ring += 1) {
     const r = 7 + ring * 1.7;
@@ -142,7 +143,7 @@ export function dressPlaza(kit: Kit, rng: Rng, ringRoad: number): void {
     const x = Math.cos(a) * 16;
     const z = Math.sin(a) * 16;
     kit.add(P.puck(0.2, 0.12, 4.3, 8, 0.02), { ...M.darkIron, matrix: at(x, 0.1, z) });
-    kit.add(P.sphere(0.5, 10, 8), { ...M.bulb, matrix: at(x, 4.75, z) });
+    kit.add(P.sphere(0.5, 10, 8), { ...M.bulb, light: lampLight || undefined, matrix: at(x, 4.75, z) });
     kit.add(P.puck(0.42, 0.22, 0.22, 10, 0.03), { ...M.darkIron, matrix: at(x, 5.15, z, [Math.PI, 0, 0]) });
     const b = a + 0.31;
     const bx = Math.cos(b) * 15.4;
@@ -180,7 +181,8 @@ export interface HouseFrame {
 
 const AWNINGS = ['#d8473f', '#3f7fd8', '#2f9e87', '#e08a2e'];
 
-export function dressHouse(kit: Kit, rng: Rng, house: HouseFrame, wall: string): void {
+/** shopLight is the light group of the shop windows, which come on at dusk. */
+export function dressHouse(kit: Kit, rng: Rng, house: HouseFrame, wall: string, shopLight = 0): void {
   const { w, d, h, place } = house;
   // Plinth, cornice and a door with a step.
   kit.add(P.box(w + 0.24, 0.7, d + 0.24, 0.08, 1), { ...M.concrete, outline: 0.5, matrix: place(0, 0.35, 0) });
@@ -191,7 +193,7 @@ export function dressHouse(kit: Kit, rng: Rng, house: HouseFrame, wall: string):
   kit.add(P.sphere(0.06, 6, 4), { ...M.brass, outline: 0, detail: 1, matrix: place((shop ? w * 0.28 : 0) + 0.42, 1.05, front + 0.08) });
   if (shop) {
     // Shopfront: a big lit window under a striped awning.
-    kit.add(P.box(w * 0.42, 1.6, 0.08, 0.03, 1), { color: '#ffe9a6', emissive: 0.6, outline: 0, fixedColor: true, matrix: place(-w * 0.2, 1.5, front) });
+    kit.add(P.box(w * 0.42, 1.6, 0.08, 0.03, 1), { color: '#ffe9a6', emissive: 0.6, outline: 0, fixedColor: true, light: shopLight || undefined, matrix: place(-w * 0.2, 1.5, front) });
     kit.add(P.box(w * 0.46, 0.1, 0.12, 0.02, 1), { ...M.darkWood, outline: 0, matrix: place(-w * 0.2, 0.72, front + 0.02) });
     const color = AWNINGS[rng.int(0, AWNINGS.length)]!;
     const stripes = 6;
@@ -209,10 +211,11 @@ export function dressHouse(kit: Kit, rng: Rng, house: HouseFrame, wall: string):
   }
 }
 
-export function windowFrameAt(kit: Kit, house: HouseFrame, lx: number, ly: number, lit: boolean): void {
+/** light is the light group that switches the window on at night; 0 leaves it dark glass for good. */
+export function windowFrameAt(kit: Kit, house: HouseFrame, lx: number, ly: number, light: number): void {
   const z = house.d / 2 + 0.03;
   kit.add(P.box(1.3, 1.6, 0.08, 0.03, 1), { color: '#fff8ea', gloss: 0.4, outline: 0, fixedColor: true, matrix: house.place(lx, ly, z - 0.02) });
-  kit.add(P.box(1.06, 1.34, 0.08, 0.02, 1), { ...(lit ? { color: '#ffe9a6', emissive: 0.72, outline: 0, fixedColor: true } : M.windowPane), matrix: house.place(lx, ly, z + 0.02) });
+  kit.add(P.box(1.06, 1.34, 0.08, 0.02, 1), { ...(light ? { color: '#ffe9a6', emissive: 0.72, outline: 0, fixedColor: true, light } : M.windowPane), matrix: house.place(lx, ly, z + 0.02) });
   kit.add(P.box(0.05, 1.34, 0.05, 0.01, 1), { color: '#fff8ea', outline: 0, fixedColor: true, detail: 1, matrix: house.place(lx, ly, z + 0.07) });
   kit.add(P.box(1.06, 0.05, 0.05, 0.01, 1), { color: '#fff8ea', outline: 0, fixedColor: true, detail: 1, matrix: house.place(lx, ly + 0.1, z + 0.07) });
   kit.add(P.box(1.46, 0.09, 0.2, 0.02, 1), { color: '#fff8ea', gloss: 0.3, outline: 0.3, fixedColor: true, matrix: house.place(lx, ly - 0.84, z + 0.05) });
@@ -278,7 +281,7 @@ export function carDetails(kit: Kit): void {
   for (const x of [-1.72, 1.72]) kit.add(P.box(0.08, 0.14, 1.5, 0.04, 1), { ...M.chrome, outline: 0, matrix: at(x, 0.52, 0) });
 }
 
-export function wheelGondolas(kit: Kit, radius: number): void {
+export function wheelGondolas(kit: Kit, radius: number, bulbLight = 0): void {
   const colors = [M.red, M.butter, M.teal, M.navy];
   for (let i = 0; i < 8; i += 1) {
     const a = (i / 8) * Math.PI * 2;
@@ -288,7 +291,7 @@ export function wheelGondolas(kit: Kit, radius: number): void {
     // Round cabins, so they look right at any point of the turn.
     kit.add(P.sphere(1.05, 14, 10), { ...colors[i % 4]!, matrix: at(x, y, 0) });
     kit.add(P.torus(1.06, 0.07, 6, 22), { ...M.brass, outline: 0, matrix: at(x, y, 0, [Math.PI / 2, 0, 0]) });
-    kit.add(P.sphere(0.2, 8, 6), { ...M.bulb, matrix: at(x, y, 1.12) });
+    kit.add(P.sphere(0.2, 8, 6), { ...M.bulb, light: bulbLight || undefined, matrix: at(x, y, 1.12) });
   }
 }
 

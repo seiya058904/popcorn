@@ -64,7 +64,7 @@ export class Stage {
     this.renderer.setClearColor('#120a12', 1);
     this.camera.layers.enable(GLASS_LAYER);
     this.post = new PostPipeline(this.renderer, this.quality);
-    this.shadow.setSize(this.quality.shadowSize);
+    this.shadow.setSize(this.quality.shadowSize, this.quality.softShadows);
     this.resize();
   }
 
@@ -72,7 +72,7 @@ export class Stage {
     this.quality = QUALITY[tier];
     setKitDetail(this.quality.detail);
     this.post.setQuality(this.quality);
-    this.shadow.setSize(this.quality.shadowSize);
+    this.shadow.setSize(this.quality.shadowSize, this.quality.softShadows);
     this.width = 0;
     this.resize();
   }

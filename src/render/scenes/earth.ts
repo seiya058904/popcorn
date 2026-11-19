@@ -1,18 +1,20 @@
 import * as THREE from 'three';
 import { clamp01, easeInOutCubic, easeOutBack, easeOutCubic, lerp, Spring } from '../../motion/ease.ts';
 import { Rng } from '../../motion/rng.ts';
-import { globals } from '../core/globals.ts';
 import type { Stage } from '../core/stage.ts';
 import { PopcornSnow } from '../fx/snow.ts';
 import { SpriteKind } from '../fx/sprites.ts';
 import { addLightBeam } from '../fx/beam.ts';
-import { addToy, at, Kit, P } from '../geometry/kit.ts';
+import { addToy, at, Kit, P, Pattern } from '../geometry/kit.ts';
+import { globals, lightGroup } from '../core/globals.ts';
 import { GLSL_LIGHT_PARS, GLSL_UTIL } from '../materials/glsl.ts';
 import { popcornUniforms } from '../materials/popcorn.ts';
 import { toyMaterials } from '../materials/toy.ts';
 import { PieceBatches } from '../popcorn/batches.ts';
 import type { PileShape } from '../popcorn/pile.ts';
 import { planetRingPath, planetUp } from './paths.ts';
+import { NEON_PINK, neonPop, SetPieces, toyFigure } from './pieces.ts';
+import { LightBank, storyWeights } from './story.ts';
 import type { FinalePlan, SceneContext, SceneBuild, SceneSpec, UnitSlot } from './types.ts';
 
 const R = 34;
@@ -97,7 +99,7 @@ void main() {
 `;
 
 const globeFragment = /* glsl */ `
-uniform float uSnow, uSpin;
+uniform float uSnow, uSpin, uCities;
 uniform vec3 uPopCream, uPopShade;
 varying vec3 vWorld, vNormal, vDir;
 
@@ -153,6 +155,19 @@ void main() {
   float dist = length(toCam);
   vec3 V = toCam / dist;
   vec3 col = toyLight(albedo, N, V, vWorld, gloss, 1.0, sunShadow(vWorld, N));
+  // City lights come out on the night side as the planet turns: clusters on land, with a scatter
+  // of smaller towns between them, all gone under the ice and the popcorn.
+  if (uCities > 0.0) {
+    vec2 grid = vec2(atan(d.z, d.x) * 6.0, asin(clamp(d.y, -1.0, 1.0)) * 12.0);
+    float big = smoothstep(0.34, 0.1, worley(grid).x);
+    float small = smoothstep(0.16, 0.05, worley(grid * 3.3 + 7.0).x) * 0.55;
+    float night = smoothstep(0.12, -0.22, dot(N, uSunDir));
+    // The painted light is soft all round; the night side needs to go properly dark to read.
+    col *= 1.0 - 0.62 * smoothstep(0.1, -0.32, dot(N, uSunDir)) * uCities;
+    // Under the popcorn the lights still glow, softened, as if through snow.
+    float city = max(big, small) * inland * (1.0 - ice) * (1.0 - snow * 0.55) * (1.0 - cloud * 0.75);
+    col += vec3(1.6, 1.05, 0.42) * city * night * uCities * (0.85 + 0.15 * sin(uTime * 3.0 + grid.x * 9.0));
+  }
   float atmosphere = pow(1.0 - sat(dot(N, V)), 3.0);
   col += vec3(0.32, 0.56, 1.0) * atmosphere * 0.85;
   gl_FragColor = vec4(applyFog(col, dist), 1.0);
@@ -300,6 +315,153 @@ function palmGeometry(): THREE.BufferGeometry {
   return kit.build();
 }
 
+/** Earth light groups: the neon ad ring once bought, and the lights on the launch tower. */
+const LIT = { ring: 0, pad: 1 } as const;
+/**
+ * The moon starts far off and small, high in the corner of the picture, and closes in on MOON_PLAY
+ * as the planet fills up; the ending then glides it on to MOON_HOME, where its own camera wants it.
+ */
+const MOON_FAR = new THREE.Vector3(-150, -60, -420);
+const MOON_PLAY = new THREE.Vector3(-52, -11, -128);
+/** Seconds the ending takes to bring the moon from where play left it. */
+const MOON_GLIDE = 2.6;
+/** Where the toy astronaut stands on the moon, as a direction from its center. */
+const ASTRONAUT_ON = new THREE.Vector3(-0.38, 0.84, 0.39).normalize();
+const PAD_AT = new THREE.Vector3(-28, 0, -2);
+const RING_RADIUS = 50;
+const UP = new THREE.Vector3(0, 1, 0);
+
+function rocketGeometry(): THREE.BufferGeometry {
+  // A toy rocket on its pad beside a red launch tower; the windows light up after dark.
+  const kit = new Kit();
+  const white = { color: '#f4f2ee', gloss: 0.8, coat: 0.45 };
+  const red = { color: '#d8313a', gloss: 0.85, coat: 0.45 };
+  kit.add(P.puck(3.1, 2.9, 0.6, 28, 0.15), { color: '#b7ad9f', gloss: 0.15, pattern: 7.3 });
+  kit.add(P.lathe([[0, 0.6], [1.0, 0.6], [1.15, 1.0], [1.15, 4.4], [0.95, 5.5], [0.5, 6.3], [0, 6.7]], 28, 0.12, 3), { ...white, matrix: at(0, 0.3, 0) });
+  kit.add(P.lathe([[0.97, 5.42], [0.98, 5.45], [0.55, 6.25], [0.52, 6.25]], 28, 0.05, 2), { ...red, matrix: at(0, 0.3, 0) });
+  kit.add(P.torus(1.16, 0.08, 6, 28), { ...red, outline: 0.4, matrix: at(0, 2.2, 0, [Math.PI / 2, 0, 0]) });
+  for (let i = 0; i < 3; i += 1) {
+    const a = (i / 3) * Math.PI * 2;
+    kit.add(P.box(0.14, 1.6, 1.1, 0.06, 1), { ...red, matrix: at(Math.cos(a) * 1.3, 1.5, Math.sin(a) * 1.3, [0, -a, 0.12]) });
+  }
+  for (const y of [3.3, 4.3]) {
+    kit.add(P.puck(0.34, 0.34, 0.12, 16, 0.04), { color: '#e4b252', gloss: 0.85, metal: 1, matrix: at(0, y, 1.1, [Math.PI / 2, 0, 0]) });
+    kit.add(P.puck(0.26, 0.26, 0.14, 16, 0.03), { color: '#ffe9a6', emissive: 0.7, outline: 0, light: lightGroup(4, LIT.pad), matrix: at(0, y, 1.12, [Math.PI / 2, 0, 0]) });
+  }
+  // The tower: four red legs, cross-braced, with a walkway arm and warning lights on top.
+  for (const [x, z] of [[2.2, -0.7], [3.6, -0.7], [2.2, 0.7], [3.6, 0.7]] as const) kit.add(P.box(0.22, 7.6, 0.22, 0.06, 1), { ...red, matrix: at(x, 4.2, z) });
+  for (let level = 0; level < 6; level += 1) {
+    const y = 1.2 + level * 1.2;
+    for (const z of [-0.7, 0.7]) kit.add(P.box(1.4, 0.12, 0.12, 0.04, 1), { ...red, outline: 0.4, matrix: at(2.9, y, z, [0, 0, level % 2 ? 0.6 : -0.6]) });
+  }
+  kit.add(P.box(1.5, 0.18, 0.5, 0.05, 1), { color: '#5a6478', gloss: 0.5, metal: 0.6, matrix: at(1.6, 4.8, 0) });
+  for (const x of [2.2, 3.6]) kit.add(P.sphere(0.18, 8, 6), { color: '#ff4a3f', emissive: 1, outline: 0, light: lightGroup(4, LIT.pad), matrix: at(x, 8.1, 0) });
+  return kit.build();
+}
+
+function flagGeometry(): THREE.BufferGeometry {
+  // Planted next to the astronaut: a pole and a red flag with a golden kernel on it.
+  const kit = new Kit();
+  kit.add(P.puck(0.04, 0.04, 2.1, 8, 0.01), { color: '#d3dce6', gloss: 0.9, metal: 1 });
+  kit.add(P.box(1.1, 0.7, 0.04, 0.03, 1), { color: '#d8313a', gloss: 0.3, pattern: Pattern.Fabric, matrix: at(0.56, 1.7, 0) });
+  kit.add(P.sphere(0.2, 10, 8), { color: '#ffc63f', gloss: 0.6, outline: 0, matrix: at(0.56, 1.7, 0.03, [0, 0, 0], [1, 1.2, 0.3]) });
+  return kit.build();
+}
+
+function adRingGeometry(): THREE.BufferGeometry {
+  // A great ring round the planet carrying six neon 「砰」, readable from anywhere in orbit.
+  const kit = new Kit();
+  const steel = { color: '#5a6478', gloss: 0.7, metal: 0.8, wear: 0.3 };
+  kit.add(P.torus(RING_RADIUS, 0.55, 6, 120), { ...steel, matrix: at(0, 0, 0, [Math.PI / 2, 0, 0]) });
+  kit.add(P.torus(RING_RADIUS, 0.22, 4, 120), { color: '#ffd23f', gloss: 0.6, emissive: 0.6, outline: 0, light: lightGroup(4, LIT.ring), matrix: at(0, 0.62, 0, [Math.PI / 2, 0, 0]) });
+  for (let i = 0; i < 6; i += 1) {
+    const a = (i / 6) * Math.PI * 2;
+    const x = Math.cos(a) * RING_RADIUS;
+    const z = Math.sin(a) * RING_RADIUS;
+    const turn = Math.PI / 2 - a;
+    kit.add(P.box(0.5, 2.6, 0.5, 0.1, 1), { ...steel, matrix: at(x, 1.3, z, [0, turn, 0]) });
+    neonPop(kit, at(x, 4.6, z, [0, turn, 0], 3.2), { ...NEON_PINK, light: lightGroup(4, LIT.ring) });
+  }
+  return kit.build();
+}
+
+const auroraVertex = /* glsl */ `
+varying vec2 vUv;
+varying vec3 vWorld, vNormal;
+void main() {
+  vUv = uv;
+  vec4 wp = modelMatrix * vec4(position, 1.0);
+  vWorld = wp.xyz;
+  vNormal = normalize(mat3(modelMatrix) * normal);
+  gl_Position = projectionMatrix * viewMatrix * wp;
+}
+`;
+
+// Curtains of buttery light, rippling and drifting round the pole.
+const auroraFragment = /* glsl */ `
+uniform float uTime, uStrength;
+varying vec2 vUv;
+varying vec3 vWorld, vNormal;
+void main() {
+  float around = vUv.x * 6.2831853;
+  float streaks = 0.55 + 0.45 * sin(around * 38.0 + sin(around * 5.0 + uTime * 0.6) * 3.0 + uTime * 0.9);
+  streaks *= 0.6 + 0.4 * sin(around * 11.0 - uTime * 0.4);
+  float height = vUv.y;
+  float fade = smoothstep(0.0, 0.18, height) * (1.0 - smoothstep(0.45, 1.0, height));
+  vec3 color = mix(vec3(1.0, 0.82, 0.32), vec3(1.0, 0.55, 0.7), smoothstep(0.2, 0.95, height));
+  float face = 0.4 + 0.6 * abs(dot(normalize(vNormal), normalize(cameraPosition - vWorld)));
+  gl_FragColor = vec4(color * streaks * fade * face * uStrength, 0.0);
+}
+`;
+
+/** The aurora: a wavy band of curtain round the crater, standing clear of the popcorn cap. */
+function auroraMesh(): THREE.Mesh {
+  const around = 180;
+  const positions: number[] = [];
+  const uvs: number[] = [];
+  const indices: number[] = [];
+  for (let i = 0; i <= around; i += 1) {
+    const a = (i / around) * Math.PI * 2;
+    const r = 19 + Math.sin(a * 3) * 2.2 + Math.sin(a * 7 + 1) * 1.1;
+    const base = sphereY(r) + 6;
+    const top = base + 9 + Math.sin(a * 5 + 2) * 3;
+    for (const [y, v] of [[base, 0], [top, 1]] as const) {
+      positions.push(Math.cos(a) * r, y, Math.sin(a) * r);
+      uvs.push(i / around, v);
+    }
+    if (i < around) {
+      const k = i * 2;
+      indices.push(k, k + 1, k + 2, k + 1, k + 3, k + 2);
+    }
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  const mesh = new THREE.Mesh(
+    geometry,
+    new THREE.ShaderMaterial({
+      name: 'aurora',
+      vertexShader: auroraVertex,
+      fragmentShader: auroraFragment,
+      uniforms: { uTime: globals.uTime, uStrength: { value: 0 } },
+      transparent: true,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      blending: THREE.CustomBlending,
+      blendEquation: THREE.AddEquation,
+      blendSrc: THREE.OneFactor,
+      blendDst: THREE.OneFactor,
+      // Alpha holds the floor reflection mask, which light in the air must not touch.
+      blendSrcAlpha: THREE.ZeroFactor,
+      blendDstAlpha: THREE.OneFactor,
+    }),
+  );
+  mesh.renderOrder = 3;
+  return mesh;
+}
+
 interface Finger {
   base: THREE.Group;
   middle: THREE.Group;
@@ -338,6 +500,7 @@ function* buildEarth(stage: Stage, root: THREE.Group): SceneBuild {
     uPopShade: popcornUniforms.uPopShade,
     uSnow: { value: 0 },
     uSpin: { value: 0 },
+    uCities: { value: 0 },
   };
   const hash31 = 'float hash31(vec3 p) { p = fract(p * 0.1031); p += dot(p, p.zyx + 31.32); return fract((p.x + p.y) * p.z); }\n';
   const globeKit = new Kit();
@@ -435,7 +598,33 @@ function* buildEarth(stage: Stage, root: THREE.Group): SceneBuild {
     });
   };
 
+  // The astronaut, the launch pad and the ad ring share one rig; the aurora is a light of its own.
+  const pieces = new SetPieces(root);
+  const astronaut = toyFigure(pieces, sky, { skin: '#f4f6fa', shirt: '#f4f6fa', pants: '#e3e6ec', hat: 'helmet' });
+  astronaut.root.scale.setScalar(2.5);
+  const flag = pieces.group(sky);
+  flag.scale.setScalar(2.5);
+  pieces.part(flagGeometry(), flag);
+  const pad = pieces.group(root, PAD_AT.x, sphereY(Math.hypot(PAD_AT.x, PAD_AT.z)) - 0.15, PAD_AT.z);
+  pad.quaternion.setFromUnitVectors(UP, planetUp(R, pad.position.x, pad.position.y, pad.position.z));
+  pad.scale.setScalar(1.25);
+  pieces.part(rocketGeometry(), pad);
+  const ringTilt = pieces.group(root, 0, -R, 0);
+  ringTilt.rotation.set(0.3, 0, -0.2);
+  const ring = pieces.group(ringTilt);
+  pieces.part(adRingGeometry(), ring, { shadow: false });
+  pieces.decoration('decor-ring', ringTilt, 14);
+  pieces.build(stage);
+  const aurora = auroraMesh();
+  aurora.visible = false;
+  root.add(aurora);
+  const auroraStrength = (aurora.material as THREE.ShaderMaterial).uniforms.uStrength!;
+  let auroraWanted = 0;
+  const bank = new LightBank(4, [{ style: 'neon' }, { at: 0.42, style: 'bulb' }]);
+  yield;
+
   const craterKick = new Spring(0, 420, 15);
+  const astronautHop = new Spring(0, 60, 6);
   let time = 0;
   let steamTimer = 0;
   let spin = 0;
@@ -443,7 +632,46 @@ function* buildEarth(stage: Stage, root: THREE.Group): SceneBuild {
   let popped = false;
   let lavaTimer = 0;
   let grabbed = false;
+  let story = 0;
   const carried = new THREE.Vector3();
+  const astronautVelocity = new THREE.Vector3();
+  const standing = new THREE.Quaternion().setFromUnitVectors(UP, ASTRONAUT_ON);
+  const faceCamera = new THREE.Quaternion().setFromAxisAngle(UP, 0.55);
+
+  const tell = (u: number, dt: number, instant: boolean, calm: boolean): void => {
+    story = u;
+    bank.update(u, dt, instant, calm);
+    const [toMid, toLate] = storyWeights(u);
+    globeUniforms.uCities.value = lerp(lerp(0, 0.55, toMid), 1, toLate);
+    auroraStrength.value += (auroraWanted - auroraStrength.value) * (instant ? 1 : Math.min(1, dt * 1.5));
+    aurora.visible = auroraStrength.value > 0.01;
+  };
+
+  /** The astronaut keeps to the moon, hops in the low gravity, and waves now and then. */
+  const updateAstronaut = (dt: number): void => {
+    const hop = Math.max(0, astronautHop.update(dt));
+    if (!popped) {
+      const scale = moon.scale.x;
+      astronaut.root.position.copy(ASTRONAUT_ON).multiplyScalar((MOON_R - 0.1) * scale + hop * 1.4).add(moon.position);
+      astronaut.root.quaternion.copy(standing).multiply(faceCamera);
+      astronaut.root.scale.setScalar(2.5 * scale);
+      flag.position.copy(v.copy(ASTRONAUT_ON).applyAxisAngle(UP, 0.32)).multiplyScalar((MOON_R - 0.15) * scale).add(moon.position);
+      flag.quaternion.copy(standing).multiply(faceCamera);
+      flag.scale.setScalar(2.5 * scale);
+      if (Math.floor(time / 6.5) !== Math.floor((time - dt) / 6.5)) astronautHop.kick(4);
+    } else {
+      // Thrown clear when the moon goes pop, tumbling off into space.
+      astronautVelocity.y -= 3 * dt;
+      astronaut.root.position.addScaledVector(astronautVelocity, dt);
+      astronaut.root.rotateX(dt * 2.2);
+      astronaut.root.rotateZ(dt * 1.3);
+      flag.visible = false;
+    }
+    const wave = smooth(0, 0.2, (time % 9) - 6) * (1 - smooth(1.6, 1.9, (time % 9) - 6));
+    astronaut.armR.rotation.set(0, 0, lerp(0.15, 2.7 + Math.sin(time * 10) * 0.3, wave));
+    astronaut.armL.rotation.set(0, 0, -0.15 - hop * 0.6);
+    astronaut.head.rotation.y = Math.sin(time * 0.5) * 0.4;
+  };
 
   const setFingers = (curl: number, t: number): void => {
     fingers.forEach((finger, index) => {
@@ -515,11 +743,14 @@ function* buildEarth(stage: Stage, root: THREE.Group): SceneBuild {
       if (!popped) {
         const tremble = heat * heat * 0.9;
         const swell = 1 + heat * heat * 0.42;
-        moon.position.set(MOON_HOME.x + Math.sin(t * 61) * tremble, MOON_HOME.y + Math.cos(t * 53) * tremble, MOON_HOME.z);
+        moon.position.lerpVectors(MOON_PLAY, MOON_HOME, easeInOutCubic(clamp01(t / MOON_GLIDE)));
+        moon.position.x += Math.sin(t * 61) * tremble;
+        moon.position.y += Math.cos(t * 53) * tremble;
         moon.scale.setScalar(swell);
         if (t >= POP_AT) {
           popped = true;
           moon.visible = false;
+          astronautVelocity.copy(ASTRONAUT_ON).multiplyScalar(26).add(v.set(6, 4, 8));
           for (let i = 0; i < 50; i += 1) {
             const a = ctx.rng.range(0, 6.28);
             const b = ctx.rng.range(-1, 1);
@@ -548,6 +779,8 @@ function* buildEarth(stage: Stage, root: THREE.Group): SceneBuild {
       snow.setAmount(1);
       popped = true;
       moon.visible = false;
+      astronaut.root.visible = false;
+      flag.visible = false;
       setBeams(0);
       showMoonFlake(MOON_R * 1.5, 1, 0);
     },
@@ -555,6 +788,13 @@ function* buildEarth(stage: Stage, root: THREE.Group): SceneBuild {
 
   return {
     finale,
+    progress: tell,
+    upgradesChanged(owned, animate) {
+      pieces.sync(owned, animate);
+      bank.want(LIT.ring, pieces.owns('decor-ring'));
+      auroraWanted = owned.includes('decor-aurora') ? 1 : 0;
+      if (!animate) auroraStrength.value = auroraWanted;
+    },
     unitsChanged(kind, count) {
       if (kind === 'orbital') orbitals = count;
     },
@@ -570,10 +810,18 @@ function* buildEarth(stage: Stage, root: THREE.Group): SceneBuild {
       if (finaleTime < 0) {
         globeUniforms.uSnow.value = 0.1 + ctx.level * 0.86;
         snow.setAmount(0.25 + ctx.level * 0.75);
+        // The moon draws in as the planet fills up, until it hangs where the ending needs it.
+        const approach = smooth(0, 1, story);
         const tremble = 0.28 + ctx.level * ctx.level * 1.1;
-        moon.position.set(MOON_HOME.x + Math.sin(time * 49) * 0.13 * tremble, MOON_HOME.y + Math.cos(time * 43) * 0.11 * tremble, MOON_HOME.z);
+        moon.position.lerpVectors(MOON_FAR, MOON_PLAY, approach);
+        moon.position.x += Math.sin(time * 49) * 0.13 * tremble;
+        moon.position.y += Math.cos(time * 43) * 0.11 * tremble;
+        moon.scale.setScalar(lerp(0.55, 1, approach));
       }
       moon.rotation.y = time * 0.02;
+      ring.rotation.y = time * 0.035;
+      if (astronaut.root.visible) updateAstronaut(dt);
+      pieces.update(dt, ctx);
 
       steamTimer -= dt;
       if (steamTimer <= 0) {
@@ -619,6 +867,18 @@ export const earthSpec: SceneSpec = {
     pool: [0, 0, 0, 400],
     poolFloor: 1,
   },
+  // The planet turns away from the sun: night creeps over its left side and the cities light up.
+  story: {
+    mid: {
+      light: { sunDir: [0.76, 0.48, 0.36], sunColor: '#fff4e2', sunIntensity: 1.42, shadeTint: '#26306e', sky: '#6a80d4', skyIntensity: 0.19, ground: '#323e7c', groundIntensity: 0.11, rim: '#94bcff', rimIntensity: 0.75, rimDir: [-0.7, 0.25, -0.65], fog: '#0c0a30', fogRange: [400, 900], pool: [0, 0, 0, 400], poolFloor: 1 },
+      grade: { exposure: 1.02, contrast: 1.08, saturation: 1.08, vignette: 0.39, bloom: 0.85, shadowTint: '#eef0ff', highlightTint: '#fff9f0', aoTint: '#0a0a2c' },
+    },
+    late: {
+      light: { sunDir: [0.88, 0.3, 0.3], sunColor: '#fff0dc', sunIntensity: 1.42, shadeTint: '#222a68', sky: '#5f74cc', skyIntensity: 0.23, ground: '#2c346a', groundIntensity: 0.1, rim: '#a0c0ff', rimIntensity: 0.82, rimDir: [-0.7, 0.25, -0.65], fog: '#0a0828', fogRange: [400, 900], pool: [0, 0, 0, 400], poolFloor: 1 },
+      grade: { exposure: 1.03, contrast: 1.09, saturation: 1.08, vignette: 0.42, bloom: 0.92, shadowTint: '#eaeeff', highlightTint: '#fff8ee', aoTint: '#08082a' },
+    },
+  },
+  tiltShift: 0.35,
   grade: {
     exposure: 1.02,
     contrast: 1.08,

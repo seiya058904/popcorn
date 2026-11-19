@@ -5,6 +5,18 @@ const SHADOW_LAYER = 1;
 
 const BIAS = new THREE.Matrix4().set(0.5, 0, 0, 0.5, 0, 0.5, 0, 0.5, 0, 0, 0.5, 0.5, 0, 0, 0, 1);
 
+/**
+ * Apparent size of the sun, as the tangent of its angular radius. The real sun is about 0.005;
+ * a toy diorama under a big soft studio light reads better with a much larger one.
+ */
+const SUN_SIZE = 0.035;
+/** Narrowest and widest shadow filter, in texels, when shadows soften with distance. */
+const MIN_SOFTNESS = 1.4;
+const MAX_SOFTNESS = 13;
+
+const white = new THREE.Color(1, 1, 1);
+const savedClear = new THREE.Color();
+
 /** One directional shadow map. Casters are registered with an explicit depth material. */
 export class ShadowPass {
   readonly camera = new THREE.OrthographicCamera(-8, 8, 8, -8, 0.5, 40);
@@ -18,20 +30,27 @@ export class ShadowPass {
     this.radius = radius;
   }
 
-  setSize(size: number): void {
+  /** `soft`: shadows harden where things touch and soften with distance; otherwise one even filter. */
+  setSize(size: number, soft = false): void {
+    globals.uShadowPenumbra.value.x = soft ? 1 : 0;
     if (this.target?.width === size) return;
     this.target?.dispose();
     const depth = new THREE.DepthTexture(size, size, THREE.UnsignedIntType);
     depth.compareFunction = THREE.LessEqualCompare;
     depth.minFilter = THREE.LinearFilter;
     depth.magFilter = THREE.LinearFilter;
+    // Casters also write their depth as a color: a comparing depth texture can only answer
+    // "lit or not", and a soft shadow needs to know how far away the blocker is.
     this.target = new THREE.WebGLRenderTarget(size, size, {
       depthTexture: depth,
+      format: THREE.RedFormat,
+      type: THREE.HalfFloatType,
       minFilter: THREE.NearestFilter,
       magFilter: THREE.NearestFilter,
       generateMipmaps: false,
     });
     globals.uShadowMap.value = depth;
+    globals.uShadowDepth.value = this.target.texture;
     globals.uShadowTexel.value = 1 / size;
   }
 
@@ -82,7 +101,14 @@ export class ShadowPass {
     cam.updateProjectionMatrix();
     cam.updateMatrixWorld();
     cam.layers.set(SHADOW_LAYER);
-    globals.uShadowOffset.value = (2 * r) / this.target.width;
+    const size = this.target.width;
+    globals.uShadowOffset.value = (2 * r) / size;
+    // Depth runs linearly from near to far under an orthographic light, so a step in depth is
+    // a fixed distance; over that distance the sun's disc spreads the edge by SUN_SIZE per unit.
+    const penumbra = globals.uShadowPenumbra.value;
+    penumbra.y = (((cam.far - cam.near) * SUN_SIZE) / (2 * r)) * size;
+    penumbra.z = MIN_SOFTNESS * (size / 2048);
+    penumbra.w = MAX_SOFTNESS * (size / 2048);
 
     globals.uShadowMatrix.value
       .copy(BIAS)
@@ -95,8 +121,12 @@ export class ShadowPass {
       mesh.material = depth;
     }
     renderer.setRenderTarget(this.target);
-    renderer.clear(true, true, false);
+    // The automatic clear fills the color copy with the far plane, where nothing blocks the light.
+    renderer.getClearColor(savedClear);
+    const alpha = renderer.getClearAlpha();
+    renderer.setClearColor(white, 1);
     renderer.render(scene, cam);
+    renderer.setClearColor(savedClear, alpha);
     for (const [mesh, material] of originals) mesh.material = material;
   }
 }

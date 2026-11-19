@@ -5,6 +5,8 @@ export interface QualitySettings {
   renderScale: number;
   msaa: number;
   shadowSize: number;
+  /** Shadows crisp at contact and softer the farther they fall. */
+  softShadows: boolean;
   ambientOcclusion: boolean;
   depthOfField: boolean;
   /** Screen-space reflections on polished floors. */
@@ -28,6 +30,7 @@ export const QUALITY: Record<QualityTier, QualitySettings> = {
     renderScale: 0.75,
     msaa: 0,
     shadowSize: 1024,
+    softShadows: false,
     ambientOcclusion: false,
     depthOfField: false,
     reflections: false,
@@ -44,6 +47,7 @@ export const QUALITY: Record<QualityTier, QualitySettings> = {
     renderScale: 0.9,
     msaa: 2,
     shadowSize: 1536,
+    softShadows: false,
     ambientOcclusion: false,
     depthOfField: true,
     reflections: false,
@@ -60,6 +64,7 @@ export const QUALITY: Record<QualityTier, QualitySettings> = {
     renderScale: 1,
     msaa: 4,
     shadowSize: 2048,
+    softShadows: true,
     ambientOcclusion: true,
     depthOfField: true,
     reflections: true,
@@ -76,6 +81,7 @@ export const QUALITY: Record<QualityTier, QualitySettings> = {
     renderScale: 1,
     msaa: 4,
     shadowSize: 3072,
+    softShadows: true,
     ambientOcclusion: true,
     depthOfField: true,
     reflections: true,

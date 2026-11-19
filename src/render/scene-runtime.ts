@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { CannonResult } from '../events/game-events.ts';
 import type { Rng } from '../motion/rng.ts';
+import type { Lamp } from './core/globals.ts';
 import type { Stage } from './core/stage.ts';
 import { UPGRADE_BY_ID } from '../content/upgrades.ts';
 import { Cracks, Debris, Parcel } from './fx/breakout.ts';
@@ -74,6 +75,8 @@ export class SceneRuntime {
   holdLaunches = false;
   /** The player asked for reduced motion, so machines arrive without any flourish. */
   calmEntrances = false;
+  /** Set when a save is loaded: the next story step jumps straight to where the scene should be. */
+  snapStory = true;
   private readonly rigs = new Map<UnitKindName, UnitRig>();
   private readonly rng: Rng;
   private launchBudget = 0;
@@ -307,14 +310,20 @@ export class SceneRuntime {
     return this.rigs.get(kind)?.firstCopy() ?? null;
   }
 
-  syncUpgrades(owned: readonly string[]): void {
+  /** `animate` when something was just bought, rather than a save loaded. */
+  syncUpgrades(owned: readonly string[], animate = false): void {
     let pops = 0;
     for (const id of owned) {
       const effect = UPGRADE_BY_ID.get(id)?.effect;
       if (effect?.kind === 'autoPops') pops += effect.perSecond;
     }
     this.stirrer?.setPower(pops);
-    this.parts.upgradesChanged?.(owned);
+    this.parts.upgradesChanged?.(owned, animate && !this.calmEntrances);
+  }
+
+  /** The lamps lighting this scene right now. */
+  get lamps(): readonly Lamp[] {
+    return this.parts.lamps ?? this.spec.lamps ?? [];
   }
 
   fireCannon(result: CannonResult): void {
@@ -322,11 +331,13 @@ export class SceneRuntime {
     if (result !== 'overpressure') this.flock?.scare();
   }
 
-  update(dt: number, ctx: Omit<SceneContext, 'sprites' | 'director' | 'rng'>, cooling: boolean): void {
+  private readonly ground = (x: number, z: number): number => this.pile.heightAt(x, z);
+
+  update(dt: number, ctx: Omit<SceneContext, 'sprites' | 'director' | 'rng' | 'ground'>, cooling: boolean): void {
     this.clock += dt;
     const director = this.director;
     if (director) {
-      const full: SceneContext = { ...ctx, sprites: this.sprites, director, rng: this.rng };
+      const full: SceneContext = { ...ctx, sprites: this.sprites, director, rng: this.rng, ground: this.ground };
       this.launchBudget = Math.min(4, this.launchBudget + dt * MACHINE_LAUNCHES_PER_SECOND);
       this.pile.setLevel(ctx.level);
       director.update(dt);
@@ -340,6 +351,8 @@ export class SceneRuntime {
       this.flock?.update(dt);
       const tempo = 1 + Math.min(1.6, ctx.intensity * 0.28);
       for (const rig of this.rigs.values()) rig.update(dt, ctx.time, tempo);
+      this.parts.progress?.(Math.min(1, ctx.level), dt, this.snapStory, this.calmEntrances);
+      this.snapStory = false;
       this.parts.update(dt, full);
     }
     this.pile.update(dt);
@@ -385,7 +398,7 @@ export class SceneRuntime {
   }
 
   context(time: number, level: number, intensity: number): SceneContext | null {
-    return this.director ? { time, level, intensity, attract: false, sprites: this.sprites, director: this.director, rng: this.rng } : null;
+    return this.director ? { time, level, intensity, attract: false, sprites: this.sprites, director: this.director, rng: this.rng, ground: this.ground } : null;
   }
 
   /** As the camera pulls away, this scene stops casting shadows: they would be too small to see. */

@@ -5,6 +5,7 @@ import type { Stage } from '../core/stage.ts';
 import type { Sprites } from '../fx/sprites.ts';
 import type { PopDirector } from '../popcorn/director.ts';
 import type { PileShape } from '../popcorn/pile.ts';
+import type { Story } from './story.ts';
 
 export interface Grade {
   exposure: number;
@@ -79,6 +80,8 @@ export interface SceneContext {
   sprites: Sprites;
   director: PopDirector;
   rng: Rng;
+  /** Height of the popcorn, or of the floor where there is none, so figures can stand on top. */
+  ground(x: number, z: number): number;
 }
 
 /** The hand-built, scene-specific part of a stage. */
@@ -93,8 +96,16 @@ export interface SceneParts {
   blast?(ctx: SceneContext): void;
   /** Free-flight of anything thrown by the blast. */
   afterBlast?(dt: number, ctx: SceneContext): void;
-  /** Upgrades that change the set, such as a conveyor between machines. */
-  upgradesChanged?(owned: readonly string[]): void;
+  /** Upgrades that change the set, such as a conveyor between machines. `animate` is false when a save is loaded. */
+  upgradesChanged?(owned: readonly string[], animate: boolean): void;
+  /**
+   * How full the scene is, 0 to 1, every frame before update: the set moves along its story.
+   * `instant` means a save was just loaded, so lights and the like should be where they belong at once;
+   * `calm` asks for reduced motion, so lights fade instead of stuttering on.
+   */
+  progress?(u: number, dt: number, instant: boolean, calm: boolean): void;
+  /** The scene's own lamps, when it switches them on and off; otherwise the spec's are used. */
+  lamps?: Lamp[];
   /** Progress of the camera arriving in this scene, 0..1, for anything that must clear the path. */
   enter?(u: number): void;
   /** Called when this scene becomes a small prop inside the next one. */
@@ -107,6 +118,10 @@ export interface SceneParts {
 export interface SceneSpec {
   id: number;
   light: LightRig;
+  /** The middle and late looks the light and grade move through as the scene fills up. */
+  story?: Story;
+  /** Strength of the miniature-photography focus band in the wide shot, 0 to 1. */
+  tiltShift?: number;
   /** Colors of the pieces thrown out when the vessel bursts. */
   debris?: string[];
   /** Practical lights that spill onto everything nearby. */

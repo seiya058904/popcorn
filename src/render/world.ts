@@ -8,11 +8,13 @@ import { Rng } from '../motion/rng.ts';
 import { tuning } from '../motion/tuning.ts';
 import { showIntensity } from '../sim/economy.ts';
 import type { Simulation } from '../sim/simulation.ts';
-import { applyLamps, applyLightRig, globals, type LightRig } from './core/globals.ts';
+import { applyLamps, applyLightRig, globals, type Lamp, type LightRig } from './core/globals.ts';
 import { releaseSharedShapes } from './geometry/kit.ts';
 import { QUALITY } from './core/quality.ts';
 import type { Stage } from './core/stage.ts';
+import { popcornUniforms } from './materials/popcorn.ts';
 import { SceneRuntime, type RuntimeHooks } from './scene-runtime.ts';
+import { mixGrade, mixRig, moodScratch, storyMood } from './scenes/story.ts';
 import { cinemaSpec } from './scenes/cinema.ts';
 import { earthSpec } from './scenes/earth.ts';
 import { kitchenSpec } from './scenes/kitchen.ts';
@@ -32,6 +34,8 @@ export interface WorldHooks {
   onBreakBeat(beat: BreakBeat, stage: number): void;
   onFinaleBeat(beat: FinaleBeat): void;
   onFinaleDone(): void;
+  /** Where the music is within its beat, 0 to 1, so the frenzy lights can pulse in time. */
+  beatPhase(): number;
 }
 
 /** Scenes in play order; later milestones extend this list. */
@@ -61,14 +65,28 @@ const FOCUS_DEPTH = 1.8;
 const REFLECTION_REACH = 14;
 /** Milliseconds per frame spent building the next scene in the background. */
 const BUILD_BUDGET_MS = 4;
+/** The miniature focus band, for scenes that do not set their own strength. */
+const TILT_SHIFT = 0.4;
+/** Short-lived lights for big moments: a cannon shot, a golden kernel, a breakout. */
+const FLASH_LIGHTS = 2;
+const FLASH_ATTACK = 0.035;
+/** Event lights are this much dimmer with reduced motion, which also tones down flashes. */
+const CALM_FLASH = 0.5;
+const frenzyWarm = new THREE.Color('#ffd9a8');
+const frenzyLampColor = new THREE.Color('#ffae4a');
+
+interface Flash {
+  lamp: Lamp & { color: THREE.Color };
+  peak: number;
+  age: number;
+  decay: number;
+}
 
 const ndc = new THREE.Vector2();
 const v = new THREE.Vector3();
 const v2 = new THREE.Vector3();
 const right = new THREE.Vector3();
 const up = new THREE.Vector3();
-const colorA = new THREE.Color();
-const colorB = new THREE.Color();
 
 const smoothstep = (x: number, a: number, b: number): number => {
   const t = clamp01((x - a) / (b - a));
@@ -86,6 +104,8 @@ interface Pose {
   shadowRadius: number;
   rig: LightRig;
   grade: Grade;
+  /** Strength of the miniature focus band. */
+  tilt: number;
 }
 
 interface Transition {
@@ -100,42 +120,6 @@ interface Transition {
 }
 
 const logLerp = (a: number, b: number, t: number): number => Math.exp(lerp(Math.log(a), Math.log(b), t));
-
-function mixRig(a: LightRig, b: LightRig, t: number): LightRig {
-  const color = (x: THREE.ColorRepresentation, y: THREE.ColorRepresentation): THREE.Color => colorA.set(x).lerp(colorB.set(y), t).clone();
-  const tuple3 = (x: [number, number, number], y: [number, number, number]): [number, number, number] => [lerp(x[0], y[0], t), lerp(x[1], y[1], t), lerp(x[2], y[2], t)];
-  return {
-    sunDir: tuple3(a.sunDir, b.sunDir),
-    sunColor: color(a.sunColor, b.sunColor),
-    sunIntensity: lerp(a.sunIntensity, b.sunIntensity, t),
-    shadeTint: color(a.shadeTint, b.shadeTint),
-    sky: color(a.sky, b.sky),
-    skyIntensity: lerp(a.skyIntensity, b.skyIntensity, t),
-    ground: color(a.ground, b.ground),
-    groundIntensity: lerp(a.groundIntensity, b.groundIntensity, t),
-    rim: color(a.rim, b.rim),
-    rimIntensity: lerp(a.rimIntensity, b.rimIntensity, t),
-    rimDir: tuple3(a.rimDir, b.rimDir),
-    fog: color(a.fog, b.fog),
-    fogRange: [logLerp(a.fogRange[0], b.fogRange[0], t), logLerp(a.fogRange[1], b.fogRange[1], t)],
-    pool: [lerp(a.pool[0], b.pool[0], t), lerp(a.pool[1], b.pool[1], t), lerp(a.pool[2], b.pool[2], t), logLerp(a.pool[3], b.pool[3], t)],
-    poolFloor: lerp(a.poolFloor, b.poolFloor, t),
-  };
-}
-
-function mixGrade(a: Grade, b: Grade, t: number): Grade {
-  const color = (x: THREE.ColorRepresentation, y: THREE.ColorRepresentation): THREE.Color => colorA.set(x).lerp(colorB.set(y), t).clone();
-  return {
-    exposure: lerp(a.exposure, b.exposure, t),
-    contrast: lerp(a.contrast, b.contrast, t),
-    saturation: lerp(a.saturation, b.saturation, t),
-    vignette: lerp(a.vignette, b.vignette, t),
-    bloom: lerp(a.bloom, b.bloom, t),
-    shadowTint: color(a.shadowTint, b.shadowTint),
-    highlightTint: color(a.highlightTint, b.highlightTint),
-    aoTint: color(a.aoTint, b.aoTint),
-  };
-}
 
 export class World {
   readonly root = new THREE.Group();
@@ -181,6 +165,18 @@ export class World {
   private framedInset = Number.NaN;
   private readonly framingCamera = new THREE.PerspectiveCamera();
   private spotlight: { center: THREE.Vector3; size: number; yaw: number; elevation: number; t: number } | null = null;
+  private readonly flashes: Flash[] = Array.from({ length: FLASH_LIGHTS }, () => ({
+    lamp: { position: [0, 0, 0], color: new THREE.Color(), intensity: 0, radius: 1 },
+    peak: 0,
+    age: 9,
+    decay: 0.3,
+  }));
+  private readonly frenzyLamp: Lamp & { color: THREE.Color } = { position: [0, 0, 0], color: new THREE.Color(), intensity: 0, radius: 1 };
+  /** Lit after the scene's own lamps whenever they are on. */
+  private readonly eventLamps: Lamp[] = [...this.flashes.map((flash) => flash.lamp), this.frenzyLamp];
+  /** 0 to 1, easing in and out with a frenzy. */
+  private frenzy = 0;
+  private readonly mood = moodScratch();
 
   constructor(stage: Stage, sim: Simulation, bus: EventBus<GameEvents>, impact: ImpactDirector, hooks: WorldHooks) {
     this.stage = stage;
@@ -193,6 +189,7 @@ export class World {
       onBurst: (position, combo, gain, manual, golden) => {
         v.copy(position);
         this.current?.root.localToWorld(v);
+        if (golden) this.flashLight(v, '#ffcf3a', 2.4, (this.current?.spec.pile.k ?? 1) * 3.4, 0.4);
         v.project(this.stage.camera);
         const canvas = this.stage.renderer.domElement;
         this.hooks.onBurst((v.x * 0.5 + 0.5) * canvas.clientWidth, (0.5 - v.y * 0.5) * canvas.clientHeight, combo, gain, manual, golden);
@@ -222,7 +219,7 @@ export class World {
     });
     bus.on('upgrade_purchased', ({ spent }) => {
       this.scoopPayment(spent);
-      this.current?.syncUpgrades(this.sim.state.upgrades);
+      this.current?.syncUpgrades(this.sim.state.upgrades, true);
     });
     bus.on('flavor_unlocked', ({ flavor, spent }) => {
       this.scoopPayment(spent);
@@ -232,7 +229,11 @@ export class World {
     bus.on('cannon_fired', ({ result }) => {
       this.current?.fireCannon(result);
       this.impact.hit(result === 'overpressure' ? 'medium' : 'large');
-      if (result !== 'overpressure') this.shockAtCannon();
+      if (result === 'overpressure') return;
+      this.shockAtCannon();
+      const cannon = this.current?.heroCannon;
+      const k = this.current?.spec.pile.k ?? 1;
+      if (cannon) this.flashLight(cannon.muzzle(v2), result === 'perfect' ? '#ffd27a' : '#ffa552', result === 'perfect' ? 4 : 3, k * 9, 0.22);
     });
     bus.on('stage_broken', ({ stage: broken }) => this.beginBreak(broken));
     bus.on('hopper_spawned', () => this.current?.director?.showHopper());
@@ -357,6 +358,7 @@ export class World {
     runtime.root.position.set(0, 0, 0);
     runtime.root.scale.setScalar(1);
     runtime.root.visible = true;
+    runtime.snapStory = true;
     this.currentIndex = index;
     if (index > 0) {
       const previous = this.runtime(index - 1, false);
@@ -483,8 +485,13 @@ export class World {
     if (this.spotlight) this.spotlight.t = Math.max(this.spotlight.t, SPOTLIGHT_IN + SPOTLIGHT_HOLD);
     const combo = director.comboCount;
     if (combo > 0 && combo % COMBO_STEP === 0) {
-      runtime.comboBurst(Math.min(3, combo / (COMBO_STEP * 2)));
+      const power = Math.min(3, combo / (COMBO_STEP * 2));
+      runtime.comboBurst(power);
       this.hooks.onCombo(combo);
+      const { pile } = runtime;
+      const k = pile.shape.k;
+      v.set(pile.shape.centerX, pile.heightAt(pile.shape.centerX, pile.shape.centerZ) + k, pile.shape.centerZ);
+      this.flashLight(runtime.root.localToWorld(v), '#ffc070', 1.1 + power * 0.5, k * 4.5, 0.28);
     }
   }
 
@@ -548,6 +555,7 @@ export class World {
       target: rest.target.clone().lerp(aim, u),
       focusDistance: lerp(rest.focusDistance, distance, u),
       focusRange: lerp(rest.focusRange, s.size * 1.1, u),
+      tilt: rest.tilt * (1 - u),
     };
   }
 
@@ -662,6 +670,9 @@ export class World {
     tr.to.root.position.set(0, 0, 0);
     tr.to.root.scale.setScalar(1);
     this.nest(from, tr.to);
+    // The burst lights up the room the old scene has just become a corner of.
+    from.root.updateWorldMatrix(true, false);
+    this.flashLight(from.root.localToWorld(v.set(0, from.spec.steamY, 0)), '#ffd08a', 4.5, tr.to.spec.pile.k * 16, 0.8);
     from.beginShrinking(this.stage);
     // Whatever was nested inside the old scene is now too small to matter.
     this.runtimes[SCENES.indexOf(from.spec) - 1]?.root.removeFromParent();
@@ -684,7 +695,9 @@ export class World {
     const turn = this.nestTurn(spec);
     const toParent = (p: THREE.Vector3): THREE.Vector3 => p.clone().multiplyScalar(m).applyQuaternion(turn).add(nest.position);
     const camera = this.stage.camera;
-    const rig = spec.light;
+    // The scene leaves in its late look, which is where its story ended.
+    const late = storyMood(spec.light, spec.grade, spec.story, 1, moodScratch());
+    const rig = late.rig;
     const c = toParent(new THREE.Vector3(...(rig.pool.slice(0, 3) as [number, number, number])));
     return {
       position: toParent(camera.position),
@@ -696,7 +709,8 @@ export class World {
       shadowCenter: toParent(spec.shadow.center),
       shadowRadius: spec.shadow.radius * m,
       rig: { ...rig, pool: [c.x, c.y, c.z, rig.pool[3] * m], fogRange: [rig.fogRange[0] * m, rig.fogRange[1] * m] },
-      grade: spec.grade,
+      grade: late.grade,
+      tilt: this.stage.post.params.tilt.x,
     };
   }
 
@@ -798,6 +812,7 @@ export class World {
     this.shownInset += (this.uiInset - this.shownInset) * (1 - Math.exp(-dt * 3));
     if (Math.abs(this.uiInset - this.framedInset) > 0.01) this.updateFraming();
     this.frameOpen += (this.wantedOpen - this.frameOpen) * (1 - Math.exp(-dt * 1.6));
+    this.updateEventLights(dt);
     this.applyView(dt);
   }
 
@@ -824,8 +839,12 @@ export class World {
     pose.aoRadius = spec.aoRadius;
     pose.shadowCenter.copy(spec.close.target).lerp(spec.shadow.center, t);
     pose.shadowRadius = spec.shadow.radius * shadowTight;
-    pose.rig = spec.light;
-    pose.grade = spec.grade;
+    // The light follows the scene's story, which moves with how full it is, not with the framing.
+    const mood = storyMood(spec.light, spec.grade, spec.story, spec === this.current?.spec ? this.level : 0, this.mood);
+    pose.rig = mood.rig;
+    pose.grade = mood.grade;
+    // The miniature look belongs to the wide shot; the close opening view stays plain.
+    pose.tilt = (spec.tiltShift ?? TILT_SHIFT) * t;
     return pose;
   }
 
@@ -900,6 +919,7 @@ export class World {
       shadowRadius: logLerp(a.shadowRadius, b.shadowRadius, t),
       rig: mixRig(a.rig, b.rig, t),
       grade: mixGrade(a.grade, b.grade, t),
+      tilt: lerp(a.tilt, b.tilt, t),
     };
   }
 
@@ -928,7 +948,7 @@ export class World {
     camera.updateProjectionMatrix();
 
     applyLightRig(pose.rig);
-    applyLamps(this.current?.spec.lamps ?? [], this.time, this.stage.quality.lamps);
+    applyLamps(this.current?.lamps ?? [], this.time, this.stage.quality.lamps, this.eventLamps);
     shadow.setFrustum(pose.shadowCenter, pose.shadowRadius);
     globals.uOutlineRefDist.value = distance * 0.72;
 
@@ -945,6 +965,60 @@ export class World {
     p.shadowTint.set(pose.grade.shadowTint);
     p.highlightTint.set(pose.grade.highlightTint);
     p.aoTint.set(pose.grade.aoTint);
+    p.tilt.set(pose.tilt, 0.5, 0.2);
+    if (this.frenzy > 0) {
+      // A frenzy runs warm and bright, and the glow swells on every beat.
+      const f = this.frenzy;
+      const beat = this.reduceMotion ? 0 : (1 - this.hooks.beatPhase()) ** 4;
+      p.exposure *= 1 + 0.05 * f;
+      p.saturation *= 1 + 0.1 * f;
+      p.bloom += (0.16 + 0.14 * beat) * f;
+      p.highlightTint.lerp(frenzyWarm, 0.4 * f);
+    }
+  }
+
+  /** A brief light at a point in the world, for a moment the whole set should feel. */
+  private flashLight(at: THREE.Vector3, color: THREE.ColorRepresentation, intensity: number, radius: number, decay: number): void {
+    let flash = this.flashes[0]!;
+    for (const other of this.flashes) if (other.age > flash.age) flash = other;
+    flash.lamp.position[0] = at.x;
+    flash.lamp.position[1] = at.y;
+    flash.lamp.position[2] = at.z;
+    flash.lamp.color.set(color);
+    flash.lamp.radius = radius;
+    flash.peak = intensity * (this.reduceMotion ? CALM_FLASH : 1);
+    flash.age = 0;
+    flash.decay = decay;
+  }
+
+  private updateEventLights(dt: number): void {
+    for (const flash of this.flashes) {
+      flash.age += dt;
+      const level = flash.age < FLASH_ATTACK ? flash.age / FLASH_ATTACK : Math.exp(-(flash.age - FLASH_ATTACK) / flash.decay);
+      flash.lamp.intensity = level * flash.peak < 0.004 ? 0 : level * flash.peak;
+    }
+    const wanted = this.sim.state.frenzy > 0 && !this.attract ? 1 : 0;
+    this.frenzy += (wanted - this.frenzy) * (1 - Math.exp(-dt * 2.5));
+    if (this.frenzy < 0.002) this.frenzy = 0;
+    popcornUniforms.uFrenzy.value = this.frenzy;
+    const lamp = this.frenzyLamp;
+    const runtime = this.current;
+    if (!runtime || this.frenzy === 0) {
+      lamp.intensity = 0;
+      return;
+    }
+    // A warm light hangs over the heap and throbs with the music.
+    const { pile } = runtime;
+    const k = pile.shape.k;
+    v.set(pile.shape.centerX, pile.heightAt(pile.shape.centerX, pile.shape.centerZ) + 3 * k, pile.shape.centerZ);
+    runtime.root.localToWorld(v);
+    lamp.position[0] = v.x;
+    lamp.position[1] = v.y;
+    lamp.position[2] = v.z;
+    lamp.color.copy(frenzyLampColor);
+    lamp.radius = runtime.spec.spreadRadius * 0.55;
+    const pulse = this.reduceMotion ? 0.5 : (1 - this.hooks.beatPhase()) ** 3;
+    lamp.intensity = this.frenzy * (0.5 + 0.7 * pulse);
   }
 
   // QA --------------------------------------------------------------------------------

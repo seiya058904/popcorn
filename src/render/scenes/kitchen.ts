@@ -1,12 +1,16 @@
 import * as THREE from 'three';
-import { Spring } from '../../motion/ease.ts';
+import { lerp, Spring } from '../../motion/ease.ts';
+import { lightGroup, type Lamp } from '../core/globals.ts';
 import type { Stage } from '../core/stage.ts';
 import { SpriteKind } from '../fx/sprites.ts';
 import { addLightBeam } from '../fx/beam.ts';
 import { addToy, at, Kit, P, Pattern } from '../geometry/kit.ts';
+import { blendSky, skyMaterial, skyUniforms, type SkyLook } from '../materials/sky.ts';
 import { toyMaterials } from '../materials/toy.ts';
 import type { SceneContext, SceneBuild, SceneSpec, UnitSlot } from './types.ts';
 import { dressKitchen, fridgeBadge } from './dress.ts';
+import { SetPieces, toyFigure } from './pieces.ts';
+import { alongStory, LightBank, storyWeights } from './story.ts';
 import { vesselPile } from './vessel.ts';
 
 const GROUND = -5.6;
@@ -133,23 +137,104 @@ function fridgeDoor(): THREE.BufferGeometry {
   kit.add(P.sphere(0.16, 8, 6), { color: C.butter, gloss: 0.9, matrix: at(3.6, -2.2, 0.32) });
   kit.add(P.box(0.5, 0.36, 0.08, 0.04, 1), { color: C.sky, gloss: 0.8, matrix: at(3.5, -0.8, 0.3, [0, 0, -0.15]) });
   fridgeBadge(kit);
+  // The light inside, seen along the gap once the door has been left ajar.
+  kit.add(P.box(0.1, 11.2, 0.3, 0.04, 1), { color: '#d8f0ff', emissive: 1, outline: 0, light: lightGroup(1, LIT.fridge), matrix: at(5.86, 0.3, -0.32) });
+  return kit.build();
+}
+
+/** Kitchen light groups, in the order they come on as the afternoon turns to evening. */
+const LIT = { pendant: 0, strip: 1, fridge: 2, sconceL: 3, sconceR: 4, chandelier: 5 } as const;
+const SCONCES: Array<[number, number]> = [[-16.6, 10.6], [-4.2, 10.6]];
+const STRIP = { x: 23, y: 4.45, z: -14.95 };
+const CHANDELIER_AT = new THREE.Vector3(-13, 13.4, -7.5);
+const RUG = { x: -6.6, y: GROUND + 0.135, z: 11.2 };
+
+/** The lived-in layer: chairs at the table, a calendar, cookbooks, wall lamps and a cabinet light. */
+function addLivedIn(kit: Kit): void {
+  const wood = { color: '#b87542', gloss: 0.4, pattern: Pattern.Wood + 0.4 };
+  for (const [x, z, turn] of [[-4.6, -4.9, 0.75], [4.7, -4.8, -0.75]] as const) {
+    const seat = GROUND + 3.1;
+    const c = Math.cos(turn);
+    const s = Math.sin(turn);
+    const place = (lx: number, ly: number, lz: number): THREE.Matrix4 => at(x + lx * c + lz * s, ly, z - lx * s + lz * c, [0, turn, 0]);
+    kit.add(P.box(2.6, 0.26, 2.5, 0.1, 2), { ...wood, matrix: place(0, seat, 0) });
+    kit.add(P.box(2.5, 0.16, 2.4, 0.06, 1), { color: '#d8473f', gloss: 0.2, pattern: Pattern.Fabric, matrix: place(0, seat + 0.2, 0.05) });
+    for (const [lx, lz] of [[-1.05, -1.0], [1.05, -1.0], [-1.05, 1.0], [1.05, 1.0]] as const) {
+      kit.add(P.puck(0.14, 0.11, 3.0, 10, 0.03), { ...wood, matrix: place(lx, GROUND, lz) });
+    }
+    kit.add(P.box(2.6, 0.5, 0.24, 0.1, 2), { ...wood, matrix: place(0, seat + 3.1, -1.12) });
+    for (const lx of [-0.8, 0, 0.8]) kit.add(P.puck(0.08, 0.08, 2.8, 8, 0.02), { ...wood, outline: 0.5, matrix: place(lx, seat + 0.1, -1.12) });
+  }
+  // A calendar beside the fridge, still on a month long gone.
+  kit.add(P.box(2.2, 3, 0.05, 0.03, 1), { color: '#fff7e6', gloss: 0.08, pattern: Pattern.Paper, matrix: at(-16.2, 2.6, -17.26) });
+  kit.add(P.box(2.2, 1.1, 0.06, 0.03, 1), { color: '#d8313a', gloss: 0.3, outline: 0.4, matrix: at(-16.2, 3.6, -17.24) });
+  for (let row = 0; row < 4; row += 1) {
+    for (let col = 0; col < 5; col += 1) kit.add(P.box(0.24, 0.2, 0.01, 0.005, 1), { color: (row * 5 + col) % 7 === 6 ? '#d8313a' : '#8a7a6a', outline: 0, detail: 1, matrix: at(-17 + col * 0.4, 2.55 - row * 0.34, -17.22) });
+  }
+  // Cookbooks between the jars on the shelf over the stove.
+  ['#3f7fd8', '#ffc53f', '#2f9e87'].forEach((color, i) => {
+    kit.add(P.box(0.42, 1.5 - i * 0.12, 1.1, 0.05, 1), { color, gloss: 0.35, pattern: Pattern.Paper, matrix: at(-6.25 + i * 0.46, 5.18 + (0.75 - i * 0.06), -16.45, [0, 0, i === 2 ? -0.18 : 0]) });
+  });
+  // Two wall lamps either side of the pictures.
+  for (const [x, y] of SCONCES) {
+    const group = lightGroup(1, x < -10 ? LIT.sconceL : LIT.sconceR);
+    kit.add(P.puck(0.5, 0.42, 0.18, 20, 0.05), { color: '#e4b252', gloss: 0.84, metal: 1, matrix: at(x, y, -17.33, [Math.PI / 2, 0, 0]) });
+    kit.add(P.tube([new THREE.Vector3(x, y, -17.2), new THREE.Vector3(x, y + 0.35, -16.6), new THREE.Vector3(x, y + 0.3, -16.2)], 0.08, 8, 6), { color: '#e4b252', gloss: 0.84, metal: 1 });
+    kit.add(P.lathe([[0.22, 0.5], [0.72, -0.5], [0.66, -0.56], [0.18, 0.44]], 24, 0.05, 2), { color: '#fff0d4', gloss: 0.4, emissive: 0.4, light: group, lightKeepsPaint: true, matrix: at(x, y + 0.65, -16.2) });
+    kit.add(P.sphere(0.26, 12, 8), { color: '#fff1c4', emissive: 1, outline: 0, light: group, matrix: at(x, y + 0.35, -16.2) });
+  }
+  // A light tucked under the far cabinet, washing the worktop below it.
+  kit.add(P.box(9.6, 0.22, 0.4, 0.06, 2), { color: C.cream, gloss: 0.5, matrix: at(STRIP.x, STRIP.y + 0.05, STRIP.z) });
+  kit.add(P.capsule(0.08, 9, 3, 8), { color: '#fff1c4', emissive: 1, outline: 0, light: lightGroup(1, LIT.strip), matrix: at(STRIP.x, STRIP.y - 0.08, STRIP.z + 0.05, [0, 0, Math.PI / 2]) });
+}
+
+function chandelierGeometry(): THREE.BufferGeometry {
+  // Hangs from a chain that starts well above the picture.
+  const kit = new Kit();
+  const brass = { color: '#e9bd5c', gloss: 0.9, metal: 1, wear: 0.25 };
+  const crystal = { color: '#e9f6ff', gloss: 1, coat: 1, metal: 0.35, outline: 0.3 };
+  for (let i = 0; i < 9; i += 1) kit.add(P.torus(0.22, 0.06, 6, 12), { ...brass, outline: 0.3, matrix: at(0, 1.4 + i * 0.85, 0, [0, i * 1.57, 0]) });
+  kit.add(P.lathe([[0, -1.2], [0.3, -1], [0.5, -0.2], [0.34, 0.6], [0.2, 1.2], [0, 1.4]], 20, 0.08, 3), brass);
+  kit.add(P.torus(2.2, 0.12, 8, 48), { ...brass, matrix: at(0, -0.3, 0, [Math.PI / 2, 0, 0]) });
+  kit.add(P.torus(1.25, 0.09, 8, 36), { ...brass, matrix: at(0, 0.5, 0, [Math.PI / 2, 0, 0]) });
+  for (let i = 0; i < 6; i += 1) {
+    const a = (i / 6) * Math.PI * 2;
+    const x = Math.cos(a) * 2.2;
+    const z = Math.sin(a) * 2.2;
+    kit.add(P.tube([new THREE.Vector3(0, -0.7, 0), new THREE.Vector3(x * 0.55, -0.55, z * 0.55), new THREE.Vector3(x, -0.3, z)], 0.07, 8, 6), brass);
+    kit.add(P.puck(0.24, 0.3, 0.2, 14, 0.05), { ...brass, matrix: at(x, -0.3, z) });
+    kit.add(P.capsule(0.12, 0.42, 3, 8), { color: '#fff7e6', gloss: 0.3, emissive: 0.2, light: lightGroup(1, LIT.chandelier), lightKeepsPaint: true, matrix: at(x, 0.2, z) });
+    kit.add(P.sphere(0.16, 10, 8), { color: '#ffe9a8', emissive: 1, outline: 0, light: lightGroup(1, LIT.chandelier), matrix: at(x, 0.62, z, [0, 0, 0], [0.8, 1.3, 0.8]) });
+    // Drops of cut crystal under every arm, and a ring of them round the hoop.
+    for (let d = 0; d < 3; d += 1) kit.add(P.sphere(0.16 - d * 0.03, 6, 4), { ...crystal, matrix: at(x * 0.92, -0.72 - d * 0.34, z * 0.92, [0, a, 0], [0.75, 1.3, 0.75]) });
+    const b = a + Math.PI / 6;
+    kit.add(P.sphere(0.2, 6, 4), { ...crystal, matrix: at(Math.cos(b) * 1.8, -0.95, Math.sin(b) * 1.8, [0, b, 0], [0.75, 1.4, 0.75]) });
+  }
+  kit.add(P.sphere(0.42, 8, 6), { ...crystal, matrix: at(0, -1.55, 0, [0, 0.4, 0], [0.8, 1.3, 0.8]) });
+  return kit.build();
+}
+
+function rugGeometry(): THREE.BufferGeometry {
+  // A striped runner in front of the sink, with tassels at both ends.
+  const kit = new Kit();
+  const bands = ['#2f9e87', '#ffc53f', '#d8473f', '#fff0d4', '#7a5bd0', '#ffc53f', '#2f9e87'];
+  const width = 9;
+  const depth = 3.8;
+  bands.forEach((color, i) => {
+    kit.add(P.box(width / bands.length + 0.01, 0.07, depth, 0.02, 1), { color, gloss: 0.05, pattern: Pattern.Fabric + 0.25, outline: 0, fixedColor: true, matrix: at(-width / 2 + (i + 0.5) * (width / bands.length), 0.035, 0) });
+  });
+  kit.add(P.box(width + 0.1, 0.05, depth + 0.1, 0.02, 1), { color: '#6e2c48', gloss: 0.05, pattern: Pattern.Fabric + 0.25, outline: 0.4, fixedColor: true, matrix: at(0, 0.02, 0) });
+  for (const side of [-1, 1]) {
+    for (let i = 0; i < 12; i += 1) kit.add(P.capsule(0.045, 0.32, 2, 5), { color: '#fff0d4', gloss: 0.1, outline: 0, fixedColor: true, detail: 1, matrix: at(side * (width / 2 + 0.2), 0.04, -depth / 2 + 0.18 + i * ((depth - 0.36) / 11), [0, 0, Math.PI / 2]) });
+  }
   return kit.build();
 }
 
 const WINDOW = { x: 10, y: 6.6, w: 9, h: 6.6 };
 
+/** The window frame; the sky is its own pane so the afternoon can turn into evening. */
 function addWindow(kit: Kit): void {
   const { x, y, w, h } = WINDOW;
-  const dusk = new THREE.Color(C.dusk);
-  const night = new THREE.Color(C.night);
-  kit.add(P.box(w, h, 0.14, 0.05, 1), {
-    color: C.night,
-    gloss: 0,
-    emissive: 0.55,
-    outline: 0,
-    matrix: at(x, y, -17.15),
-    colorFn: (p, _n, out) => out.lerpColors(dusk, night, Math.pow(smooth(y - h / 2, y + h / 2 - 0.5, p.y), 0.6)),
-  });
   const frame = { color: C.trim, gloss: 0.45 };
   kit.add(P.box(w + 0.8, 0.4, 0.5, 0.12, 2), { ...frame, matrix: at(x, y + h / 2 + 0.1, -17) });
   kit.add(P.box(w + 1.4, 0.45, 1.1, 0.12, 2), { ...frame, matrix: at(x, y - h / 2 - 0.1, -16.8) });
@@ -157,15 +242,6 @@ function addWindow(kit: Kit): void {
   kit.add(P.box(0.4, h + 0.4, 0.5, 0.12, 2), { ...frame, matrix: at(x + w / 2 + 0.1, y, -17) });
   kit.add(P.box(0.18, h, 0.26, 0.05, 1), { ...frame, matrix: at(x, y, -17.05) });
   kit.add(P.box(w, 0.18, 0.26, 0.05, 1), { ...frame, matrix: at(x, y + 0.3, -17.05) });
-  for (let i = 0; i < 9; i += 1) {
-    const a = i * 2.4;
-    kit.add(P.sphere(0.05 + (i % 3) * 0.018, 6, 5), {
-      color: C.moon,
-      emissive: 1,
-      outline: 0,
-      matrix: at(x + Math.cos(a) * (1 + i * 0.42), y + 1.8 + Math.sin(a * 1.7) * 1.2, -17.05),
-    });
-  }
   // Scalloped valance.
   for (let i = -5; i <= 5; i += 1) {
     kit.add(P.sphere(0.56, 14, 10), {
@@ -279,11 +355,33 @@ function lampGeometry(): THREE.BufferGeometry {
   const kit = new Kit();
   kit.add(P.capsule(0.05, 6.4, 2, 6), { color: C.navy, gloss: 0.2, outline: 0, matrix: at(0, -3.2, 0) });
   kit.add(P.lathe([[0, -7.9], [2.4, -7.9], [2.3, -7.75], [0.8, -6.8], [0.32, -6.5], [0, -6.45]], 36, 0.08), { color: C.red, gloss: 0.85, coat: 0.55, pattern: Pattern.Enamel, wear: 0.2, matrix: at(0, 0, 0) });
-  kit.add(P.sphere(0.72, 18, 12), { color: '#fff3c8', emissive: 1, outline: 0, matrix: at(0, -7.95, 0, [0, 0, 0], [1, 0.62, 1]) });
+  kit.add(P.sphere(0.72, 18, 12), { color: '#fff3c8', emissive: 1, outline: 0, light: lightGroup(1, LIT.pendant), matrix: at(0, -7.95, 0, [0, 0, 0], [1, 0.62, 1]) });
   return kit.build();
 }
 
 const steam = new THREE.Color(0.92, 0.9, 0.88);
+const color = new THREE.Color();
+
+/** Out of the window: a bright afternoon, a sunset, then evening. */
+const SKY: [SkyLook, SkyLook, SkyLook] = [
+  { top: '#4f9fe8', horizon: '#d6ecff', glow: '#fff2c8', glowStrength: 0.25, stars: 0, clouds: 0.75, cloud: '#ffffff', brightness: 1.15 },
+  { top: '#4c4cae', horizon: '#ff9a5a', glow: '#ff7a3a', glowStrength: 0.95, stars: 0.08, clouds: 0.5, cloud: '#ffb48a', brightness: 1.15 },
+  { top: '#10164e', horizon: '#3a2f7c', glow: '#8a4a9a', glowStrength: 0.25, stars: 1, clouds: 0.1, cloud: '#3a3a6a', brightness: 1.05 },
+];
+
+interface WindowLight {
+  color: string;
+  intensity: number;
+  beam: string;
+  strength: number;
+}
+
+/** What the window throws into the room: afternoon sun, sunset orange, then moonlight. */
+const WINDOW_LIGHT: [WindowLight, WindowLight, WindowLight] = [
+  { color: '#fff0c8', intensity: 0.95, beam: '#fff0c4', strength: 0.085 },
+  { color: '#ff9a5a', intensity: 0.75, beam: '#ffb07a', strength: 0.075 },
+  { color: '#a88cff', intensity: 0.5, beam: '#c79bff', strength: 0.05 },
+];
 
 function* buildKitchen(stage: Stage, root: THREE.Group): SceneBuild {
   const set = new Kit();
@@ -297,14 +395,22 @@ function* buildKitchen(stage: Stage, root: THREE.Group): SceneBuild {
   addCounter(set);
   yield;
   addDecor(set);
+  addLivedIn(set);
   yield;
   dressKitchen(set, GROUND, COUNTER_TOP);
   yield;
   addToy(stage, root, set.build({ frozen: true }));
   yield;
-  // The pool under the pendant lamp, and moonlight falling from the window.
-  addLightBeam(root, new THREE.Vector3(0, 10.2, 0), new THREE.Vector3(0, GROUND, 0), 1.9, 10, '#ffd9a4', 0.07);
-  addLightBeam(root, new THREE.Vector3(10, 7.2, -16.9), new THREE.Vector3(1, GROUND, -3), 3.2, 6.5, '#c79bff', 0.05);
+  // The pool under the pendant lamp, and the light falling in through the window.
+  const pendantBeam = (addLightBeam(root, new THREE.Vector3(0, 10.2, 0), new THREE.Vector3(0, GROUND, 0), 1.9, 10, '#ffd9a4', 0.07).material as THREE.ShaderMaterial).uniforms;
+  const windowBeam = (addLightBeam(root, new THREE.Vector3(10, 7.2, -16.9), new THREE.Vector3(1, GROUND, -3), 3.2, 6.5, '#c79bff', 0.05).material as THREE.ShaderMaterial).uniforms;
+  // Out of the window: an afternoon sky, a sunset, then the moon over the rooftops.
+  const sky = skyUniforms();
+  sky.uRange.value.set(-WINDOW.h / 2, WINDOW.h / 2);
+  sky.uGlowAt.value.set(3, -3.3, 0, 0);
+  const pane = new THREE.Mesh(new THREE.PlaneGeometry(WINDOW.w, WINDOW.h), skyMaterial(sky, false));
+  pane.position.set(WINDOW.x, WINDOW.y, -17.08);
+  root.add(pane);
   const bowl = addToy(stage, root, bowlGeometry());
   yield;
 
@@ -333,26 +439,6 @@ function* buildKitchen(stage: Stage, root: THREE.Group): SceneBuild {
   lamp.position.set(0, 18, 0);
   yield;
 
-  const moonKit = new Kit();
-  moonKit.add(P.sphere(1.25, 40, 28), {
-    color: C.moon,
-    emissive: 0.9,
-    outline: 0,
-    colorFn: (p, _n, out) => {
-      const crater =
-        Math.max(0, 1 - Math.hypot(p.x - 0.3, p.y - 0.42) / 0.36) * 0.2 +
-        Math.max(0, 1 - Math.hypot(p.x + 0.45, p.y + 0.16) / 0.26) * 0.2 +
-        Math.max(0, 1 - Math.hypot(p.x - 0.24, p.y + 0.58) / 0.2) * 0.18;
-      out.multiplyScalar(1 - crater);
-    },
-  });
-  const moon = new THREE.Mesh(moonKit.build(), toyMaterials().body);
-  const moonHome = new THREE.Vector3(WINDOW.x - 2.4, WINDOW.y + 1.6, -17.04);
-  moon.position.copy(moonHome);
-  moon.scale.z = 0.08;
-  root.add(moon);
-  yield;
-
   // The mouse darts out to steal one flake, then thinks better of it.
   const mouseKit = new Kit();
   mouseKit.add(P.sphere(0.42, 12, 9), { color: '#8d8592', gloss: 0.3, matrix: at(0, 0.34, 0, [0, 0, 0], [0.86, 0.8, 1.15]) });
@@ -361,25 +447,114 @@ function* buildKitchen(stage: Stage, root: THREE.Group): SceneBuild {
   mouseKit.add(P.sphere(0.05, 6, 5), { color: '#f07a8a', outline: 0, matrix: at(0, 0.3, 0.47) });
   const mouse = addToy(stage, root, mouseKit.build());
   mouse.position.set(0.2, GROUND, -17);
+  yield;
+
+  // Toy figures, the bought decorations and anything else that comes and goes share one rig.
+  const pieces = new SetPieces(root);
+  const kid = toyFigure(pieces, root, { skin: '#f0c49a', shirt: '#3f7fd8', pants: '#ffc53f', hair: '#2a1a14', hat: 'cap', hatColor: '#d8473f' });
+  kid.root.position.set(7.4, COUNTER_TOP + 0.03, -14.1);
+  kid.root.scale.setScalar(2.1);
+  kid.root.rotation.y = -0.25;
+  const cook = toyFigure(pieces, root, { skin: '#ffd8b4', shirt: '#d8473f', pants: '#26325e', hair: '#e8e0d8', hat: 'chef' });
+  cook.root.position.set(-7.4, GROUND, 10.4);
+  cook.root.scale.setScalar(2.6);
+  cook.root.rotation.y = 0.6;
+  const chandelier = pieces.group(root, CHANDELIER_AT.x, CHANDELIER_AT.y, CHANDELIER_AT.z);
+  pieces.part(chandelierGeometry(), chandelier);
+  pieces.decoration('decor-chandelier', chandelier, 2.6);
+  // Laid half over the round rug, in the open floor in front of the table.
+  const rug = pieces.group(root, RUG.x, RUG.y, RUG.z);
+  rug.rotation.y = -0.3;
+  pieces.part(rugGeometry(), rug);
+  pieces.decoration('decor-rug', rug, 3);
+  pieces.build(stage);
+  yield;
+
+  const bank = new LightBank(1, [
+    { at: 0.3, style: 'bulb' },
+    { at: 0.62, style: 'neon' },
+    { at: 0.78, style: 'neon' },
+    { at: 0.42, style: 'bulb' },
+    { at: 0.48, style: 'bulb' },
+    { style: 'bulb' },
+  ]);
+  const windowLight = new THREE.Color();
+  const lamps: Lamp[] = [
+    { position: [0, 10, 0], color: '#ffd59a', intensity: 0, radius: 24 },
+    { position: [10, 6.6, -14.5], color: windowLight, intensity: 0.55, radius: 12 },
+    { position: [STRIP.x, STRIP.y - 1.2, STRIP.z + 1.4], color: '#ffd8a0', intensity: 0, radius: 9 },
+    { position: [-19.5, GROUND + 6.5, -10.4], color: '#c6ecff', intensity: 0, radius: 8 },
+    { position: [SCONCES[0]![0], SCONCES[0]![1], -15.6], color: '#ffcf8f', intensity: 0, radius: 8 },
+    { position: [SCONCES[1]![0], SCONCES[1]![1], -15.6], color: '#ffcf8f', intensity: 0, radius: 8 },
+    { position: [CHANDELIER_AT.x, CHANDELIER_AT.y - 1, CHANDELIER_AT.z], color: '#ffe2b0', intensity: 0, radius: 15 },
+  ];
 
   const lampSwing = new Spring(0, 8, 0.55);
   const bowlKick = new Spring(0, 420, 15);
+  const kidHop = new Spring(0, 140, 10);
+  const chandelierSwing = new Spring(0, 6, 0.7);
   let time = 0;
   let steamTimer = 0;
   let doorOpening = false;
+  let story = 0;
+  let strain = 0;
+
+  const tell = (u: number, dt: number, instant: boolean, calm: boolean): void => {
+    story = u;
+    bank.update(u, dt, instant, calm);
+    alongStory(u, SKY, (from, to, t) => blendSky(sky, from, to, t));
+    alongStory(u, WINDOW_LIGHT, (from, to, t) => {
+      windowLight.set(from.color).lerp(color.set(to.color), t);
+      lamps[1]!.intensity = lerp(from.intensity, to.intensity, t);
+      (windowBeam.uColor!.value as THREE.Color).set(from.beam).lerp(color.set(to.beam), t);
+      windowBeam.uStrength!.value = lerp(from.strength, to.strength, t);
+    });
+    lamps[0]!.intensity = 1.15 * bank.level(LIT.pendant);
+    pendantBeam.uStrength!.value = 0.07 * bank.level(LIT.pendant);
+    lamps[2]!.intensity = 0.9 * bank.level(LIT.strip);
+    lamps[3]!.intensity = 0.75 * bank.level(LIT.fridge);
+    lamps[4]!.intensity = 0.7 * bank.level(LIT.sconceL);
+    lamps[5]!.intensity = 0.7 * bank.level(LIT.sconceR);
+    lamps[6]!.intensity = 1.05 * bank.level(LIT.chandelier);
+  };
+
+  // The sun sinks out of the afternoon sky; once it has gone, the moon comes up.
+  const placeDisc = (u: number, shake: number): void => {
+    const [toMid, toLate] = storyWeights(u);
+    if (toLate <= 0) {
+      sky.uCraters.value = 0;
+      sky.uDisc.value.set(lerp(2.4, 3.3, toMid), lerp(2.1, -2.7, toMid), lerp(0.5, 0.68, toMid), lerp(2.6, 2.1, toMid) * (1 - smooth(0.85, 1, toMid) * 0.6));
+      sky.uDiscColor.value.set('#fff4d6').lerp(color.set('#ff9a52'), toMid);
+    } else {
+      sky.uCraters.value = 1;
+      sky.uDisc.value.set(lerp(-1.4, -2.4, toLate) + Math.sin(time * 47) * shake, lerp(-2.2, 1.6, toLate) + Math.cos(time * 41) * shake * 0.8, 0.62, lerp(0.6, 1.6, smooth(0, 0.4, toLate)));
+      sky.uDiscColor.value.set('#fff1c4');
+    }
+  };
 
   return {
+    lamps,
+    progress: tell,
+    upgradesChanged(owned, animate) {
+      pieces.sync(owned, animate);
+      bank.want(LIT.chandelier, pieces.owns('decor-chandelier'));
+    },
     kick(strength) {
       bowlKick.kick(-0.16 - 0.14 * strength);
-      if (strength > 0) lampSwing.kick(0.014 * strength);
+      if (strength > 0) {
+        lampSwing.kick(0.014 * strength);
+        chandelierSwing.kick(0.01 * strength);
+        kidHop.kick(1.2 * strength);
+      }
     },
     strain(u) {
+      strain = u;
       lampSwing.kick(u * u * 0.05 * Math.sin(time * 30));
-      door.rotation.y = -u * u * 0.06 * Math.abs(Math.sin(time * 40));
     },
     blast(ctx) {
       doorOpening = true;
       lampSwing.kick(0.5);
+      chandelierSwing.kick(0.4);
       // The fridge gives way first, then the window.
       for (let i = 0; i < 24; i += 1) {
         ctx.director.launch(-20 + ctx.rng.range(-2.4, 2.4), GROUND + ctx.rng.range(2, 11), -10.5, { flight: ctx.rng.range(0.7, 1.2), scale: ctx.rng.range(0.4, 0.6), reach: 1.6, quiet: i > 5 });
@@ -393,7 +568,10 @@ function* buildKitchen(stage: Stage, root: THREE.Group): SceneBuild {
     },
     settleAsMiniature() {
       door.rotation.y = -1.9;
-      moon.visible = false;
+      kid.root.visible = false;
+      cook.root.visible = false;
+      tell(1, 0, true, true);
+      placeDisc(1, 0);
     },
     update(dt, ctx: SceneContext) {
       time += dt;
@@ -401,15 +579,17 @@ function* buildKitchen(stage: Stage, root: THREE.Group): SceneBuild {
       bowl.scale.set(1 - kick * 0.018, 1 + kick * 0.03, 1 - kick * 0.018);
       lamp.rotation.z = lampSwing.update(dt) + Math.sin(time * 0.7) * 0.012;
       lamp.rotation.x = Math.sin(time * 0.53) * 0.008;
+      chandelier.rotation.z = chandelierSwing.update(dt) + Math.sin(time * 0.6 + 1) * 0.006;
       // The hands run fast: time flies when things are out of control.
       minuteHand.rotation.z = -time * 0.5;
       hourHand.rotation.z = -time * 0.5 / 12 - 1;
+      // Left ajar once evening comes, so the fridge light shows round the door.
+      if (!doorOpening) door.rotation.y = -0.035 * bank.level(LIT.fridge) - strain * strain * 0.06 * Math.abs(Math.sin(time * 40));
 
-      const cycle = time % 9;
-      const tremble = cycle > 7.6 ? Math.sin(((cycle - 7.6) * Math.PI) / 1.4) : 0;
-      moon.position.copy(moonHome);
-      moon.position.x += Math.sin(time * 47) * 0.05 * tremble;
-      moon.position.y += Math.cos(time * 41) * 0.04 * tremble;
+      const period = lerp(9, 5, story);
+      const cycle = time % period;
+      const tremble = cycle > period - 1.4 ? Math.sin(((cycle - period + 1.4) * Math.PI) / 1.4) : 0;
+      placeDisc(story, (0.03 + 0.08 * story) * tremble + strain * strain * 0.08);
 
       const peek = (time + 4) % 13;
       const out = smooth(0, 0.3, peek) * (1 - smooth(1.5, 1.8, peek));
@@ -417,6 +597,9 @@ function* buildKitchen(stage: Stage, root: THREE.Group): SceneBuild {
       mouse.position.z = -17 + out * 0.5 + scurry * 3.2;
       mouse.position.x = 0.2 + scurry * Math.sin(time * 26) * 0.08;
       mouse.scale.setScalar(Math.max(0.001, Math.max(out, scurry)));
+
+      updateFigures(dt, ctx);
+      pieces.update(dt, ctx);
 
       steamTimer -= dt;
       if (steamTimer <= 0) {
@@ -443,6 +626,27 @@ function* buildKitchen(stage: Stage, root: THREE.Group): SceneBuild {
       }
     },
   };
+
+  function updateFigures(dt: number, ctx: SceneContext): void {
+    // The kid on the worktop bounces at every pop and waves at whoever is watching.
+    const hop = Math.max(0, kidHop.update(dt));
+    const scared = strain;
+    kid.root.position.y = COUNTER_TOP + 0.03 + hop * 0.35 + Math.abs(Math.sin(time * 2.6)) * 0.03;
+    kid.root.position.x = 7.4 + Math.sin(time * 57) * scared * 0.05;
+    kid.head.rotation.y = Math.sin(time * 0.5) * 0.5 - 0.3;
+    const wave = smooth(0, 0.25, (time % 7) - 4.6) * (1 - smooth(1.4, 1.7, (time % 7) - 4.6));
+    const cheer = Math.min(1, hop + scared);
+    kid.armR.rotation.set(0, 0, lerp(lerp(0.12, 2.7 + Math.sin(time * 12) * 0.3, wave), 2.5, cheer));
+    kid.armL.rotation.set(0, 0, lerp(-0.12, -2.5, cheer));
+    // The cook by the table nods off as the evening wears on, until the popcorn wakes them.
+    const sleepy = smooth(0.6, 0.95, story) * (1 - Math.min(1, hop * 2 + scared));
+    const floor = Math.max(GROUND + (pieces.owns('decor-rug') ? 0.2 : 0), ctx.ground(cook.root.position.x, cook.root.position.z) - 0.05);
+    cook.root.position.y = floor + Math.abs(Math.sin(time * 1.6)) * 0.04 * (1 - sleepy);
+    cook.head.rotation.x = lerp(Math.sin(time * 0.9) * 0.08, 0.45 + Math.sin(time * 0.7) * 0.05, sleepy);
+    cook.head.rotation.y = lerp(Math.sin(time * 0.4) * 0.4, 0, sleepy);
+    cook.armL.rotation.set(lerp(-0.6 + Math.sin(time * 3) * 0.2, 0, sleepy), 0, -0.15);
+    cook.armR.rotation.set(lerp(-0.6 - Math.sin(time * 3) * 0.2, 0, sleepy), 0, 0.15);
+  }
 }
 
 const onCounter = (x: number, z: number, rotation: number): UnitSlot => ({ x, y: COUNTER_TOP + 0.03, z, rotation, scale: 1.5 });
@@ -450,31 +654,43 @@ const onFloor = (x: number, z: number, rotation: number, scale: number): UnitSlo
 
 export const kitchenSpec: SceneSpec = {
   id: 1,
+  // Afternoon sun to start; the room warms at sunset and is lit by its own lamps by evening.
   light: {
-    sunDir: [0.36, 0.95, 0.5],
-    sunColor: '#fff0da',
-    sunIntensity: 1.32,
-    shadeTint: '#573f7c',
-    sky: '#9aa6dc',
-    skyIntensity: 0.26,
-    ground: '#d08a68',
-    groundIntensity: 0.16,
-    rim: '#ffd9b5',
-    rimIntensity: 0.5,
-    rimDir: [-0.7, 0.3, -0.62],
-    fog: '#3a1a2c',
+    sunDir: [0.4, 0.93, 0.44],
+    sunColor: '#fff6e6',
+    sunIntensity: 1.36,
+    shadeTint: '#5c4a86',
+    sky: '#a8c4f2',
+    skyIntensity: 0.31,
+    ground: '#d9a070',
+    groundIntensity: 0.18,
+    rim: '#fff2d0',
+    rimIntensity: 0.55,
+    rimDir: [-0.6, 0.38, -0.7],
+    fog: '#4a2838',
     fogRange: [66, 130],
-    pool: [0, 0, 1, 15],
-    poolFloor: 0.55,
+    pool: [0, 0, 1, 18],
+    poolFloor: 0.62,
   },
+  story: {
+    mid: {
+      light: { sunDir: [0.46, 0.86, 0.4], sunColor: '#ffe4c4', sunIntensity: 1.32, shadeTint: '#5a3f7a', sky: '#c79ad0', skyIntensity: 0.25, ground: '#d88a60', groundIntensity: 0.17, rim: '#ffb070', rimIntensity: 0.72, rimDir: [-0.6, 0.3, -0.72], fog: '#3a1a2c', fogRange: [66, 130], pool: [0, 0, 1, 15], poolFloor: 0.55 },
+      grade: { exposure: 1, contrast: 1.05, saturation: 1.08, vignette: 0.34, bloom: 0.62, shadowTint: '#fff2f2', highlightTint: '#fff4e4', aoTint: '#2a0f22' },
+    },
+    late: {
+      light: { sunDir: [0.25, 0.97, 0.3], sunColor: '#ffe6c4', sunIntensity: 1.28, shadeTint: '#463a7c', sky: '#6f78c8', skyIntensity: 0.2, ground: '#c07a5c', groundIntensity: 0.13, rim: '#a890ff', rimIntensity: 0.62, rimDir: [-0.7, 0.3, -0.62], fog: '#24122a', fogRange: [66, 130], pool: [0, 0, 1, 12.5], poolFloor: 0.45 },
+      grade: { exposure: 0.99, contrast: 1.06, saturation: 1.05, vignette: 0.4, bloom: 0.72, shadowTint: '#f4f0ff', highlightTint: '#fff8ee', aoTint: '#200c24' },
+    },
+  },
+  tiltShift: 0.4,
   grade: {
-    exposure: 1,
-    contrast: 1.05,
+    exposure: 1.02,
+    contrast: 1.04,
     saturation: 1.06,
-    vignette: 0.34,
-    bloom: 0.6,
-    shadowTint: '#fff4f6',
-    highlightTint: '#fffaf2',
+    vignette: 0.32,
+    bloom: 0.55,
+    shadowTint: '#fbf8ff',
+    highlightTint: '#fffcf4',
     aoTint: '#2a0f22',
   },
   camera: {
@@ -507,10 +723,6 @@ export const kitchenSpec: SceneSpec = {
   steamY: BOWL.rimY,
   spreadRadius: 24,
   nest: { position: new THREE.Vector3(-41.2, -2.4, -4.9), scale: 0.16, rise: 0.62 },
-  lamps: [
-    { position: [0, 10, 0], color: '#ffd59a', intensity: 1.15, radius: 24 },
-    { position: [10, 6.6, -14.5], color: '#c48cff', intensity: 0.55, radius: 11 },
-  ],
   slots: {
     pan: [
       onCounter(3.9, -14.6, 0.4),

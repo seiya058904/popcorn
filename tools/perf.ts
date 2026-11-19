@@ -5,9 +5,11 @@ import type { QaApi } from '../src/debug/index.ts';
  * Usage: node tools/perf.ts [--size=3840x2160] [--seconds=8] [--clicks=10] [--stage=1]
  *                           [--total=46000] [--units=8,6,4] [--query=quality=low] [--breakout]
  *                           [--gc] [--attribute] [--css='.glass { backdrop-filter: none }']
+ *                           [--eval='api.game.stage.shadow.setSize(3072, false)']
  * --breakout pushes production over the next threshold, so the show itself is what gets measured.
  * --gc traces garbage collection and reports every pause and the allocation rate.
  * --attribute times the expensive steps of the game and says which ones fell inside the longest frames.
+ * --eval runs a snippet with the QA api as "api" once the scene is set up, to price one feature by switching it off.
  * Every frame waits for the GPU, so the interval is the true cost and shows headroom above 60 FPS.
  */
 const [width, height] = (argValue('size') ?? '3840x2160').split('x').map(Number);
@@ -15,6 +17,7 @@ const seconds = Number(argValue('seconds') ?? 8);
 const query = argValue('query') ?? '';
 /** Extra CSS for the measured page, to find out what an interface style costs. */
 const css = argValue('css');
+const snippet = argValue('eval');
 const clicks = Number(argValue('clicks') ?? 0);
 const stage = Number(argValue('stage') ?? 0);
 const total = Number(argValue('total') ?? 0);
@@ -69,6 +72,7 @@ try {
     },
     { stageIndex: stage, earned: total, counts: units, wantMarks: attribute },
   );
+  if (snippet) await page.evaluate((source) => new Function('api', source)((window as unknown as { __pop: QaApi }).__pop), snippet);
   await page.evaluate(() => (window as unknown as { __pop: QaApi }).__pop.sampleFrames(3));
   if (traceGc) await harness.browser.startTracing(page, { categories: ['devtools.timeline', 'disabled-by-default-devtools.timeline', 'v8', 'disabled-by-default-v8.gc'] });
   const result = await page.evaluate(

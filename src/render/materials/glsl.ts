@@ -33,19 +33,40 @@ uniform float uTime;
 uniform vec3 uSunDir, uSunColor, uShadeTint, uSkyColor, uGroundColor, uRimColor, uRimDir, uFogColor;
 uniform vec2 uFogRange;
 uniform highp sampler2DShadow uShadowMap;
+uniform highp sampler2D uShadowDepth;
 uniform mat4 uShadowMatrix;
 uniform float uShadowTexel, uShadowSoftness, uPoolFloor, uShadowOffset;
-uniform vec4 uPool;
-#define MAX_LAMPS 12
+uniform vec4 uPool, uShadowPenumbra;
+#define MAX_LAMPS 16
 uniform vec4 uLampPos[MAX_LAMPS];
 uniform vec3 uLampColor[MAX_LAMPS];
 uniform int uLampCount;
 uniform vec3 uEnvTop, uEnvHorizon, uEnvBottom;
+uniform float uLit[40];
 
 // The key light falls off like a stage spot, which keeps the eye on the popcorn.
 float lightPool(vec3 P) {
   float d = length((P - uPool.xyz) * vec3(1.0, 0.45, 1.0));
   return mix(uPoolFloor, 1.0, smoothstep(uPool.w * 1.5, uPool.w * 0.4, d));
+}
+
+// How wide the shadow filter is here, in texels. A shadow is crisp where the thing casting it
+// touches the ground and spreads with the distance between them, as under a real sun.
+float penumbraTexels(vec2 uv, float z, mat2 turn) {
+  if (uShadowPenumbra.x < 0.5) return uShadowSoftness;
+  float sum = 0.0, count = 0.0;
+  // The search reaches as far as the widest penumbra could come from.
+  mat2 reach = turn * (uShadowPenumbra.w / uShadowSoftness);
+  for (int i = 0; i < 8; i++) {
+    float t = (float(i) + 0.5) / 8.0;
+    float a = float(i) * 2.39996323;
+    float d = textureLod(uShadowDepth, uv + reach * (vec2(cos(a), sin(a)) * sqrt(t)), 0.0).r;
+    if (d < z) { sum += d; count += 1.0; }
+  }
+  // Nothing found nearer: either open ground, or a caster the copy does not hold. The usual
+  // filter is right for both.
+  if (count < 0.5) return uShadowSoftness;
+  return clamp((z - sum / count) * uShadowPenumbra.y, uShadowPenumbra.z, uShadowPenumbra.w);
 }
 
 float sunShadow(vec3 worldPos, vec3 N) {
@@ -57,7 +78,8 @@ float sunShadow(vec3 worldPos, vec3 N) {
   // A per-pixel turn of the sample ring trades visible stair steps for fine grain.
   float a = 6.2831853 * fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
   float ca = cos(a), sa = sin(a);
-  mat2 turn = mat2(ca, sa, -sa, ca) * (uShadowTexel * uShadowSoftness);
+  mat2 ring = mat2(ca, sa, -sa, ca) * (uShadowTexel * uShadowSoftness);
+  mat2 turn = ring * (penumbraTexels(p.xy, z, ring) / uShadowSoftness);
   float s = texture(uShadowMap, vec3(p.xy, z));
   s += texture(uShadowMap, vec3(p.xy + turn * vec2( 0.92,  0.38), z));
   s += texture(uShadowMap, vec3(p.xy + turn * vec2(-0.38,  0.92), z));
@@ -149,6 +171,25 @@ vec3 lampSheen(vec3 P, vec3 N, vec3 V, float rough) {
   return sum;
 }
 
+// Both of the above in one pass over the lamps, for surfaces that want both.
+void lampLight(vec3 P, vec3 N, vec3 V, float rough, out vec3 diffuse, out vec3 sheen) {
+  diffuse = vec3(0.0);
+  sheen = vec3(0.0);
+  float a = max(rough * rough, 0.012);
+  for (int i = 0; i < uLampCount; i++) {
+    vec3 L = uLampPos[i].xyz - P;
+    float r = uLampPos[i].w;
+    float d2 = dot(L, L);
+    float fall = sat(1.0 - d2 / (r * r));
+    if (fall <= 0.0) continue;
+    L /= sqrt(d2 + 1e-4);
+    float ndl = dot(N, L);
+    vec3 light = uLampColor[i] * fall * fall;
+    diffuse += light * sat(ndl * 0.7 + 0.3);
+    if (ndl > 0.0) sheen += light * ndl * min(ggx(sat(dot(N, normalize(L + V))), a) * 0.25, 6.0);
+  }
+}
+
 // Painted bands stay as a soft undertone; metal, enamel and lacquer respond like real materials.
 vec3 surfaceLight(vec3 albedo, vec3 N, vec3 V, vec3 P, float gloss, float ao, float shadow, float metal, float coat) {
   float ndl = dot(N, uSunDir);
@@ -163,12 +204,14 @@ vec3 surfaceLight(vec3 albedo, vec3 N, vec3 V, vec3 P, float gloss, float ao, fl
   vec3 light = paint * sun;
   vec3 col = band < 0.5 ? mix(shade, mid, band * 2.0) : mix(mid, light, band * 2.0 - 1.0);
 
+  float rough = mix(0.6, 0.07, gloss);
+  vec3 lampSpill, lampGloss;
+  lampLight(P, N, V, rough, lampSpill, lampGloss);
   vec3 hemi = mix(uGroundColor, uSkyColor, N.y * 0.5 + 0.5);
-  col += paint * (hemi + lampDiffuse(P, N)) * ao;
+  col += paint * (hemi + lampSpill) * ao;
   col *= mix(0.55, 1.0, ao);
 
   float ndv = sat(dot(N, V));
-  float rough = mix(0.6, 0.07, gloss);
   float fresnel = pow(1.0 - ndv, 5.0);
   vec3 F0 = mix(vec3(0.03 + 0.1 * gloss), albedo, metal);
   vec3 F = F0 + (vec3(1.0) - F0) * fresnel * mix(0.35, 1.0, gloss);
@@ -186,7 +229,7 @@ vec3 surfaceLight(vec3 albedo, vec3 N, vec3 V, vec3 P, float gloss, float ao, fl
   vec3 H = normalize(uSunDir + V);
   float a = max(rough * rough, 0.012);
   col += sun * F * min(ggx(sat(dot(N, H)), a) * 0.25, 7.0) * sat(ndl) * shadow;
-  col += lampSheen(P, N, V, rough) * F * 2.0;
+  col += lampGloss * F * 2.0;
 
   float rim = pow(1.0 - ndv, 3.0) * sat(dot(N, uRimDir) * 0.8 + 0.35);
   col += uRimColor * rim * mix(0.45, 1.0, ao) * 0.75;
@@ -197,6 +240,9 @@ vec3 toyLight(vec3 albedo, vec3 N, vec3 V, vec3 P, float gloss, float ao, float 
   return surfaceLight(albedo, N, V, P, gloss, ao, shadow, 0.0, 0.0);
 }
 `;
+
+/** Every shadow caster writes its depth as a color too: see penumbraTexels. */
+export const SHADOW_DEPTH_FRAGMENT = 'void main() { gl_FragColor = vec4(gl_FragCoord.z, 0.0, 0.0, 1.0); }';
 
 /**
  * Where a vertex sits in the world. A part rig draws many moving parts in one call: every vertex

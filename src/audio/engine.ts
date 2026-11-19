@@ -3,6 +3,7 @@ import { Rng } from '../motion/rng.ts';
 import { SAMPLE_RATE, synthCrackle, synthPop } from './dsp.ts';
 import { MixGraph, type AudioLevels } from './graph.ts';
 import { BED_LAYERS, bedMix, spaceForStage, SPACES, type BedLayer } from './mix.ts';
+import { MUSIC_HOME, MUSIC_WORLD } from './music.ts';
 
 export type { AudioLevels } from './graph.ts';
 
@@ -42,7 +43,7 @@ export class AudioEngine {
   private crackles: AudioBuffer[] = [];
   private readonly bank = new Map<string, AudioBuffer>();
   private voices: Voice[] = [];
-  private readonly tracks = new Map<string, { bed: LoopVoice; lead: LoopVoice }>();
+  private readonly tracks = new Map<string, { bed: LoopVoice; lead: LoopVoice; started: number; beat: number }>();
   private charge: LoopVoice | null = null;
   private wantedTrack = 'home';
   private activeTrack = '';
@@ -137,7 +138,7 @@ export class AudioEngine {
       const when = context.currentTime + 0.05;
       const bed = this.loop(`music-${name}-bed`, this.graph!.music, 0, when)!;
       const lead = this.loop(`music-${name}-lead`, this.graph!.music, 0, when)!;
-      track = { bed, lead };
+      track = { bed, lead, started: when, beat: 60 / (name === 'world' ? MUSIC_WORLD.bpm : MUSIC_HOME.bpm) };
       this.tracks.set(name, track);
     }
     const now = context.currentTime;
@@ -148,6 +149,14 @@ export class AudioEngine {
     this.activeTrack = name;
   }
 
+  /** Where the playing piece is within its beat, 0 to 1, or null before any music plays. */
+  beatPhase(): number | null {
+    const context = this.context;
+    const track = this.tracks.get(this.activeTrack);
+    if (!context || !track) return null;
+    const beats = (context.currentTime - track.started) / track.beat;
+    return beats < 0 ? 0 : beats % 1;
+  }
   // Continuous state --------------------------------------------------------------------
 
   /** Follows production on the compressed scale of `showIntensity`, and the player's activity. */

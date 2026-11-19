@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { SIGN_TEXT } from '../../content/signs.ts';
-import { Spring } from '../../motion/ease.ts';
+import { lerp, Spring } from '../../motion/ease.ts';
+import { lightGroup, type Lamp } from '../core/globals.ts';
 import { globals } from '../core/globals.ts';
 import type { Stage } from '../core/stage.ts';
 import { addLightBeam } from '../fx/beam.ts';
@@ -9,6 +10,8 @@ import { addToy, addToyInstances, at, Kit, P, Pattern, type ToyInstances } from 
 import { addSign } from '../materials/sign.ts';
 import type { SceneContext, SceneBuild, SceneSpec, UnitSlot } from './types.ts';
 import { dressCinema } from './dress.ts';
+import { SetPieces, toyFigure } from './pieces.ts';
+import { LightBank, storyWeights } from './story.ts';
 import { vesselPile } from './vessel.ts';
 
 const GROUND = -9;
@@ -42,14 +45,72 @@ varying vec2 vUv;
 void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }
 `;
 
-// The feature presentation: a moon that keeps twitching, which nobody in the audience notices.
+// The programme changes as the night goes on: an intermission card while the house lights are up,
+// the countdown leader as they dim, then the feature, in which a moon keeps twitching and the
+// popcorn on the ground keeps popping. uShow runs 0, 1, 2 through the three reels.
 const screenFragment = /* glsl */ `
-uniform float uTime, uTear;
+uniform float uTime, uTear, uShow;
 varying vec2 vUv;
 float circle(vec2 p, vec2 c, float r) { return smoothstep(r + 0.006, r - 0.006, length(p - c)); }
-void main() {
-  vec2 p = (vUv - 0.5) * vec2(2.05, 1.0);
-  float flicker = 0.92 + 0.08 * sin(uTime * 37.0) * sin(uTime * 13.0);
+float box(vec2 p, vec2 c, vec2 h) { vec2 d = abs(p - c) - h; return smoothstep(0.006, -0.006, max(d.x, d.y)); }
+
+// A popcorn bucket under a spotlight, framed by chasing marquee bulbs.
+vec3 intermission(vec2 p) {
+  vec3 col = mix(vec3(0.42, 0.05, 0.1), vec3(0.95, 0.3, 0.25), smoothstep(0.9, 0.0, length(p * vec2(0.8, 1.2))));
+  vec2 q = p - vec2(0.0, -0.12);
+  float width = mix(0.16, 0.22, (q.y + 0.2) / 0.4);
+  float bucket = step(abs(q.x), width) * step(-0.2, q.y) * step(q.y, 0.2);
+  float stripe = step(0.5, fract((q.x / width) * 2.5 + 0.25));
+  col = mix(col, mix(vec3(1.0, 0.95, 0.85), vec3(0.85, 0.1, 0.14), stripe), bucket);
+  float puffs = 0.0;
+  for (int i = 0; i < 7; i++) {
+    float a = float(i) / 6.0;
+    puffs = max(puffs, circle(p, vec2(-0.2 + a * 0.4, 0.13 + sin(a * 9.0) * 0.04 + 0.01 * sin(uTime * 3.0 + a * 6.0)), 0.075));
+  }
+  col = mix(col, vec3(1.0, 0.97, 0.86), puffs);
+  vec2 edge = abs(p) - vec2(0.94, 0.42);
+  float rim = smoothstep(0.03, 0.0, abs(max(edge.x, edge.y)));
+  float bulbs = step(0.55, fract((p.x + p.y) * 9.0 - uTime * 2.0));
+  return col + vec3(1.6, 1.25, 0.6) * rim * bulbs;
+}
+
+// Seven-segment digits for the countdown.
+float segment(vec2 p, vec2 a, vec2 b) {
+  vec2 pa = p - a, ba = b - a;
+  float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
+  return smoothstep(0.016, 0.009, length(pa - ba * h));
+}
+float digit(vec2 p, float n) {
+  // Segments a to g, lit per digit 1, 2 and 3.
+  float a = n > 1.5 ? 1.0 : 0.0;
+  float b = 1.0;
+  float c = n < 1.5 || n > 2.5 ? 1.0 : 0.0;
+  float d = n > 1.5 ? 1.0 : 0.0;
+  float e = n > 1.5 && n < 2.5 ? 1.0 : 0.0;
+  float g = n > 1.5 ? 1.0 : 0.0;
+  float s = 0.0;
+  s = max(s, a * segment(p, vec2(-0.06, 0.12), vec2(0.06, 0.12)));
+  s = max(s, b * segment(p, vec2(0.07, 0.11), vec2(0.07, 0.01)));
+  s = max(s, c * segment(p, vec2(0.07, -0.01), vec2(0.07, -0.11)));
+  s = max(s, d * segment(p, vec2(-0.06, -0.12), vec2(0.06, -0.12)));
+  s = max(s, e * segment(p, vec2(-0.07, -0.01), vec2(-0.07, -0.11)));
+  s = max(s, g * segment(p, vec2(-0.06, 0.0), vec2(0.06, 0.0)));
+  return s;
+}
+
+vec3 leader(vec2 p) {
+  float t = uTime * 0.9;
+  float sweep = fract(t);
+  float a = fract(atan(p.x, p.y) / 6.2831853 + 0.5);
+  float r = length(p);
+  vec3 col = vec3(0.62, 0.6, 0.56) * mix(0.82, 1.0, step(a, sweep)) * smoothstep(1.4, 0.2, r);
+  col *= 1.0 - 0.5 * (smoothstep(0.012, 0.0, abs(r - 0.3)) + smoothstep(0.012, 0.0, abs(r - 0.36)));
+  col *= 1.0 - 0.4 * (smoothstep(0.006, 0.0, abs(p.x)) + smoothstep(0.006, 0.0, abs(p.y)));
+  col = mix(col, vec3(0.08), digit(p * 0.5, 3.0 - mod(floor(t), 3.0)));
+  return col;
+}
+
+vec3 feature(vec2 p) {
   vec3 sky = mix(vec3(0.16, 0.2, 0.62), vec3(0.9, 0.42, 0.55), smoothstep(0.1, -0.5, p.y));
   float wobble = sin(uTime * 41.0) * 0.004 * (0.5 + 0.5 * sin(uTime * 0.9));
   vec2 c = vec2(0.34 + wobble, 0.13 + wobble * 0.6);
@@ -58,6 +119,27 @@ void main() {
   vec3 col = mix(sky, vec3(1.1, 1.0, 0.76) * (1.0 - crater * 0.14), moon);
   float ground = smoothstep(-0.24, -0.26, p.y + 0.03 * sin(p.x * 9.0 + 1.0) + 0.02 * sin(p.x * 21.0));
   col = mix(col, vec3(0.08, 0.05, 0.2), ground);
+  // Kernels hop along the ground and burst into white puffs, one after another.
+  for (int i = 0; i < 5; i++) {
+    float f = float(i);
+    float life = fract(uTime * 0.42 + f * 0.23);
+    float x = -0.8 + fract(f * 0.37 + 0.11) * 1.4;
+    float y = -0.22 + abs(sin(life * 9.42)) * 0.12 * (1.0 - life);
+    float size = life < 0.7 ? 0.018 : mix(0.02, 0.07, smoothstep(0.7, 0.78, life));
+    vec3 tone = life < 0.7 ? vec3(1.0, 0.65, 0.15) : vec3(1.05, 1.0, 0.88);
+    col = mix(col, tone, circle(p, vec2(x, y), size) * (1.0 - smoothstep(0.92, 1.0, life)));
+  }
+  return col;
+}
+
+void main() {
+  vec2 p = (vUv - 0.5) * vec2(2.05, 1.0);
+  float flicker = 0.92 + 0.08 * sin(uTime * 37.0) * sin(uTime * 13.0);
+  vec3 col;
+  if (uShow < 1.0) col = mix(intermission(p), leader(p), uShow);
+  else col = mix(leader(p), feature(p), uShow - 1.0);
+  // The change of reel flashes white for a moment.
+  col += vec3(0.8) * (1.0 - abs(fract(uShow) - 0.5) * 2.0) * step(0.001, fract(uShow));
   float reel = fract(uTime * 0.11);
   float grain = fract(sin(dot(floor(vUv * 220.0) + floor(uTime * 12.0), vec2(12.9, 78.2))) * 43758.5);
   col *= flicker * (0.96 + grain * 0.06) * (1.0 - 0.45 * smoothstep(0.42, 0.52, abs(reel - 0.5)) * 0.2);
@@ -78,8 +160,8 @@ function addHall(kit: Kit): void {
     for (let i = 0; i < 6; i += 1) {
       const z = -30 + i * 20;
       kit.add(P.box(1.2, 44, 2.4, 0.3, 2), { color: C.wallLight, gloss: 0.2, matrix: at(side * 62, 12, z) });
-      // Art-deco wall sconces that glow against the velvet.
-      kit.add(P.lathe([[0, 0], [1.7, 0], [1.05, 2.2], [0, 2.4]], 16, 0.1, 2), { color: '#ffe3a0', emissive: 0.85, outline: 0, matrix: at(side * 60.8, 8, z + 10) });
+      // Art-deco wall sconces that glow against the velvet: the house lights.
+      kit.add(P.lathe([[0, 0], [1.7, 0], [1.05, 2.2], [0, 2.4]], 16, 0.1, 2), { color: '#ffe3a0', emissive: 0.85, outline: 0, light: lightGroup(2, LIT.house), matrix: at(side * 60.8, 8, z + 10) });
     }
   }
 }
@@ -231,8 +313,98 @@ function beltLoadGeometry(): THREE.BufferGeometry {
 
 const BELT_LOADS = 26;
 
+/** Cinema light groups: the house lights, the exit signs, and three sets of twinkling stars. */
+const LIT = { house: 0, exit: 1, starsA: 2, starsB: 3, starsC: 4 } as const;
+const STAR_GROUPS = [LIT.starsA, LIT.starsB, LIT.starsC];
+/** The reels the projector runs as the night goes on: intermission, countdown, feature. */
+const REELS = [0.3, 0.62];
+
+/** Exit signs and a stack of film cans: the details of a working picture house. */
+function addHouseDetails(kit: Kit): void {
+  for (const side of [-1, 1]) {
+    for (const z of [26, 66]) {
+      const sign = at(side * 62.2, 7, z, [0, -side * Math.PI / 2, 0]);
+      const on = (dx: number, dy: number, dz: number, rz = 0): THREE.Matrix4 => sign.clone().multiply(at(dx, dy, dz, [0, 0, rz]));
+      kit.add(P.box(3.6, 1.5, 0.5, 0.15, 2), { color: '#2a2a32', gloss: 0.6, matrix: sign });
+      kit.add(P.box(3.2, 1.1, 0.2, 0.08, 1), { color: '#3fe07a', emissive: 0.9, outline: 0, light: lightGroup(2, LIT.exit), matrix: on(0, 0, 0.2) });
+      // A white arrow pointing the way out.
+      const white = { color: '#ffffff', emissive: 0.9, outline: 0, light: lightGroup(2, LIT.exit) };
+      kit.add(P.box(1.5, 0.16, 0.06, 0.04, 1), { ...white, matrix: on(-0.1, 0, 0.32) });
+      for (const turn of [0.75, -0.75]) kit.add(P.box(0.6, 0.16, 0.06, 0.04, 1), { ...white, matrix: on(0.48, -Math.sign(turn) * 0.18, 0.32, turn) });
+    }
+  }
+  // Film cans stacked by the stage, waiting for the next show.
+  for (let i = 0; i < 4; i += 1) {
+    kit.add(P.puck(1.5, 1.5, 0.32, 28, 0.08), { color: i % 2 ? '#8c96a4' : '#a8b2c0', gloss: 0.75, metal: 0.9, pattern: Pattern.Brushed, matrix: at(-18.5 + i * 0.12, GROUND + i * 0.34, 18.5, [0, i * 0.7, 0]) });
+  }
+  kit.add(P.puck(1.55, 1.55, 0.06, 28, 0.02), { color: '#d8313a', gloss: 0.3, pattern: Pattern.Paper, outline: 0.4, matrix: at(-18.14, GROUND + 1.36, 18.5) });
+}
+
+function carpetGeometry(): THREE.BufferGeometry {
+  // A red carpet up the aisle to the stage, roped off with brass posts and velvet.
+  const kit = new Kit();
+  const from = STAGE_R + 0.6;
+  const to = 64;
+  const length = to - from;
+  kit.add(P.box(7.6, 0.06, length, 0.02, 1), { color: '#c4142a', gloss: 0.12, pattern: Pattern.Fabric + 0.3, outline: 0, fixedColor: true, matrix: at(0, 0.03, from + length / 2) });
+  for (const x of [-3.9, 3.9]) kit.add(P.box(0.24, 0.08, length, 0.03, 1), { color: '#f0b73a', gloss: 0.85, metal: 1, outline: 0, fixedColor: true, matrix: at(x, 0.04, from + length / 2) });
+  const posts = 8;
+  for (const x of [-4.6, 4.6]) {
+    let previous: THREE.Vector3 | null = null;
+    for (let i = 0; i < posts; i += 1) {
+      const z = from + 1.2 + (i * (length - 2.4)) / (posts - 1);
+      kit.add(P.puck(0.5, 0.42, 0.16, 18, 0.05), { color: '#f0b73a', gloss: 0.9, metal: 1, wear: 0.2, fixedColor: true, matrix: at(x, 0, z) });
+      kit.add(P.puck(0.1, 0.1, 2.7, 10, 0.03), { color: '#f0b73a', gloss: 0.9, metal: 1, wear: 0.2, fixedColor: true, matrix: at(x, 0.1, z) });
+      kit.add(P.sphere(0.24, 12, 8), { color: '#f0b73a', gloss: 0.9, metal: 1, fixedColor: true, matrix: at(x, 2.95, z) });
+      const top = new THREE.Vector3(x, 2.68, z);
+      if (previous) kit.add(P.tube([previous, new THREE.Vector3(x, 2.05, (previous.z + z) / 2), top], 0.13, 14, 8), { color: '#7a0c1e', gloss: 0.3, pattern: Pattern.Fabric + 0.5, fixedColor: true });
+      previous = top;
+    }
+  }
+  return kit.build();
+}
+
+/**
+ * A starry sky of fairy lights: strings of stars hung in front of both curtains, from under the
+ * pelmet down toward the stage. Every third star belongs to `group`, so three sets twinkle out of step.
+ */
+function starsGeometry(group: number): THREE.BufferGeometry {
+  const kit = new Kit();
+  const star = { color: '#fff3c8', emissive: 1, outline: 0, fixedColor: true, light: lightGroup(2, STAR_GROUPS[group]!) };
+  const wire = { color: '#3a2a20', gloss: 0.4, outline: 0, fixedColor: true };
+  for (const side of [-1, 1]) {
+    for (let string = 0; string < 7; string += 1) {
+      const x = side * (27.5 + string * 2.3);
+      const top = 35.5;
+      const bottom = 9 + ((string * 7) % 5) * 2.2;
+      if (group === 0) kit.add(P.tube([new THREE.Vector3(x, top, -36.6), new THREE.Vector3(x, bottom, -36.6)], 0.05, 1, 4), wire);
+      const count = Math.round((top - bottom) / 2.6);
+      for (let i = 0; i < count; i += 1) {
+        if ((i + string) % 3 !== group) continue;
+        const y = top - 1.2 - i * ((top - bottom - 1.2) / (count - 1));
+        const size = 0.42 + ((i * 13 + string * 7) % 5) * 0.06;
+        const m = at(x, y, -36.4, [0, 0, (i + string) * 0.6]);
+        kit.add(P.sphere(size * 0.7, 6, 4), { ...star, matrix: m });
+        for (let ray = 0; ray < 5; ray += 1) {
+          const a = (ray / 5) * Math.PI * 2;
+          kit.add(P.box(size * 0.3, size * 1.5, size * 0.2, size * 0.12, 1), { ...star, matrix: m.clone().multiply(at(Math.sin(a) * size * 0.75, Math.cos(a) * size * 0.75, 0, [0, 0, -a])) });
+        }
+      }
+    }
+  }
+  return kit.build();
+}
+
+function usherTorch(): THREE.BufferGeometry {
+  const kit = new Kit();
+  kit.add(P.capsule(0.05, 0.2, 3, 8), { color: '#2b2230', gloss: 0.6, fixedColor: true, matrix: at(0, -0.02, 0.06, [Math.PI / 2, 0, 0]) });
+  kit.add(P.sphere(0.055, 8, 6), { color: '#fff4c8', emissive: 1, outline: 0, fixedColor: true, light: lightGroup(2, LIT.exit), matrix: at(0, -0.02, 0.2) });
+  return kit.build();
+}
+
 const steam = new THREE.Color(0.92, 0.9, 0.88);
 const beamColor = new THREE.Color(0.9, 0.85, 0.65);
+const color = new THREE.Color();
 
 function* buildCinema(stage: Stage, root: THREE.Group): SceneBuild {
   const set = new Kit();
@@ -245,16 +417,17 @@ function* buildCinema(stage: Stage, root: THREE.Group): SceneBuild {
   addSnackBar(set);
   yield;
   dressCinema(set, GROUND, STAGE_R);
+  addHouseDetails(set);
   yield;
   addToy(stage, root, set.build({ frozen: true }));
   yield;
   addSign(root, SIGN_TEXT.popcorn, { background: '#ffc63f', color: '#8f1f26', border: '#8f1f26', glow: 0.4 }, 9, 2.4, at(-40.8, GROUND + 2.9, 2.08));
-  // The projector's beam, drifting through the dark over the audience.
-  addLightBeam(root, new THREE.Vector3(0, 35, 74), new THREE.Vector3(0, 16, -44), 1.2, 34, '#cdd8ff', 0.035);
+  // The projector's beam, drifting through the dark over the audience; it shows more as the lights go down.
+  const projector = (addLightBeam(root, new THREE.Vector3(0, 35, 74), new THREE.Vector3(0, 16, -44), 1.2, 34, '#cdd8ff', 0.035).material as THREE.ShaderMaterial).uniforms;
   const bucket = addToy(stage, root, bucketGeometry());
   yield;
 
-  const screenUniforms = { uTime: globals.uTime, uTear: { value: 0 } };
+  const screenUniforms = { uTime: globals.uTime, uTear: { value: 0 }, uShow: { value: 0 } };
   const screenGeometry = new THREE.PlaneGeometry(82, 40, 40, 20);
   const screen = new THREE.Mesh(
     screenGeometry,
@@ -295,6 +468,52 @@ function* buildCinema(stage: Stage, root: THREE.Group): SceneBuild {
   belt.visible = false;
   const beltLoads = addToyInstances(stage, root, beltLoadGeometry(), BELT_LOADS, false);
   let beltOn = false;
+  yield;
+
+  // The usher and the bought decorations share one rig.
+  const pieces = new SetPieces(root);
+  const usher = toyFigure(pieces, root, { skin: '#f2c8a0', shirt: '#a3172b', pants: '#1f1a2e', hair: '#3a2418', hat: 'pillbox', hatColor: '#a3172b' });
+  usher.root.scale.setScalar(5.2);
+  pieces.part(usherTorch(), pieces.group(usher.armR, 0, -0.27, 0));
+  const carpet = pieces.group(root, 0, GROUND + 0.13, 0);
+  pieces.part(carpetGeometry(), carpet);
+  pieces.decoration('decor-carpet', carpet, 6);
+  const stars = pieces.group(root);
+  STAR_GROUPS.forEach((_, group) => pieces.part(starsGeometry(group), stars, { shadow: false }));
+  pieces.decoration('decor-stars', stars, 0.01);
+  pieces.build(stage);
+
+  const bank = new LightBank(2, [{ at: 0 }, { at: 0 }, { style: 'bulb' }, { style: 'bulb' }, { style: 'bulb' }]);
+  const screenLight = new THREE.Color('#8d9dff');
+  const lamps: Lamp[] = [
+    ...[0.5, 1.55, 2.6, 3.65, 4.7, 5.75].map((a) => ({
+      position: [Math.cos(a) * (STAGE_R - 0.75), 0.9, Math.sin(a) * (STAGE_R - 0.75)] as [number, number, number],
+      color: '#ffc774',
+      intensity: 0.75,
+      radius: 9,
+    })),
+    { position: [0, 20, -34], color: screenLight, intensity: 0.9, radius: 52 },
+    { position: [-56, 10, 10], color: '#ffcf8f', intensity: 0, radius: 44 },
+    { position: [56, 10, 10], color: '#ffcf8f', intensity: 0, radius: 44 },
+  ];
+  let show = 0;
+  let story = 0;
+
+  const tell = (u: number, dt: number, instant: boolean, calm: boolean): void => {
+    story = u;
+    // The house lights go down as the programme gets going.
+    const [toMid, toLate] = storyWeights(u);
+    const house = lerp(lerp(1, 0.4, toMid), 0.1, toLate);
+    bank.dim(LIT.house, house);
+    bank.update(u, dt, instant, calm);
+    lamps[7]!.intensity = 0.85 * house;
+    lamps[8]!.intensity = 0.85 * house;
+    projector.uStrength!.value = lerp(lerp(0.018, 0.034, toMid), 0.052, toLate);
+    // The projectionist changes reels with a quick flash; reduced motion just cuts.
+    const reel = u >= REELS[1]! ? 2 : u >= REELS[0]! ? 1 : 0;
+    show = instant || calm ? reel : show + Math.sign(reel - show) * Math.min(Math.abs(reel - show), dt * 1.6);
+    screenUniforms.uShow.value = show;
+  };
 
   const bucketKick = new Spring(0, 420, 15);
   const m = new THREE.Matrix4();
@@ -309,13 +528,17 @@ function* buildCinema(stage: Stage, root: THREE.Group): SceneBuild {
   let blasted = false;
 
   return {
+    lamps,
+    progress: tell,
     kick(strength) {
       bucketKick.kick(-0.16 - 0.14 * strength);
     },
-    upgradesChanged(owned) {
+    upgradesChanged(owned, animate) {
       beltOn = owned.includes('syn-cart-cinema');
       belt.visible = beltOn;
       if (!beltOn) beltLoads.commit(0);
+      pieces.sync(owned, animate);
+      for (const group of STAR_GROUPS) bank.want(group, pieces.owns('decor-stars'));
     },
     strain(u) {
       strain = u;
@@ -347,7 +570,9 @@ function* buildCinema(stage: Stage, root: THREE.Group): SceneBuild {
     },
     settleAsMiniature() {
       blasted = true;
+      tell(1, 0, true, true);
       screenUniforms.uTear.value = 2;
+      usher.root.visible = false;
       heads.commit(0);
       belt.visible = false;
       beltOn = false;
@@ -374,8 +599,12 @@ function* buildCinema(stage: Stage, root: THREE.Group): SceneBuild {
       bucket.scale.set(1 - kick * 0.018, 1 + kick * 0.03 + strain * strain * 0.03 * Math.sin(time * 50), 1 - kick * 0.018);
       audience.forEach((person, index) => {
         const chew = Math.max(0, Math.sin(time * 2.4 + person.phase)) * 0.14;
-        // Everyone leans toward the snacks, not the film.
-        p.set(person.x, GROUND + Math.floor(index / 22) * 0.5 + chew * 0.5, person.z);
+        // Everyone leans toward the snacks, not the film, until the feature has them on their
+        // feet, front rows first, cheering and bouncing.
+        const row = Math.floor(index / 22);
+        const up = blasted ? 0 : smooth(0.74 + row * 0.018, 0.8 + row * 0.018, story);
+        const cheer = up * Math.max(0, Math.sin(time * 5.2 + person.phase)) * 0.45;
+        p.set(person.x + Math.sin(time * 1.7 + person.phase) * up * 0.25, GROUND + row * 0.5 + chew * 0.5 * (1 - up) + up * 1.7 + cheer, person.z);
         let spin = 0;
         if (person.flung > 0) {
           const t = person.flung;
@@ -390,6 +619,12 @@ function* buildCinema(stage: Stage, root: THREE.Group): SceneBuild {
         heads.setMatrixAt(index, m);
       });
       heads.commit(blasted && audience[0]!.flung > 4 ? 0 : audience.length);
+      updateUsher(ctx);
+      pieces.update(dt, ctx);
+      // The screen lights the room in the colors of whatever is showing.
+      const flickerLight = 0.9 + 0.1 * Math.sin(time * 37) * Math.sin(time * 13);
+      screenLight.set(show < 1 ? '#ffb08a' : '#d8d8e8').lerp(color.set(show < 1 ? '#d8d8e8' : '#8d9dff'), show < 1 ? show : show - 1);
+      lamps[6]!.intensity = lerp(0.7, 0.95, show / 2) * flickerLight;
 
       steamTimer -= dt;
       if (steamTimer <= 0) {
@@ -399,6 +634,7 @@ function* buildCinema(stage: Stage, root: THREE.Group): SceneBuild {
         const radius = r.range(0.4, 2.8);
         ctx.sprites.spawn({ x: Math.cos(a) * radius, y: BUCKET.rimY + (ctx.level > 0.5 ? 5 : 0), z: Math.sin(a) * radius, vx: r.range(-0.2, 0.2), vy: r.range(1.2, 2), vz: r.range(-0.2, 0.2), drag: 0.25, sizeStart: 0.55, sizeEnd: r.range(1.8, 2.6), life: r.range(1.7, 2.5), color: steam, alpha: 0.05, kind: SpriteKind.Puff, spin: r.range(-0.4, 0.4) });
       }
+      STAR_GROUPS.forEach((group, i) => bank.dim(group, 0.45 + 0.55 * Math.abs(Math.sin(time * (0.9 + i * 0.37) + i * 2.1))));
       // Dust drifting through the projector beam: the room's constant motion.
       dustTimer -= dt;
       if (dustTimer <= 0) {
@@ -409,7 +645,28 @@ function* buildCinema(stage: Stage, root: THREE.Group): SceneBuild {
       }
     },
   };
+
+  function updateUsher(ctx: SceneContext): void {
+    // Up and down the aisle with a torch, turning at each end; once the feature starts the
+    // usher stops at the front to watch it too.
+    const watching = smooth(0.72, 0.8, story);
+    const leg = time / USHER_WALK;
+    const along = (1 - Math.cos((leg % 1) * Math.PI)) / 2;
+    const forward = Math.floor(leg) % 2 === 0;
+    const z = lerp(lerp(24, 60, forward ? along : 1 - along), 17.5, watching);
+    const turnBack = Math.min(1, Math.min(leg % 1, 1 - (leg % 1)) * 8);
+    const step = Math.abs(Math.sin(time * 4.4)) * (1 - watching) * turnBack;
+    const floor = Math.max(GROUND + (pieces.owns('decor-carpet') ? 0.19 : 0), ctx.ground(0, z) - 0.1);
+    usher.root.position.set(Math.sin(time * 0.37) * 0.8 * (1 - watching), floor + step * 0.12, z);
+    usher.root.rotation.y = lerp(forward ? Math.PI : 0, Math.PI, watching);
+    usher.head.rotation.y = Math.sin(time * 0.8) * 0.6 * (1 - watching);
+    usher.armR.rotation.set(lerp(-1.25 + Math.sin(time * 1.3) * 0.15, -0.2, watching), 0, 0.1);
+    usher.armL.rotation.set(Math.sin(time * 4.4) * 0.35 * (1 - watching), 0, -0.12);
+  }
 }
+
+/** Seconds for the usher to walk the aisle one way. */
+const USHER_WALK = 19;
 
 const floorSlot = (x: number, z: number, rotation: number, scale: number): UnitSlot => ({ x, y: GROUND, z, rotation, scale });
 const stageSlot = (angle: number, radius: number, scale: number, turn = 0): UnitSlot => ({
@@ -427,26 +684,39 @@ export const cinemaSpec: SceneSpec = {
     sunColor: '#ffe9c8',
     sunIntensity: 1.42,
     shadeTint: '#55305f',
-    sky: '#b89ad0',
-    skyIntensity: 0.2,
-    ground: '#b5404a',
-    groundIntensity: 0.2,
+    sky: '#c6a2d4',
+    skyIntensity: 0.3,
+    ground: '#c0504a',
+    groundIntensity: 0.27,
     rim: '#ffcf9a',
     rimIntensity: 0.55,
     rimDir: [-0.6, 0.25, -0.75],
-    fog: '#1c0a14',
+    fog: '#2a1018',
     fogRange: [110, 240],
     pool: [0, 0, 2, 27],
-    poolFloor: 0.36,
+    poolFloor: 0.54,
   },
+  // House lights up for the intermission, down for the countdown, out for the feature: the stage
+  // keeps its spotlight and the screen lights the rest.
+  story: {
+    mid: {
+      light: { sunDir: [0.3, 0.95, 0.42], sunColor: '#ffe9c8', sunIntensity: 1.42, shadeTint: '#55305f', sky: '#b89ad0', skyIntensity: 0.2, ground: '#b5404a', groundIntensity: 0.2, rim: '#ffcf9a', rimIntensity: 0.55, rimDir: [-0.6, 0.25, -0.75], fog: '#1c0a14', fogRange: [110, 240], pool: [0, 0, 2, 27], poolFloor: 0.36 },
+      grade: { exposure: 1.02, contrast: 1.07, saturation: 1.05, vignette: 0.42, bloom: 0.72, shadowTint: '#fff2f4', highlightTint: '#fff8ee', aoTint: '#1c0814' },
+    },
+    late: {
+      light: { sunDir: [0.28, 0.96, 0.4], sunColor: '#ffe6c8', sunIntensity: 1.38, shadeTint: '#4a2c66', sky: '#8d86d8', skyIntensity: 0.12, ground: '#9a3448', groundIntensity: 0.14, rim: '#9db0ff', rimIntensity: 0.68, rimDir: [-0.6, 0.25, -0.75], fog: '#12060e', fogRange: [110, 240], pool: [0, 0, 2, 25], poolFloor: 0.22 },
+      grade: { exposure: 1.01, contrast: 1.09, saturation: 1.06, vignette: 0.5, bloom: 0.86, shadowTint: '#f6f0ff', highlightTint: '#fff6ec', aoTint: '#160612' },
+    },
+  },
+  tiltShift: 0.55,
   grade: {
-    exposure: 1.02,
-    contrast: 1.07,
+    exposure: 1.03,
+    contrast: 1.06,
     saturation: 1.05,
-    vignette: 0.42,
-    bloom: 0.72,
-    shadowTint: '#fff2f4',
-    highlightTint: '#fff8ee',
+    vignette: 0.36,
+    bloom: 0.64,
+    shadowTint: '#fff4f2',
+    highlightTint: '#fffaf0',
     aoTint: '#1c0814',
   },
   camera: {
@@ -479,15 +749,7 @@ export const cinemaSpec: SceneSpec = {
   steamY: BUCKET.rimY,
   spreadRadius: 46,
   nest: { position: new THREE.Vector3(-25, 1.9, -24.5), scale: 0.2, rise: 0.85 },
-  lamps: [
-    ...[0.5, 1.55, 2.6, 3.65, 4.7, 5.75].map((a) => ({
-      position: [Math.cos(a) * (STAGE_R - 0.75), 0.9, Math.sin(a) * (STAGE_R - 0.75)] as [number, number, number],
-      color: '#ffc774',
-      intensity: 0.75,
-      radius: 9,
-    })),
-    { position: [0, 20, -34], color: '#8d9dff', intensity: 0.9, radius: 52 },
-  ],
+
   slots: {
     pan: [stageSlot(2.5, 11.5, 2.2), stageSlot(0.7, 11.5, 2.2), stageSlot(3.3, 11.8, 2.2), stageSlot(-0.1, 11.8, 2.2), stageSlot(2.0, 8.6, 2), stageSlot(1.15, 8.6, 2)],
     cart: [floorSlot(-24, 8, 0.6, 4), floorSlot(24, 8, -0.6, 4), floorSlot(-33, 14, 0.9, 4), floorSlot(33, 14, -0.9, 4)],

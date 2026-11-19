@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { toyMaterials, type ToyMaterials } from '../materials/toy.ts';
+import { LIGHT_GROUPS } from '../core/globals.ts';
 import type { Stage } from '../core/stage.ts';
 
 /** Surface relief, painted by the shader. The fraction picks the scale: .5 is the default. */
@@ -63,6 +64,13 @@ export interface Paint {
   colorFn?: (p: THREE.Vector3, n: THREE.Vector3, out: THREE.Color) => void;
   /** Per-vertex glow, for things like lava running through rock. */
   emissiveFn?: (p: THREE.Vector3, n: THREE.Vector3) => number;
+  /**
+   * A light group from `lightGroup()`: the scene turns the part on and off, and while off it is
+   * dark glass. Its own glow, from `emissive` or `emissiveFn`, must stay below 2.
+   */
+  light?: number;
+  /** With `light`: off, the part keeps its paint and only stops glowing, like a clock face. */
+  lightKeepsPaint?: boolean;
 }
 
 const tempP = new THREE.Vector3();
@@ -142,6 +150,8 @@ export class Kit {
     const pattern = paint.pattern ?? 0;
     const wear = paint.wear ?? 0;
     const tint = paint.fixedColor ? 0 : 1;
+    // The group travels in the glow channel, two per step, where the shader takes it apart again.
+    const group = paint.light ? (paint.light + (paint.lightKeepsPaint ? LIGHT_GROUPS : 0)) * 2 : 0;
     const aoFn = typeof paint.ao === 'function' ? paint.ao : null;
     const aoValue = typeof paint.ao === 'number' ? paint.ao : 1;
     const { colorFn, emissiveFn } = paint;
@@ -247,7 +257,7 @@ export class Kit {
       C[oc + j3 + 1] = g;
       C[oc + j3 + 2] = b;
       M[om + j4] = gloss;
-      M[om + j4 + 1] = glow;
+      M[om + j4 + 1] = glow + group;
       M[om + j4 + 2] = ao;
       M[om + j4 + 3] = outline;
       M2[om2 + j4] = metal;
