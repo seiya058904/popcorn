@@ -17,7 +17,7 @@ import { earthSpec } from './scenes/earth.ts';
 import { kitchenSpec } from './scenes/kitchen.ts';
 import { setPotSkin, stoveSpec } from './scenes/stove.ts';
 import { townSpec } from './scenes/town.ts';
-import type { FinaleBeat, Grade, SceneSpec } from './scenes/types.ts';
+import type { FinaleBeat, Grade, SceneSpec, UnitKindName } from './scenes/types.ts';
 
 export type BreakBeat = 'strain' | 'silence' | 'blast' | 'arrive';
 
@@ -757,6 +757,22 @@ export class World {
     camera.updateProjectionMatrix();
     post.params.focusDistance = camera.position.distanceTo(v.set(...target));
     post.params.focusRange = 1.4;
+  }
+
+  /** QA view of one machine from any side. */
+  viewMachine(kind: UnitKindName, angle: number): void {
+    const copy = this.current?.isolateMachine(kind);
+    if (!copy) return;
+    const distance = copy.size * 2.45;
+    const a = angle + copy.rotation;
+    const lift = distance * 0.3;
+    this.viewFrom(
+      [copy.center.x + Math.sin(a) * distance, copy.center.y + lift, copy.center.z + Math.cos(a) * distance],
+      [copy.center.x, copy.center.y, copy.center.z],
+      26,
+    );
+    this.stage.post.params.focusRange = distance * 0.5;
+    this.stage.post.params.reflectionRange = copy.size * 2;
   }
 
   /** QA view for judging a single flake at hero size. */

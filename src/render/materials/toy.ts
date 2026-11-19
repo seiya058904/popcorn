@@ -116,7 +116,8 @@ void main() {
     // Relief finer than a pixel would only shimmer, so it fades out with distance.
     float visible = smoothstep(0.7, 0.18, length(fwidth(q)) * finest);
     albedo *= mix(1.0, tone, max(visible, 0.45));
-    N = bumped(N, vLocal, h, (id > 3.5 && id < 4.5 ? 0.012 : 0.004) * visible / scale);
+    float relief = id < 1.5 ? 0.0012 : id > 3.5 && id < 4.5 ? 0.012 : 0.004;
+    N = bumped(N, vLocal, h, relief * visible / scale);
   }
   if (wear > 0.0) {
     float scuff = smoothstep(0.42, 0.72, noise3d(vLocal * 9.0));
@@ -212,7 +213,7 @@ void main() {
   vec3 reflected = envColor(R) + uSunColor * studioSoft(R, 0.05) * 1.4 + lampSheen(vWorld, N, V, 0.08);
   float thick = pow(1.0 - ndv, 2.0);
   vec3 col = reflected * fresnel + vColor * (0.025 + thick * 0.16);
-  float alpha = sat(0.07 + thick * 0.28 + fresnel * 0.7);
+  float alpha = sat(0.1 + thick * 0.42 + fresnel * 0.7);
   // Premultiplied: the reflection adds light while the tint only slightly veils what is behind.
   gl_FragColor = vec4(applyFog(col, dist), alpha);
 }

@@ -145,6 +145,15 @@ export class SceneRuntime {
     return points;
   }
 
+  /** QA: shows one copy of a machine alone and says where it is. */
+  isolateMachine(kind: UnitKindName): ReturnType<UnitRig['firstCopy']> {
+    for (const [other, rig] of this.rigs) {
+      if (other === kind) rig.keepOnlyFirst();
+      else rig.hide();
+    }
+    return this.rigs.get(kind)?.firstCopy() ?? null;
+  }
+
   syncUpgrades(owned: readonly string[]): void {
     this.parts.upgradesChanged?.(owned);
   }

@@ -45,6 +45,8 @@ export interface Paint {
   outline?: number;
   matrix?: THREE.Matrix4;
   colorFn?: (p: THREE.Vector3, n: THREE.Vector3, out: THREE.Color) => void;
+  /** Per-vertex glow, for things like lava running through rock. */
+  emissiveFn?: (p: THREE.Vector3, n: THREE.Vector3) => number;
 }
 
 const tempP = new THREE.Vector3();
@@ -61,6 +63,7 @@ export class Kit {
   private tints: number[] = [];
   private indices: number[] = [];
   private glass: Kit | null = null;
+  private inked = false;
 
   add(geometry: THREE.BufferGeometry, paint: Paint): this {
     if ((paint.detail ?? 0) > detailLevel) {
@@ -81,6 +84,7 @@ export class Kit {
     const gloss = paint.gloss ?? 0.25;
     const emissive = paint.emissive ?? 0;
     const outline = paint.outline ?? 1;
+    if (outline > 0) this.inked = true;
     const metal = paint.metal ?? 0;
     const coat = paint.coat ?? 0;
     const pattern = paint.pattern ?? 0;
@@ -98,7 +102,7 @@ export class Kit {
       paint.colorFn?.(tempP, tempN, tempC);
       this.colors.push(tempC.r, tempC.g, tempC.b);
       const ao = typeof paint.ao === 'function' ? paint.ao(tempP, tempN) : (paint.ao ?? 1);
-      this.mats.push(gloss, emissive, ao, outline);
+      this.mats.push(gloss, paint.emissiveFn ? paint.emissiveFn(tempP, tempN) : emissive, ao, outline);
       this.mats2.push(metal, coat, pattern, wear);
       this.tints.push(paint.fixedColor ? 0 : 1);
     }
@@ -123,6 +127,7 @@ export class Kit {
     geometry.setIndex(this.indices);
     geometry.computeBoundingSphere();
     if (this.glass) geometry.userData.glass = this.glass.build();
+    geometry.userData.noInk = !this.inked;
     return geometry;
   }
 }
@@ -237,6 +242,8 @@ export function addToyInstances(
   const ink = new THREE.InstancedMesh(geometry, materials.outline, capacity);
   body.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   ink.instanceMatrix = body.instanceMatrix;
+  // Parts that are all fine detail have no outline, so their ink pass would draw nothing.
+  ink.visible = geometry.userData.noInk !== true;
   body.frustumCulled = false;
   ink.frustumCulled = false;
   body.count = 0;

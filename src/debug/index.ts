@@ -1,3 +1,4 @@
+import type { UnitKindName } from '../render/scenes/types.ts';
 import type { Game } from '../game.ts';
 import { BOT_PROFILES, BotPlayer } from '../sim/bots.ts';
 import type { GameState } from '../sim/state.ts';
@@ -16,6 +17,7 @@ export interface QaApi {
   set(values: Partial<GameState>): void;
   buy(producer: number, times?: number): void;
   showcase(): void;
+  viewMachine(kind: string, angle: number): void;
   viewFrom(position: [number, number, number], target: [number, number, number], fov: number): void;
   skipTransition(): void;
   fireCannon(heldSeconds: number): void;
@@ -112,6 +114,9 @@ export function installDebug(game: Game): void {
     },
     showcase() {
       game.world.showcase();
+    },
+    viewMachine(kind, angle) {
+      game.world.viewMachine(kind as UnitKindName, angle);
     },
     viewFrom(position, target, fov) {
       game.world.viewFrom(position, target, fov);

@@ -16,6 +16,7 @@
     "audio": "node tools/audio-check.ts",
     "playthrough": "node tools/playthrough.ts",
     "shots": "node tools/shots.ts",
+    "turntable": "node tools/turntable.ts",
     "e2e": "playwright test",
     "e2e:prod": "npm run build && node tools/e2e-prod.ts",
     "soak": "node tools/soak.ts",

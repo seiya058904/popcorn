@@ -176,6 +176,8 @@ vec3 surfaceLight(vec3 albedo, vec3 N, vec3 V, vec3 P, float gloss, float ao, fl
   float occlusion = mix(0.35, 1.0, ao);
   float boxes = studioSoft(R, mix(0.05, 0.42, rough)) * mix(0.3, 1.0, shadow);
   col += (envColor(R) * mix(0.55, 1.0, gloss) + sun * boxes * 1.25) * F * occlusion;
+  // Bare metal never falls to pure black: a room always has something for it to reflect.
+  col += albedo * metal * (hemi * 0.9 + sun * 0.09) * occlusion;
   if (coat > 0.0) {
     float coatF = 0.04 + 0.96 * fresnel;
     col += (envColor(R) + sun * studioSoft(R, 0.05) * mix(0.3, 1.0, shadow)) * coatF * coat * occlusion;
