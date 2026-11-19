@@ -1,6 +1,7 @@
 import { ACHIEVEMENTS, type AchievementView } from '../content/achievements.ts';
 import { FLAVORS } from '../content/flavors.ts';
 import { PRODUCERS } from '../content/producers.ts';
+import { EGG_IDS } from '../content/props.ts';
 import { CANNON, HOPPER, OFFLINE, POT_SKINS } from '../content/skills.ts';
 import { CANNON_UNLOCK_STAGE, STAGES } from '../content/stages.ts';
 import { UPGRADE_BY_ID, UPGRADES, type UpgradeDef } from '../content/upgrades.ts';
@@ -9,6 +10,7 @@ import type { CannonResult, GameEvents } from '../events/game-events.ts';
 import {
   affordableCount,
   bulkPrice,
+  cannonStreakBonus,
   cannonZone,
   clickGain,
   currentRate,
@@ -107,15 +109,23 @@ export class Simulation {
     this.state.stats.purchases += 1;
   }
 
-  click(): { count: number; gainEach: number } {
-    const count = this.derived.clickPops;
-    const gained = this.clickValue;
+  click(): { count: number; gainEach: number; golden: boolean } {
+    const d = this.derived;
+    const stats = this.state.stats;
+    const count = d.clickPops;
+    let gained = this.clickValue;
+    // Rolled only once golden kernels exist, so a run without them draws the same numbers as before.
+    const golden = d.goldenChance > 0 && this.random() < d.goldenChance;
+    if (golden) {
+      gained *= d.goldenMultiplier;
+      stats.goldenPops += 1;
+    }
     this.earn(gained);
-    this.state.stats.clicks += 1;
-    this.state.stats.pops += count;
+    stats.clicks += 1;
+    stats.pops += count;
     this.checkStage();
-    this.bus.emit('kernel_popped', { count, gained });
-    return { count, gainEach: gained / count };
+    this.bus.emit('kernel_popped', { count, gained, golden });
+    return { count, gainEach: gained / count, golden };
   }
 
   step(seconds: number): void {
@@ -173,17 +183,36 @@ export class Simulation {
       if (s.hopperVisible <= 0) {
         s.hopperVisible = 0;
         s.stats.hoppersMissed += 1;
+        // One that gets away takes the rest of its swarm with it.
+        s.hopperSwarm = 0;
+        s.hopperSwarmSize = 0;
         this.scheduleHopper();
         this.bus.emit('hopper_escaped', { id: s.hopperId });
       }
       return;
     }
     s.hopperTimer -= seconds;
-    if (s.hopperTimer <= 0) {
-      s.hopperId += 1;
-      s.hopperVisible = HOPPER.visibleSeconds;
-      this.bus.emit('hopper_spawned', { id: s.hopperId });
+    if (s.hopperTimer <= 0) this.spawnHopper();
+  }
+
+  /**
+   * A kernel pops up. Most come alone; with the swarm upgrade some bring friends, which follow one
+   * at a time, each a moment after the last is caught. The scene only ever shows one.
+   */
+  private spawnHopper(): void {
+    const s = this.state;
+    const d = this.derived;
+    if (s.hopperSwarm > 0) {
+      s.hopperSwarm -= 1;
+    } else if (d.swarmChance > 0 && this.random() < d.swarmChance) {
+      s.hopperSwarmSize = d.swarmSize;
+      s.hopperSwarm = d.swarmSize - 1;
+    } else {
+      s.hopperSwarmSize = 0;
     }
+    s.hopperId += 1;
+    s.hopperVisible = HOPPER.visibleSeconds;
+    this.bus.emit('hopper_spawned', { id: s.hopperId, swarm: s.hopperSwarm });
   }
 
   private scheduleHopper(): void {
@@ -194,11 +223,24 @@ export class Simulation {
   catchHopper(): boolean {
     const s = this.state;
     if (s.hopperVisible <= 0) return false;
+    const d = this.derived;
     s.hopperVisible = 0;
-    s.frenzy = this.derived.frenzySeconds;
     s.stats.hoppersCaught += 1;
-    this.scheduleHopper();
-    this.bus.emit('hopper_caught', { id: s.hopperId });
+    if (s.hopperSwarmSize > 1) {
+      // Every kernel of a swarm adds a frenzy's worth, up to a ceiling.
+      s.frenzy = Math.min(s.frenzy + d.frenzySeconds, d.frenzySeconds * HOPPER.swarmFrenzyCap);
+      if (s.hopperSwarm > 0) {
+        s.hopperTimer = HOPPER.swarmGapSeconds;
+      } else {
+        s.stats.swarmsCaught += 1;
+        s.hopperSwarmSize = 0;
+        this.scheduleHopper();
+      }
+    } else {
+      s.frenzy = Math.max(s.frenzy, d.frenzySeconds);
+      this.scheduleHopper();
+    }
+    this.bus.emit('hopper_caught', { id: s.hopperId, swarm: s.hopperSwarm });
     return true;
   }
 
@@ -273,6 +315,18 @@ export class Simulation {
     return UPGRADES.filter((upgrade) => this.upgradeAvailable(upgrade));
   }
 
+  /** What "buy them all" would buy: upgrades on offer, cheapest first, as far as the popcorn goes. */
+  affordableUpgrades(): UpgradeDef[] {
+    let budget = this.state.popcorn;
+    const list: UpgradeDef[] = [];
+    for (const upgrade of this.availableUpgrades.sort((a, b) => a.cost - b.cost)) {
+      if (upgrade.cost > budget) break;
+      budget -= upgrade.cost;
+      list.push(upgrade);
+    }
+    return list;
+  }
+
   buyUpgrade(id: string): boolean {
     const upgrade = UPGRADE_BY_ID.get(id);
     if (!upgrade || !this.upgradeAvailable(upgrade) || this.state.popcorn < upgrade.cost) return false;
@@ -291,25 +345,44 @@ export class Simulation {
     const zone = cannonZone(heldSeconds, this.derived);
     if (zone === 'early' && heldSeconds < CANNON.minHoldSeconds) return null;
     const s = this.state;
+    const d = this.derived;
     const result: CannonResult = zone === 'green' ? 'perfect' : zone === 'over' ? 'overpressure' : 'normal';
     const seconds =
       result === 'perfect' ? CANNON.perfectSeconds : result === 'overpressure' ? CANNON.overpressureSeconds : CANNON.normalSeconds;
+    const streak = result === 'perfect' ? s.stats.perfectStreak + 1 : 0;
     // A popped lid is its own punishment, so overpressure gets no payout bonus.
-    const payout = result === 'overpressure' ? 1 : this.derived.cannonPayout;
+    const payout = result === 'overpressure' ? 1 : d.cannonPayout * (1 + cannonStreakBonus(d, streak));
     const gained = this.perSecond * seconds * payout;
     this.earn(gained);
-    s.cannonCooldown = this.derived.cannonCooldown;
+    s.cannonCooldown = d.cannonCooldown;
     s.stats.cannonShots += 1;
-    if (result === 'perfect') {
-      s.stats.cannonPerfect += 1;
-      s.stats.perfectStreak += 1;
-    } else {
-      s.stats.perfectStreak = 0;
-      if (result === 'overpressure') s.stats.cannonOverpressure += 1;
-    }
+    s.stats.perfectStreak = streak;
+    if (result === 'perfect') s.stats.cannonPerfect += 1;
+    else if (result === 'overpressure') s.stats.cannonOverpressure += 1;
     this.checkStage();
-    this.bus.emit('cannon_fired', { result, gained });
+    this.bus.emit('cannon_fired', { result, gained, streak });
     return { result, gained };
+  }
+
+  // Things in the scene ------------------------------------------------------
+
+  /** A working machine was poked. The scene shows it work; the rules only count it. */
+  poke(unit: number): boolean {
+    if (!(this.state.owned[unit]! > 0)) return false;
+    this.state.stats.pokes += 1;
+    this.bus.emit('machine_poked', { unit });
+    return true;
+  }
+
+  /** An easter egg was found. Returns true the first time it is ever found, when it joins the album. */
+  findEgg(id: string): boolean {
+    if (!EGG_IDS.has(id)) return false;
+    const found = this.state.legacy.found;
+    const first = !found.includes(id);
+    if (first) found.push(id);
+    this.bus.emit('egg_found', { id, first });
+    if (first) this.checkAchievements();
+    return first;
   }
 
   // Time away ---------------------------------------------------------------
@@ -348,6 +421,13 @@ export class Simulation {
 
   private view(): AchievementView {
     const s = this.state;
+    let decorOwned = 0;
+    let goldOwned = 0;
+    for (const id of s.upgrades) {
+      const upgrade = UPGRADE_BY_ID.get(id);
+      if (upgrade?.group === 'decor') decorOwned += 1;
+      if (upgrade?.gold) goldOwned += 1;
+    }
     return {
       ...s.stats,
       totalEarned: s.totalEarned,
@@ -358,6 +438,9 @@ export class Simulation {
       flavors: s.flavors,
       upgrades: s.upgrades.length,
       stage: s.stage,
+      decorOwned,
+      goldOwned,
+      eggsFound: s.legacy.found.length,
       runs: s.legacy.runs,
       ended: s.ended,
     };

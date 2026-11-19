@@ -113,6 +113,20 @@ const scenarios: Scenario[] = [
     clip: '[data-unit="1"]',
     start: (page) => page.locator('[data-unit="1"]').click(),
   },
+  {
+    name: 'group-fold',
+    clip: { x: 1440, y: 20, width: 470, height: 820 },
+    start: (page) => page.locator('[data-group="0"] .shop-group-head').click(),
+  },
+  {
+    name: 'group-unfold',
+    clip: { x: 1440, y: 20, width: 470, height: 820 },
+    setup: async (page) => {
+      await page.locator('[data-group="0"] .shop-group-head').click();
+      await page.waitForTimeout(600);
+    },
+    start: (page) => page.locator('[data-group="0"] .shop-group-head').click(),
+  },
 ];
 
 const outDir = 'artifacts/ui-film';

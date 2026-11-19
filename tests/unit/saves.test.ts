@@ -3,6 +3,8 @@ import { EventBus } from '../../src/events/bus.ts';
 import type { GameEvents } from '../../src/events/game-events.ts';
 import { SaveManager } from '../../src/platform/saves.ts';
 import { memoryStore, type KeyValueStore } from '../../src/platform/storage.ts';
+import { checksum } from '../../src/sim/save.ts';
+import { createState } from '../../src/sim/state.ts';
 import { Simulation } from '../../src/sim/simulation.ts';
 
 const T0 = 1_800_000_000_000;
@@ -61,6 +63,27 @@ describe('saving as the page goes away', () => {
     const next = session(store);
     await next.saves.load(T0 + 5000);
     expect(next.sim.state.popcorn).toBe(50);
+  });
+
+  it('says whether an older save kept its run or had to start over', async () => {
+    const wrap = (raw: object): string => {
+      const body = JSON.stringify(raw);
+      return JSON.stringify({ format: 'pop-popcorn-save', version: (raw as { version: number }).version, sum: checksum(body), body });
+    };
+    const v3 = { ...createState(), version: 3, owned: [5, 0, 0, 0, 0, 0, 0, 0, 0, 0], totalEarned: 500, savedAt: T0 };
+    const kept = memoryStore();
+    await kept.write('main', wrap(v3));
+    const carried = session(kept);
+    expect(await carried.saves.load(T0)).toMatchObject({ source: 'main', migrated: false, upgraded: true });
+    expect(carried.sim.state.owned[0]).toBe(5);
+
+    const reset = memoryStore();
+    await reset.write('main', wrap({ ...v3, version: 2 }));
+    expect(await session(reset).saves.load(T0)).toMatchObject({ migrated: true, upgraded: false });
+
+    const current = memoryStore();
+    await session(current).saves.save(T0);
+    expect(await session(current).saves.load(T0)).toMatchObject({ migrated: false, upgraded: false });
   });
 
   it('a wipe removes the copy too', async () => {

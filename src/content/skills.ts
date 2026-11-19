@@ -24,6 +24,15 @@ export const HOPPER = {
   frenzyMultiplier: 5,
   /** The automatic catcher lets the kernel hop around for a moment first. */
   autoCatchSeconds: 3,
+  /** In a swarm the next kernel pops up this soon after one is caught. */
+  swarmGapSeconds: 1.2,
+  /** Catching more of a swarm stacks the frenzy, up to this many frenzies' worth. */
+  swarmFrenzyCap: 3,
+} as const;
+
+/** A golden kernel: a lucky click that pays many times over. Chance and payout come from upgrades. */
+export const GOLDEN = {
+  baseMultiplier: 10,
 } as const;
 
 export const OFFLINE = {
@@ -43,7 +52,8 @@ export const CLICK = {
 /** Holding the mouse down keeps popping, so nobody has to hammer the button. */
 export const HOLD_POP = {
   firstDelay: 0.22,
-  interval: 1 / 6,
+  /** Pops per second while held; an upgrade raises it. */
+  perSecond: 6,
 } as const;
 
 /** The pot simmers by itself: a player who never clicks still gets started. */

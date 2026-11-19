@@ -46,6 +46,8 @@ export interface BotReport {
   upgrades: number;
   achievements: number;
   purchaseGapsEarly: number[];
+  /** Minute and scene of each upgrade's purchase. */
+  upgradesBought: Record<string, { minute: number; stage: number }>;
 }
 
 type Choice =
@@ -97,7 +99,7 @@ function choices(sim: Simulation): Choice[] {
 }
 
 export interface BotListener {
-  onPurchase?(label: string, unit: number | null): void;
+  onPurchase?(label: string, unit: number | null, upgrade: string | null): void;
 }
 
 /** A simple greedy player. Drives both the balance tool and full playthroughs of the real game. */
@@ -186,6 +188,7 @@ export class BotPlayer {
       let bought = false;
       let label = '';
       let unit: number | null = null;
+      let upgrade: string | null = null;
       if (best.kind === 'unit') {
         bought = sim.buyProducer(best.id);
         label = PRODUCERS[best.id]!.name;
@@ -195,10 +198,11 @@ export class BotPlayer {
         bought = sim.buyFlavor();
       } else {
         label = best.def.name;
+        upgrade = best.def.id;
         bought = sim.buyUpgrade(best.def.id);
       }
       if (!bought) return;
-      this.listener.onPurchase?.(label, unit);
+      this.listener.onPurchase?.(label, unit, upgrade);
     }
   }
 }
@@ -221,9 +225,11 @@ export function runBot(profile: BotProfile, maxHours = 14, trace?: (seconds: num
   let firstUnit = -1;
   let purchases = 0;
   const early: number[] = [];
+  const upgradesBought: BotReport['upgradesBought'] = {};
 
   const bot = new BotPlayer(profile, sim, bus, () => sim.click(), {
-    onPurchase(label, unit) {
+    onPurchase(label, unit, upgrade) {
+      if (upgrade !== null) upgradesBought[upgrade] = { minute: time / 60, stage: sim.state.stage };
       if (unit !== null) {
         if (firstBought[unit] === -1) firstBought[unit] = time;
         lastBought[unit] = time;
@@ -272,5 +278,6 @@ export function runBot(profile: BotProfile, maxHours = 14, trace?: (seconds: num
     upgrades: sim.state.upgrades.length,
     achievements: sim.state.legacy.achievements.length,
     purchaseGapsEarly: early,
+    upgradesBought,
   };
 }

@@ -40,6 +40,7 @@ export class Hud {
   private readonly rate: Text;
   private readonly frenzy: HTMLElement;
   private readonly hopperCall: HTMLElement;
+  private readonly hopperCallText: Text;
   private readonly frenzyText: Text;
   private readonly stageLabel: Text;
   private readonly stageGoal: Text;
@@ -79,6 +80,7 @@ export class Hud {
     this.frenzy = el('div', 'frenzy', root);
     this.frenzyText = new Text(this.frenzy);
     this.hopperCall = el('div', 'hopper-call', root, '跳跳粒出现了，快点它！');
+    this.hopperCallText = new Text(this.hopperCall);
 
     const stagebar = el('div', 'stagebar glass', root);
     const label = el('div', 'stagebar-label', stagebar);
@@ -149,20 +151,23 @@ export class Hud {
     return (this.shop.root.offsetWidth + 16) / Math.max(1, window.innerWidth);
   }
 
-  floatGain(x: number, y: number, gain: number): void {
+  /** A golden kernel's number comes up larger, in gold, and stays a little longer. */
+  floatGain(x: number, y: number, gain: number, golden = false): void {
     const float = this.floats[this.floatCursor]!;
     this.floatCursor = (this.floatCursor + 1) % FLOAT_POOL;
     float.textContent = `+${formatAmount(gain)}`;
+    setClass(float, 'is-golden', golden);
     float.getAnimations().forEach((animation) => animation.cancel());
     const at = `translate(${x}px, ${y}px) translate(-50%, -50%)`;
+    const size = golden ? 1.5 : 1;
     float.animate(
       [
-        { transform: `${at} scale(0.5)`, opacity: 0 },
-        { transform: `${at} translateY(-2.4rem) scale(1.18)`, opacity: 1, offset: 0.14 },
-        { transform: `${at} translateY(-4rem) scale(1)`, opacity: 1, offset: 0.45 },
-        { transform: `${at} translateY(-8rem) scale(0.92)`, opacity: 0 },
+        { transform: `${at} scale(${0.5 * size})`, opacity: 0 },
+        { transform: `${at} translateY(-2.4rem) scale(${1.18 * size})`, opacity: 1, offset: 0.14 },
+        { transform: `${at} translateY(-4rem) scale(${size})`, opacity: 1, offset: 0.45 },
+        { transform: `${at} translateY(-8rem) scale(${0.92 * size})`, opacity: 0 },
       ],
-      { duration: 680, easing: 'cubic-bezier(.2,.7,.3,1)' },
+      { duration: golden ? 1000 : 680, easing: 'cubic-bezier(.2,.7,.3,1)' },
     );
   }
 
@@ -313,8 +318,12 @@ export class Hud {
 
     const frenzy = sim.state.frenzy;
     setClass(this.frenzy, 'is-on', frenzy > 0);
-    if (frenzy > 0) this.frenzyText.set(`狂热 ×5 · ${Math.ceil(frenzy)} 秒`);
+    if (frenzy > 0) this.frenzyText.set(`狂热 ×${sim.derived.frenzyMultiplier} · ${Math.ceil(frenzy)} 秒`);
     setClass(this.hopperCall, 'is-on', sim.hopperActive);
+    if (sim.hopperActive) {
+      const more = sim.state.hopperSwarm;
+      this.hopperCallText.set(sim.state.hopperSwarmSize > 1 ? (more > 0 ? `跳跳粒群！后面还有 ${more} 粒` : '最后一粒，抓住它！') : '跳跳粒出现了，快点它！');
+    }
     setClass(this.hint, 'is-gone', sim.state.stats.clicks > 0);
 
     const index = Math.min(sim.state.stage, STAGES.length - 1);

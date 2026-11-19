@@ -93,7 +93,8 @@ export class Stirrer {
       this.group.visible = true;
       this.entrance = 0;
     }
-    this.speed = 3 + power * 1.4;
+    // Past eight pops a second the paddle would only blur; the extra shows in the pops themselves.
+    this.speed = 3 + Math.min(power, 8) * 1.4;
   }
 
   /** One pop made: the paddle gives a little dip. */

@@ -353,7 +353,7 @@
   font-size: 1.7rem;
 }
 
-.shop-tab .badge {
+.shop .badge {
   min-width: 2.2rem;
   height: 2.2rem;
   padding: 0 0.6rem;
@@ -365,7 +365,7 @@
   box-shadow: 0 0.1rem 0.3rem rgb(160 20 30 / 35%);
 }
 
-.shop-tab .badge:empty {
+.shop .badge:empty {
   display: none;
 }
 
@@ -401,6 +401,198 @@
 .bulk-label {
   color: var(--ink-2);
   font-size: var(--t-caption);
+}
+
+/*
+ * Machines are grouped by scene, like the sections of an iOS list: a quiet header with the
+ * scene's name and a summary, which folds its machines away when tapped.
+ */
+.shop-group,
+.shop-group-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+
+.shop-group + .shop-group {
+  margin-top: var(--s-2);
+}
+
+.shop-group-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-height: 4.4rem;
+  padding: 0 var(--s-2) 0 var(--s-2);
+  border-radius: var(--r-s);
+  color: var(--ink-2);
+  text-align: left;
+}
+
+.shop-group-head:hover {
+  background: rgb(110 74 58 / 6%);
+}
+
+.shop-group-name {
+  font-size: 1.9rem;
+  color: var(--ink);
+  letter-spacing: 0.08em;
+}
+
+.shop-group-meta {
+  margin-left: auto;
+  font-size: 1.5rem;
+  white-space: nowrap;
+}
+
+.shop-group-chevron {
+  display: grid;
+  place-items: center;
+  width: 2.4rem;
+  height: 2.4rem;
+  color: var(--ink-3);
+  transition: rotate var(--dur-slide, 300ms) var(--ease-slide, ease-out);
+}
+
+.shop-group-chevron svg {
+  width: 100%;
+  height: 100%;
+}
+
+.shop-group.is-collapsed .shop-group-chevron {
+  rotate: -90deg;
+}
+
+:root[data-motion='reduced'] .shop-group-chevron {
+  transition: none;
+}
+
+.shop-group.is-locked .shop-group-head {
+  cursor: default;
+}
+
+.shop-group.is-locked .shop-group-head:hover {
+  background: none;
+}
+
+.shop-group.is-locked .shop-group-name {
+  color: var(--ink-3);
+}
+
+.shop-group.is-locked .shop-group-chevron {
+  display: none;
+}
+
+/* Upgrade tools: a filter, then "buy them all" beside a sort chip. */
+.upgrade-tools {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding-top: var(--s-1);
+}
+
+.upgrade-filter .seg-item {
+  min-width: 0;
+}
+
+.upgrade-actions {
+  display: flex;
+  gap: var(--s-2);
+}
+
+.buy-all,
+.sort-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-2);
+  height: 4.4rem;
+  border-radius: var(--r-pill);
+  font-size: 1.8rem;
+  white-space: nowrap;
+}
+
+.buy-all {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0 var(--s-4) 0 var(--s-3);
+  background: var(--paper-sunk);
+  color: var(--ink-2);
+  box-shadow: inset 0 0.1rem 0.2rem rgb(110 74 58 / 16%);
+  transition:
+    background-color var(--dur-fade, 190ms) var(--ease-fade, ease-out),
+    color var(--dur-fade, 190ms) var(--ease-fade, ease-out);
+}
+
+.buy-all.is-ready {
+  background: linear-gradient(180deg, #ffd45e, var(--butter));
+  color: var(--ink);
+  box-shadow: inset 0 0.1rem 0 rgb(255 255 255 / 55%), inset 0 -0.25rem 0 rgb(140 90 20 / 22%), var(--e1);
+}
+
+.buy-all[aria-busy='true'] {
+  cursor: progress;
+}
+
+.buy-all-icon {
+  display: grid;
+  width: 2.6rem;
+  height: 2.6rem;
+}
+
+.buy-all-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.buy-all:not(.is-ready) .buy-all-icon svg {
+  filter: grayscale(1);
+  opacity: 0.55;
+}
+
+.buy-all-count {
+  margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 1.6rem;
+  color: var(--ink-2);
+}
+
+.buy-all.is-ready .buy-all-count {
+  color: var(--ink);
+}
+
+.sort-chip {
+  flex: none;
+  padding: 0 var(--s-4);
+  background: var(--paper-raised);
+  color: var(--ink-2);
+  box-shadow: inset 0 0 0 0.1rem var(--paper-line);
+  transition:
+    background-color var(--dur-fade, 190ms) var(--ease-fade, ease-out),
+    color var(--dur-fade, 190ms) var(--ease-fade, ease-out);
+}
+
+.sort-chip[aria-pressed='true'] {
+  background: var(--ink);
+  color: var(--paper-raised);
+  box-shadow: none;
+}
+
+.upgrade-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+
+/* The gold tier: a gilded icon well and a deep gold name. */
+.ticket.is-gold .ticket-icon {
+  background: linear-gradient(180deg, #ffe7a0, #f4c75a);
+  box-shadow: inset 0 0.1rem 0.2rem rgb(140 90 20 / 30%), 0 0 0 0.12rem rgb(214 160 40 / 50%);
+}
+
+.ticket.is-gold .ticket-name {
+  color: #8a5a06;
 }
 
 /*
@@ -683,7 +875,8 @@
   display: block;
 }
 
-.gauge svg {
+/* The dial only; the streak stars inside the gauge are svgs too. */
+.gauge > svg {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -723,6 +916,40 @@
   }
 }
 
+/* Green-streak stars between the hub and the caption; lit ones glow butter-yellow. */
+.gauge-stars {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 5.6rem;
+  display: none;
+  justify-content: center;
+  gap: 0.3rem;
+}
+
+.gauge-stars.is-on {
+  display: flex;
+}
+
+.gauge-stars i {
+  display: block;
+  width: 1.6rem;
+  height: 1.6rem;
+}
+
+.gauge-stars svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  fill: rgb(255 241 208 / 16%);
+  transition: fill var(--dur-fade, 190ms) var(--ease-fade, ease-out);
+}
+
+.gauge-stars i.is-lit svg {
+  fill: var(--butter);
+  filter: drop-shadow(0 0 0.4rem rgb(255 200 80 / 75%));
+}
+
 .gauge-result {
   position: absolute;
   left: 50%;
@@ -746,6 +973,12 @@
   text-shadow: 0 0.22rem 0 #8a3322, 0 0 0.9rem rgb(255 170 70 / 80%);
   opacity: 0;
   will-change: transform, opacity;
+}
+
+/* A golden kernel: gold leaf with a warm halo. */
+.float.is-golden {
+  color: #ffd84a;
+  text-shadow: 0 0.22rem 0 #7a4a08, 0 0 0.6rem rgb(255 230 120 / 90%), 0 0 2.2rem rgb(255 190 40 / 75%);
 }
 
 .toasts {

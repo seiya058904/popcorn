@@ -15,6 +15,7 @@ import { Simulation } from './sim/simulation.ts';
 import { FixedStepper } from './sim/stepper.ts';
 import { feedback } from './ui/feedback.ts';
 import { Hud } from './ui/hud.ts';
+import { ICONS } from './ui/icons.ts';
 import { setMotion } from './ui/motion.ts';
 import { Menus } from './ui/menu.ts';
 
@@ -103,10 +104,14 @@ export class Game {
     });
     this.hud.onSkip = () => this.world.skipTransition();
     this.world = new World(this.stage, this.sim, this.bus, this.impact, {
-      onBurst: (x, y, combo, gain, manual) => {
+      onBurst: (x, y, combo, gain, manual, golden) => {
         if (manual) {
           this.audio.pop(combo);
-          this.hud.floatGain(x, y, gain);
+          this.hud.floatGain(x, y, gain, golden);
+          if (golden) {
+            this.audio.effect('chime', 'small', 1.5);
+            feedback.bought();
+          }
         } else {
           this.audio.crackle();
         }
@@ -278,6 +283,7 @@ export class Game {
     this.audio.setSpace(this.sim.state.stage);
     // Warming up front keeps the first click from stalling on shader or buffer work.
     this.stage.preload(this.stage.scene);
+    if (outcome.upgraded) this.hud.toast(ICONS.unit, '新内容上架', '五种新设备、金色玉米、跳跳粒群和场景装修，进度都还在。');
     if (outcome.migrated) {
       this.hud.showNotice('配方大改版', '这一版的数值全部重做，这一锅要从头开始。成就、口味图鉴和再来一锅的记录都还在。');
     } else if (outcome.offline) this.hud.showOffline(outcome.offline.seconds, outcome.offline.gained);
@@ -397,7 +403,7 @@ export class Game {
     if (!hold || this.paused) return;
     hold.wait -= delta;
     while (hold.wait <= 0) {
-      hold.wait += HOLD_POP.interval;
+      hold.wait += 1 / this.sim.derived.holdRate;
       this.world.click(hold.x, hold.y);
     }
   }

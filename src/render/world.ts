@@ -23,7 +23,7 @@ import type { FinaleBeat, Grade, SceneSpec, UnitKindName } from './scenes/types.
 export type BreakBeat = 'strain' | 'silence' | 'blast' | 'arrive';
 
 export interface WorldHooks {
-  onBurst(screenX: number, screenY: number, combo: number, gain: number, manual: boolean): void;
+  onBurst(screenX: number, screenY: number, combo: number, gain: number, manual: boolean, golden: boolean): void;
   onLand(gain: number): void;
   onMachineCannon(): void;
   onMachineSound(name: string): void;
@@ -190,12 +190,12 @@ export class World {
     stage.scene.add(this.root);
     this.runtimeHooks = {
       onSquash: () => undefined,
-      onBurst: (position, combo, gain, manual) => {
+      onBurst: (position, combo, gain, manual, golden) => {
         v.copy(position);
         this.current?.root.localToWorld(v);
         v.project(this.stage.camera);
         const canvas = this.stage.renderer.domElement;
-        this.hooks.onBurst((v.x * 0.5 + 0.5) * canvas.clientWidth, (0.5 - v.y * 0.5) * canvas.clientHeight, combo, gain, manual);
+        this.hooks.onBurst((v.x * 0.5 + 0.5) * canvas.clientWidth, (0.5 - v.y * 0.5) * canvas.clientHeight, combo, gain, manual, golden);
       },
       onLand: (gain) => {
         this.pendingGain = Math.max(0, this.pendingGain - gain);
@@ -467,12 +467,18 @@ export class World {
         return;
       }
     }
-    const { count, gainEach } = this.sim.click();
+    const { count, gainEach, golden } = this.sim.click();
     const canvas = this.stage.renderer.domElement;
     ndc.set((clientX / canvas.clientWidth) * 2 - 1, 1 - (clientY / canvas.clientHeight) * 2);
     this.raycaster.setFromCamera(ndc, this.stage.camera);
     this.pendingGain += count * gainEach;
-    director.click(this.raycaster.ray, count, gainEach);
+    if (golden) {
+      // The other kernels pay what a plain click would; the golden one carries the rest.
+      const plainEach = gainEach / this.sim.derived.goldenMultiplier;
+      director.click(this.raycaster.ray, count, plainEach, count * gainEach - plainEach * (count - 1));
+    } else {
+      director.click(this.raycaster.ray, count, gainEach);
+    }
     // A click during a machine's close-up means the player wants the game back.
     if (this.spotlight) this.spotlight.t = Math.max(this.spotlight.t, SPOTLIGHT_IN + SPOTLIGHT_HOLD);
     const combo = director.comboCount;

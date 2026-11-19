@@ -1,7 +1,11 @@
 import { CANNON } from '../content/skills.ts';
-import { cannonGreenRange } from '../sim/economy.ts';
+import { cannonGreenRange, cannonStreakBonus } from '../sim/economy.ts';
 import type { Simulation } from '../sim/simulation.ts';
 import { el, setClass, Text } from './dom.ts';
+import { MOTION, play } from './motion.ts';
+
+const STREAK_STARS = 5;
+const STAR = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.6l2.8 6 6.5.7-4.9 4.4 1.4 6.4L12 16.8l-5.8 3.3 1.4-6.4-4.9-4.4 6.5-.7z"/></svg>';
 
 const START_ANGLE = -125;
 const SWEEP = 250;
@@ -31,6 +35,9 @@ export class CannonGauge {
   private readonly cooldownArc: SVGPathElement;
   private readonly caption: Text;
   private readonly result: HTMLElement;
+  /** One star per green shot in a row, once the streak upgrade is bought. */
+  private readonly stars: HTMLElement;
+  private litStars = -1;
   private held = 0;
   private charging = false;
   private greenKey = '';
@@ -58,6 +65,9 @@ export class CannonGauge {
     this.cooldownArc = this.root.querySelector('[data-part="cool"]')!;
     this.caption = new Text(el('div', 'gauge-caption', this.root));
     this.result = el('div', 'gauge-result', this.root);
+    const stars = el('div', 'gauge-stars', this.root);
+    for (let i = 0; i < STREAK_STARS; i += 1) el('i', '', stars).innerHTML = STAR;
+    this.stars = stars;
 
     this.root.addEventListener('pointerdown', (event) => {
       event.preventDefault();
@@ -104,7 +114,11 @@ export class CannonGauge {
     this.hooks.onChargeChange(0, false);
     const outcome = this.sim.fireCannon(held);
     if (!outcome) return;
-    const label = { perfect: '绿区！×2', normal: '砰！', overpressure: '炮盖飞了…' }[outcome.result];
+    const bonus = cannonStreakBonus(this.sim.derived, this.sim.state.stats.perfectStreak);
+    const label =
+      outcome.result === 'perfect' && bonus > 0
+        ? `绿区！连环 +${Math.round(bonus * 100)}%`
+        : { perfect: '绿区！×2', normal: '砰！', overpressure: '炮盖飞了…' }[outcome.result];
     this.result.textContent = label;
     this.result.animate(
       [
@@ -138,6 +152,8 @@ export class CannonGauge {
       if (this.held >= CANNON.chargeSeconds) this.fire(this.held);
     }
 
+    this.updateStars();
+
     const cooling = sim.state.cannonCooldown > 0;
     const remaining = sim.state.cannonCooldown / sim.derived.cannonCooldown;
     this.cooldownArc.setAttribute('d', cooling ? arcPath(0, Math.max(0.001, remaining)) : '');
@@ -150,5 +166,22 @@ export class CannonGauge {
     const target = START_ANGLE + SWEEP * charge + tremble;
     this.needleAngle += (target - this.needleAngle) * (this.charging ? 1 : 1 - Math.exp(-deltaSeconds * 14));
     this.needle.style.transform = `rotate(${this.needleAngle.toFixed(2)}deg)`;
+  }
+
+  /** Stars light one by one along a green streak; a newly lit one pops in, a broken streak fades out. */
+  private updateStars(): void {
+    const d = this.sim.derived;
+    const on = d.cannonStreakStep > 0;
+    setClass(this.stars, 'is-on', on);
+    if (!on) return;
+    const lit = Math.min(STREAK_STARS, Math.round(cannonStreakBonus(d, this.sim.state.stats.perfectStreak) / d.cannonStreakStep));
+    if (lit === this.litStars) return;
+    const items = [...this.stars.children] as HTMLElement[];
+    items.forEach((star, i) => setClass(star, 'is-lit', i < lit));
+    if (lit > this.litStars && this.litStars >= 0) {
+      const star = items[lit - 1];
+      if (star) play(star, [{ transform: 'scale(1.9)', opacity: 0.4 }, { transform: 'scale(1)', opacity: 1 }], MOTION.release);
+    }
+    this.litStars = lit;
   }
 }

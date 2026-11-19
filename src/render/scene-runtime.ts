@@ -39,7 +39,7 @@ const caramelColor = new THREE.Color('#d99a58');
 const emberColor = new THREE.Color(2.8, 1.05, 0.25);
 
 export interface RuntimeHooks {
-  onBurst(position: THREE.Vector3, combo: number, gain: number, manual: boolean): void;
+  onBurst(position: THREE.Vector3, combo: number, gain: number, manual: boolean, golden: boolean): void;
   onLand(gain: number): void;
   onSquash(): void;
   onMachineCannon(): void;
@@ -128,9 +128,9 @@ export class SceneRuntime {
           this.parts.kick?.(0);
           hooks.onSquash();
         },
-        onBurst: (position, combo, gain, manual) => {
+        onBurst: (position, combo, gain, manual, golden) => {
           if (manual) this.parts.kick?.(1);
-          hooks.onBurst(position, combo, gain, manual);
+          hooks.onBurst(position, combo, gain, manual, golden);
         },
         onLand: (_position, gain) => hooks.onLand(gain),
       },

@@ -1,6 +1,7 @@
 import { ACHIEVEMENTS } from '../content/achievements.ts';
 import { FLAVORS } from '../content/flavors.ts';
 import { PRODUCERS } from '../content/producers.ts';
+import { EGG_IDS } from '../content/props.ts';
 import { POT_SKINS } from '../content/skills.ts';
 import { STAGES } from '../content/stages.ts';
 import { UPGRADE_BY_ID } from '../content/upgrades.ts';
@@ -52,12 +53,26 @@ const MIGRATIONS: Record<number, (raw: Json) => Json> = {
     legacy: { ...createLegacy(), ...(isObject(raw.legacy) ? raw.legacy : {}) },
     version: 3,
   }),
+  // Version 4 only adds things: five machines (new ids after the old ones), counters and the egg
+  // album. The run carries on; sanitize() fills every new field with its default.
+  3: (raw) => ({ ...raw, version: 4 }),
 };
+
+/** Saves from before this version start a fresh run when loaded; later ones carry on. */
+const FIRST_KEPT_RUN_VERSION = 3;
+
+/** Whether loading a save that came from `from` threw its run away. */
+export function migrationResetsRun(from: number | null): boolean {
+  return from !== null && from < FIRST_KEPT_RUN_VERSION;
+}
 
 const finite = (value: unknown, fallback: number, min = 0, max = Number.MAX_VALUE): number =>
   typeof value === 'number' && Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback;
 
 const whole = (value: unknown, fallback: number, max: number): number => Math.floor(finite(value, fallback, 0, max));
+
+/** No swarm is ever this big; anything larger in a save is damage. */
+const SWARM_LIMIT = 12;
 
 /** Rebuilds a trusted state field by field; unknown or broken values fall back to safe defaults. */
 function sanitize(raw: Json): GameState | null {
@@ -82,6 +97,8 @@ function sanitize(raw: Json): GameState | null {
     hopperTimer: finite(raw.hopperTimer, base.hopperTimer, 0, 3600),
     hopperVisible: finite(raw.hopperVisible, 0, 0, 60),
     hopperId: whole(raw.hopperId, 0, Number.MAX_SAFE_INTEGER),
+    hopperSwarm: whole(raw.hopperSwarm, 0, SWARM_LIMIT),
+    hopperSwarmSize: whole(raw.hopperSwarmSize, 0, SWARM_LIMIT),
     frenzy: finite(raw.frenzy, 0, 0, 600),
     rng: whole(raw.rng, base.rng, 0xffffffff),
     ended: raw.ended === true,
@@ -92,6 +109,7 @@ function sanitize(raw: Json): GameState | null {
       flavorAlbum: whole(rawLegacy.flavorAlbum, 0, FLAVORS.length),
       potSkin: whole(rawLegacy.potSkin, 0, POT_SKINS.length - 1),
       achievements: strings(rawLegacy.achievements).filter((id) => knownAchievements.has(id)),
+      found: strings(rawLegacy.found).filter((id) => EGG_IDS.has(id)),
     },
     savedAt: finite(raw.savedAt, 0),
     version: SAVE_VERSION,

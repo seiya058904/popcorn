@@ -1,4 +1,4 @@
-import { elapsedSince, parseSave, serializeSave, type LoadError } from '../sim/save.ts';
+import { elapsedSince, migrationResetsRun, parseSave, serializeSave, type LoadError } from '../sim/save.ts';
 import type { OfflineReport, Simulation } from '../sim/simulation.ts';
 import type { KeyValueStore } from './storage.ts';
 
@@ -12,8 +12,15 @@ export interface LoadOutcome {
   recovered: boolean;
   /** The save came from an older version whose run could not continue. */
   migrated: boolean;
+  /** The save came from an older version and its run carries on, with new things to discover. */
+  upgraded: boolean;
   offline: OfflineReport | null;
 }
+
+const versionChange = (from: number | null): Pick<LoadOutcome, 'migrated' | 'upgraded'> => ({
+  migrated: migrationResetsRun(from),
+  upgraded: from !== null && !migrationResetsRun(from),
+});
 
 export class SaveManager {
   private readonly sim: Simulation;
@@ -36,21 +43,21 @@ export class SaveManager {
     const rescue = rescueText === null ? null : parseSave(rescueText);
     if (rescue?.ok && (!parsedMain?.ok || rescue.state.savedAt >= parsedMain.state.savedAt)) {
       this.sim.load(rescue.state);
-      return { source: 'main', recovered: false, migrated: rescue.migratedFrom !== null, offline: this.collectOffline(now) };
+      return { source: 'main', recovered: false, ...versionChange(rescue.migratedFrom), offline: this.collectOffline(now) };
     }
     if (parsedMain?.ok) {
       this.sim.load(parsedMain.state);
-      return { source: 'main', recovered: false, migrated: parsedMain.migratedFrom !== null, offline: this.collectOffline(now) };
+      return { source: 'main', recovered: false, ...versionChange(parsedMain.migratedFrom), offline: this.collectOffline(now) };
     }
     const backup = await this.store.read('backup');
     if (backup !== null) {
       const parsed = parseSave(backup);
       if (parsed.ok) {
         this.sim.load(parsed.state);
-        return { source: 'backup', recovered: main !== null, migrated: parsed.migratedFrom !== null, offline: this.collectOffline(now) };
+        return { source: 'backup', recovered: main !== null, ...versionChange(parsed.migratedFrom), offline: this.collectOffline(now) };
       }
     }
-    return { source: 'new', recovered: main !== null, migrated: false, offline: null };
+    return { source: 'new', recovered: main !== null, migrated: false, upgraded: false, offline: null };
   }
 
   private collectOffline(now: number): OfflineReport | null {

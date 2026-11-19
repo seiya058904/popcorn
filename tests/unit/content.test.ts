@@ -5,6 +5,7 @@ import { ACHIEVEMENTS } from '../../src/content/achievements.ts';
 import { FLAVORS } from '../../src/content/flavors.ts';
 import { CREDITS, NEWS_LINES } from '../../src/content/news.ts';
 import { PRODUCERS } from '../../src/content/producers.ts';
+import { EGGS } from '../../src/content/props.ts';
 import { STAGES } from '../../src/content/stages.ts';
 import { UPGRADES } from '../../src/content/upgrades.ts';
 
@@ -20,6 +21,7 @@ const allCopy = (): string[] => [
   ...STAGES.flatMap((item) => [item.name, item.rewardText, item.breakLine]),
   ...UPGRADES.flatMap((item) => [item.name, item.blurb]),
   ...ACHIEVEMENTS.flatMap((item) => [item.name, item.blurb]),
+  ...EGGS.flatMap((item) => [item.name, item.blurb]),
   ...Object.values(NEWS_LINES).flat(),
   ...CREDITS.flat(),
 ];
@@ -33,7 +35,7 @@ describe('game copy', () => {
   });
 
   it('does not repeat a joke word for word', () => {
-    const blurbs = [...PRODUCERS, ...FLAVORS, ...UPGRADES, ...ACHIEVEMENTS].map((item) => item.blurb);
+    const blurbs = [...PRODUCERS, ...FLAVORS, ...UPGRADES, ...ACHIEVEMENTS, ...EGGS].map((item) => item.blurb);
     const lines = [...blurbs, ...Object.values(NEWS_LINES).flat()];
     expect(new Set(lines).size).toBe(lines.length);
   });

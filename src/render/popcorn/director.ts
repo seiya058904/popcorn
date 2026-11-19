@@ -15,6 +15,8 @@ interface Piece {
   shape: number;
   home: number;
   gain: number;
+  /** A lucky click: this kernel bursts in gold. */
+  golden: boolean;
   pos: THREE.Vector3;
   vel: THREE.Vector3;
   targetX: number;
@@ -37,7 +39,7 @@ interface Piece {
 
 export interface DirectorHooks {
   onSquash(): void;
-  onBurst(position: THREE.Vector3, combo: number, gain: number, manual: boolean): void;
+  onBurst(position: THREE.Vector3, combo: number, gain: number, manual: boolean, golden: boolean): void;
   onLand(position: THREE.Vector3, gain: number): void;
 }
 
@@ -75,6 +77,7 @@ const hullColor = new THREE.Color('#8a4a1c');
 const steamColor = new THREE.Color(0.85, 0.82, 0.8);
 const crumbColor = new THREE.Color('#ffe9bd');
 const sparkColor = new THREE.Color(2.2, 1.7, 0.7);
+const gold = new THREE.Color(2.6, 1.9, 0.45);
 
 const m = new THREE.Matrix4();
 const rotation = new THREE.Matrix4();
@@ -143,6 +146,7 @@ export class PopDirector {
         shape: 0,
         home: -1,
         gain: 0,
+        golden: false,
         pos: new THREE.Vector3(),
         vel: new THREE.Vector3(),
         targetX: 0,
@@ -168,6 +172,7 @@ export class PopDirector {
     piece.t = 0;
     piece.home = -1;
     piece.gain = 0;
+    piece.golden = false;
     piece.pop = 0;
     piece.glow = 0;
     piece.idleHop = 0;
@@ -182,8 +187,11 @@ export class PopDirector {
     this.free.push(piece);
   }
 
-  /** Starts one manual pop. Runs synchronously inside the input event. */
-  click(pointer: THREE.Ray | null, count: number, gainEach: number): void {
+  /**
+   * Starts one manual pop. Runs synchronously inside the input event. On a golden click the
+   * kernel nearest the pointer is the golden one and carries `goldenGain`; the others pay as usual.
+   */
+  click(pointer: THREE.Ray | null, count: number, gainEach: number, goldenGain = 0): void {
     const since = this.clock - this.lastClick;
     this.lastClick = this.clock;
     const instant = since > 0 ? Math.min(14, 1 / since) : 14;
@@ -191,7 +199,10 @@ export class PopDirector {
     this.combo = since < COMBO_WINDOW ? this.combo + 1 : 0;
     for (let i = 0; i < count; i += 1) {
       const piece = this.takeKernel(pointer) ?? this.spawnEmergencyKernel();
-      if (piece) this.charge(piece, gainEach, i * 0.016);
+      if (!piece) continue;
+      const golden = goldenGain > 0 && i === 0;
+      this.charge(piece, golden ? goldenGain : gainEach, i * 0.016);
+      piece.golden = golden;
     }
     this.hooks.onSquash();
   }
@@ -293,7 +304,21 @@ export class PopDirector {
     piece.axis.set(rng.range(-1, 1), rng.range(-1, 1), rng.range(-1, 1)).normalize();
     piece.spin = rng.range(7, 15) * rng.sign();
     if (!options.quiet) this.burstEffects(piece, manual);
-    this.hooks.onBurst(piece.pos, this.combo, piece.gain, manual);
+    if (piece.golden) this.goldenEffects(piece);
+    this.hooks.onBurst(piece.pos, this.combo, piece.gain, manual, piece.golden);
+  }
+
+  /** A ring of gold and a spray of sparks; the full golden show is part of the scene work later. */
+  private goldenEffects(piece: Piece): void {
+    const rng = this.rng;
+    const k = this.k;
+    const { x, y, z } = piece.pos;
+    this.sprites.spawn({ x, y, z, sizeStart: 0.5 * k, sizeEnd: 2.6 * k, life: 0.5, color: gold, alpha: 0.85, additive: 1, kind: SpriteKind.Ring });
+    for (let i = 0; i < 10; i += 1) {
+      const a = (i / 10) * 6.28 + rng.range(-0.2, 0.2);
+      const speed = rng.range(2.4, 4.4) * k;
+      this.sprites.spawn({ x, y, z, vx: Math.cos(a) * speed, vy: rng.range(2.6, 5.2) * k, vz: Math.sin(a) * speed, gravity: 14 * k, drag: 0.8, sizeStart: 0.2 * k, sizeEnd: 0.03 * k, life: rng.range(0.5, 0.8), color: gold, alpha: 1, additive: 1, kind: SpriteKind.Star, spin: rng.range(-5, 5) });
+    }
   }
 
   private burstEffects(piece: Piece, manual: boolean): void {

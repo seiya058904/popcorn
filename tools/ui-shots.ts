@@ -22,9 +22,10 @@ type Step = { name: string; run(page: Page): Promise<void>; moving?: boolean };
 
 const PLENTY = 1e30;
 
+/** Buttons act on release; a click with no pointer behind it (as from the keyboard) acts at once. */
 const tab = (index: number) => async (page: Page): Promise<void> => {
   await page.evaluate((i) => {
-    document.querySelectorAll('.shop-tab')[i]!.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    document.querySelectorAll('.shop-tab')[i]!.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 0 }));
   }, index);
 };
 

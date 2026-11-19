@@ -1,6 +1,6 @@
 # Pop! The Popcorn Got Out of Hand (砰！爆米花失控了)
 
-A browser incremental game that leans toward idle play. You start with one kernel in a pot on the stove, buy ten generations of ever larger machines, and watch the heap outgrow the kitchen, the cinema, the town and the planet until the moon itself goes off. A first run takes about 2.5 hours, and totals climb past 100 quadrillion.
+A browser incremental game that leans toward idle play. You start with one kernel in a pot on the stove, buy fifteen kinds of ever larger machines, and watch the heap outgrow the kitchen, the cinema, the town and the planet until the moon itself goes off. A first run takes about 2.5 hours, and totals climb past 100 quadrillion.
 
 The game is web only. There is no desktop build. All text in the game is Simplified Chinese.
 
@@ -42,6 +42,7 @@ Buy machines, flavors and upgrades from the panel on the right. Filling each sta
 - The pause menu can export a save as text and import it in another browser.
 - Time away earns a capped share of normal production. Moving the system clock backward earns nothing.
 - Saves from before the ten-machine economy start a new run. Achievements, the flavor album and new-pot progress are kept.
+- Saves from the ten-machine version carry on where they left off; the five newer machines start at zero.
 
 ## Settings
 

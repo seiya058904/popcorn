@@ -1,6 +1,6 @@
 import { FLAVOR_BASE_COST, FLAVOR_COST_GROWTH, FLAVOR_MULTIPLIER, FLAVORS } from '../content/flavors.ts';
 import { MILESTONE_STEP, MILESTONES, PRICE_GROWTH, PRODUCERS } from '../content/producers.ts';
-import { CANNON, CLICK, HOPPER, NEW_POT, OFFLINE, POT } from '../content/skills.ts';
+import { CANNON, CLICK, GOLDEN, HOLD_POP, HOPPER, NEW_POT, OFFLINE, POT } from '../content/skills.ts';
 import { STAGES } from '../content/stages.ts';
 import { UPGRADE_BY_ID, type UpgradeEffect } from '../content/upgrades.ts';
 import type { GameState } from './state.ts';
@@ -67,14 +67,28 @@ export interface Derived {
   clickShare: number;
   /** Clicks per second made for the player by the stirring machines. */
   autoPops: number;
+  /** Pops per second while the mouse is held on the pot. */
+  holdRate: number;
+  /** Chance that a click turns out golden, and what a golden one is worth. */
+  goldenChance: number;
+  goldenMultiplier: number;
   autoCannon: boolean;
   autoHopper: boolean;
   cannonGreenWidth: number;
   cannonCooldown: number;
   cannonPayout: number;
+  /** Bonus per consecutive green shot, and its ceiling; 0 until the upgrade. */
+  cannonStreakStep: number;
+  cannonStreakMax: number;
   frenzySeconds: number;
   frenzyMultiplier: number;
+  /** Extra multiplier on clicks during a frenzy. */
+  frenzyClick: number;
   hopperIntervalScale: number;
+  swarmChance: number;
+  swarmSize: number;
+  /** Product of the scene decorations. */
+  decorMultiplier: number;
   offlineRate: number;
   offlineCapSeconds: number;
 }
@@ -95,14 +109,23 @@ export function derive(state: GameState): Derived {
     clickPops: CLICK.basePops,
     clickShare: CLICK.rateShare,
     autoPops: 0,
+    holdRate: HOLD_POP.perSecond,
+    goldenChance: 0,
+    goldenMultiplier: GOLDEN.baseMultiplier,
     autoCannon: false,
     autoHopper: false,
     cannonGreenWidth: CANNON.greenWidth,
     cannonCooldown: CANNON.cooldown,
     cannonPayout: 1,
+    cannonStreakStep: 0,
+    cannonStreakMax: 0,
     frenzySeconds: HOPPER.frenzySeconds,
     frenzyMultiplier: HOPPER.frenzyMultiplier,
+    frenzyClick: 1,
     hopperIntervalScale: 1,
+    swarmChance: 0,
+    swarmSize: 1,
+    decorMultiplier: 1,
     offlineRate: OFFLINE.rate,
     offlineCapSeconds: OFFLINE.capHours * 3600,
   };
@@ -116,6 +139,29 @@ export function derive(state: GameState): Derived {
         break;
       case 'autoPops':
         d.autoPops += effect.perSecond;
+        break;
+      case 'holdRate':
+        d.holdRate = Math.max(d.holdRate, effect.perSecond);
+        break;
+      case 'goldenChance':
+        d.goldenChance += effect.add;
+        break;
+      case 'goldenMult':
+        d.goldenMultiplier = Math.max(d.goldenMultiplier, effect.mult);
+        break;
+      case 'globalMult':
+        d.decorMultiplier *= effect.mult;
+        break;
+      case 'cannonStreak':
+        d.cannonStreakStep = effect.perShot;
+        d.cannonStreakMax = effect.max;
+        break;
+      case 'frenzyClick':
+        d.frenzyClick = Math.max(d.frenzyClick, effect.mult);
+        break;
+      case 'hopperSwarm':
+        d.swarmChance = effect.chance;
+        d.swarmSize = effect.size;
         break;
       case 'autoCannon':
         d.autoCannon = true;
@@ -158,6 +204,7 @@ export function derive(state: GameState): Derived {
   const global =
     FLAVOR_MULTIPLIER ** Math.min(state.flavors, FLAVORS.length) *
     stageMultiplier(state.stage) *
+    d.decorMultiplier *
     (1 + state.legacy.runs * NEW_POT.bonusPerRun);
   d.unitEach = PRODUCERS.map(
     (producer) =>
@@ -180,9 +227,18 @@ export function showIntensity(rate: number): number {
   return Math.log10(1 + rate) * SHOW_INTENSITY_PER_DECADE;
 }
 
-/** A click earns one base value per kernel plus one share of production, however many kernels pop. */
+/**
+ * A click earns one base value per kernel plus one share of production, however many kernels pop.
+ * During a frenzy an upgrade multiplies the whole click once more.
+ */
 export function clickGain(state: GameState, d: Derived): number {
-  return CLICK.baseValue * d.clickPops + currentRate(state, d) * d.clickShare;
+  const frenzy = state.frenzy > 0 ? d.frenzyClick : 1;
+  return (CLICK.baseValue * d.clickPops + currentRate(state, d) * d.clickShare) * frenzy;
+}
+
+/** Extra cannon payout for a run of green shots: `streak` counts the current shot. */
+export function cannonStreakBonus(d: Derived, streak: number): number {
+  return Math.min(d.cannonStreakMax, d.cannonStreakStep * streak);
 }
 
 export type CannonZone = 'early' | 'green' | 'over';
