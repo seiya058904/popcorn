@@ -71,7 +71,8 @@ export class PieceBatches {
   private readonly capacity: number;
   private count = 0;
 
-  constructor(stage: Stage, parent: THREE.Object3D, capacityPerShape = 48) {
+  /** About 290 flakes in the air at most, however many shapes they are spread over. */
+  constructor(stage: Stage, parent: THREE.Object3D, capacityPerShape = Math.round(288 / FLAKE_SHAPES)) {
     this.capacityPerShape = capacityPerShape;
     this.capacity = capacityPerShape * FLAKE_SHAPES;
     parent.add(this.group);

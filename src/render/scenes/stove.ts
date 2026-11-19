@@ -66,6 +66,13 @@ const MICROWAVE_SLOTS: UnitSlot[] = [
   { x: 1.9, y: PAN_Y_TOP, z: -2.65, rotation: -0.08, scale: 0.92 },
 ];
 
+/** On the enamel at the back, clear of the burners. */
+const TOASTER_SLOTS: UnitSlot[] = [
+  { x: 4.85, y: PAN_Y_TOP, z: -2.65, rotation: -0.12, scale: 0.9 },
+  { x: 6.85, y: PAN_Y_TOP, z: -2.35, rotation: -0.4, scale: 0.9 },
+  { x: -6.85, y: PAN_Y_TOP, z: 1.25, rotation: 0.55, scale: 0.9 },
+];
+
 const BURNERS: THREE.Vector3Tuple[] = [
   [0, 0.03, 0],
   ...PAN_SLOTS.slice(0, BURNER_PANS).map((slot): THREE.Vector3Tuple => [slot.x, 0.03, slot.z]),
@@ -540,7 +547,7 @@ export const stoveSpec: SceneSpec = {
     { position: [0, 0.5, 0], color: '#5f9dff', intensity: 0.9, radius: 3.4, flicker: 0.14 },
     { position: [-3.95, 3.6, -2.5], color: '#e86ea0', intensity: 0.5, radius: 5 },
   ],
-  slots: { pan: PAN_SLOTS, microwave: MICROWAVE_SLOTS },
+  slots: { pan: PAN_SLOTS, microwave: MICROWAVE_SLOTS, toaster: TOASTER_SLOTS },
   cannon: null,
   perches: [],
   build: buildStove,

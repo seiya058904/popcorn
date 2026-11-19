@@ -120,6 +120,26 @@ const propeller = (duration: number, hz: number, bladeHz: number, slide: number)
   return (Math.sin(TAU * pitch * t) + 0.5 * Math.sin(TAU * pitch * 2 * t) + 0.22 * Math.sin(TAU * pitch * 3.02 * t)) * chop;
 };
 
+/** A spring let go: a pitch that wobbles and settles, for toasters and bounces. */
+function boing(duration: number, hz: number, depth: number): Float32Array {
+  return tone(duration, (t) => {
+    const wobble = Math.exp(-t * 9);
+    const phase = TAU * hz * t - (depth / 24) * Math.cos(TAU * 24 * t) * wobble;
+    return Math.sin(phase) * Math.min(1, t / 0.004) * Math.exp(-t / (duration * 0.4)) * 0.5;
+  });
+}
+
+/** One organ pipe: a soft-started flue tone with octave and twelfth, and a breath of wind. */
+function organPipe(duration: number, hz: number, level = 1): Float32Array {
+  const out = tone(duration, (t) => {
+    const attack = Math.min(1, t / 0.035);
+    const release = Math.min(1, (duration - t) / 0.15);
+    return (Math.sin(TAU * hz * t) + 0.42 * Math.sin(TAU * hz * 2 * t) + 0.2 * Math.sin(TAU * hz * 3 * t) + 0.08 * Math.sin(TAU * hz * 4 * t)) * attack * release * 0.24 * level;
+  });
+  mixIn(out, hiss(Math.min(0.2, duration), Math.round(hz), hz * 3, 1.2, (u) => (1 - u) * 0.3 * level), 0);
+  return out;
+}
+
 export const SOUND_RECIPES: Record<string, () => Float32Array> = {
   // Production layers, quietest to loudest. `mix.ts` decides how they cross over.
   'layer-crackle': () => normalizeRms(grainBed(7, 16, 301, () => 0.7), 0.05, 0.5),
@@ -335,6 +355,95 @@ export const SOUND_RECIPES: Record<string, () => Float32Array> = {
     // Docked: a clean sonar ping out into the dark.
     mixIn(out, tone(0.58, bell(1760, 0.18, 0.36)), 1.56);
     return fadeEdges(normalizePeak(out, 0.4), 0.01, 0.05);
+  },
+
+  // The five later machines: their work and their arrival.
+  'work-toaster': () => {
+    const out = seconds(0.6);
+    mixIn(out, boing(0.24, 250, 110), 0, 0.8);
+    mixIn(out, tone(0.5, bell(2093, 0.14, 0.5)), 0.05);
+    return fadeEdges(normalizePeak(out, 0.13), 0, 0.05);
+  },
+  'work-mixer': () => {
+    const out = tone(0.5, (t) => {
+      const u = t / 0.5;
+      const hz = 95 + 70 * u;
+      return (Math.sin(TAU * hz * t) + 0.45 * Math.sin(TAU * hz * 2 * t) + 0.2 * Math.sign(Math.sin(TAU * hz * 3 * t))) * Math.sin(u * Math.PI) * 0.3;
+    });
+    mixIn(out, hiss(0.5, 140, 1800, 0.9, (u) => Math.sin(u * Math.PI) * 0.6), 0);
+    return fadeEdges(normalizePeak(out, 0.12), 0.01, 0.06);
+  },
+  'work-organ': () => {
+    const out = seconds(0.75);
+    mixIn(out, organPipe(0.7, 392), 0);
+    mixIn(out, organPipe(0.7, 587, 0.5), 0.02);
+    return fadeEdges(normalizePeak(out, 0.13), 0, 0.12);
+  },
+  'work-train': () => {
+    const out = seconds(0.7);
+    // A two-note steam whistle with a breath of steam round it.
+    mixIn(out, tone(0.55, (t) => (Math.sin(TAU * 740 * t) + 0.8 * Math.sin(TAU * 932 * t) + 0.3 * Math.sin(TAU * 1480 * t)) * Math.min(1, t / 0.04) * Math.min(1, (0.55 - t) / 0.12) * 0.22), 0.04);
+    mixIn(out, hiss(0.62, 141, 3800, 0.5, (u) => Math.min(1, u * 8) * (1 - u)), 0, 0.5);
+    return fadeEdges(normalizePeak(out, 0.13), 0, 0.06);
+  },
+  'work-typhoon': () => {
+    const out = seconds(1);
+    const sweep = new Biquad('band', 500, 0.9);
+    const rng = new Rng(142);
+    for (let i = 0; i < out.length; i += 1) {
+      const u = i / out.length;
+      sweep.set(380 + 700 * Math.sin(u * Math.PI));
+      out[i] = sweep.run(rng.next() * 2 - 1) * Math.sin(u * Math.PI) ** 1.5;
+    }
+    return fadeEdges(normalizePeak(out, 0.16), 0.02, 0.1);
+  },
+  'arrive-toaster': () => {
+    const out = seconds(1.25);
+    mixIn(out, knock(180, 0.06, 143, 0.2), 0.42, 0.9);
+    mixIn(out, boing(0.32, 230, 90), 0.43, 0.8);
+    mixIn(out, boing(0.24, 300, 60), 0.72, 0.5);
+    mixIn(out, tone(0.5, bell(2093, 0.16, 0.42)), 0.9);
+    return fadeEdges(normalizePeak(out, 0.38), 0, 0.06);
+  },
+  'arrive-mixer': () => {
+    const out = seconds(1.3);
+    const scrape = new Biquad('band', 700, 1.4);
+    mixIn(out, burstNoise(0.78, 144, scrape, (t) => Math.min(1, t / 0.05) * (1 - t / 0.78)), 0, 0.45);
+    mixIn(out, knock(160, 0.07, 145, 0.25), 0.8, 0.8);
+    // The motor turns over twice, like a greeting.
+    for (const at of [0.88, 1.06]) mixIn(out, tone(0.14, (t) => Math.sin(TAU * (120 + 400 * t) * t) * Math.sin((t / 0.14) * Math.PI) * 0.3), at);
+    return fadeEdges(normalizePeak(out, 0.36), 0, 0.05);
+  },
+  'arrive-organ': () => {
+    const out = seconds(1.9);
+    // The lift hums up, then a full chord swells in, a fanfare on the pipes.
+    mixIn(out, tone(0.95, (t) => Math.sin(TAU * (60 + 30 * t) * t) * Math.sin((t / 0.95) * Math.PI) * 0.2), 0);
+    for (const [hz, delay] of [[262, 0.95], [330, 1.0], [392, 1.05], [523, 1.1]] as const) mixIn(out, organPipe(0.8, hz, 0.7), delay);
+    return fadeEdges(normalizePeak(out, 0.42), 0.02, 0.12);
+  },
+  'arrive-train': () => {
+    const out = seconds(2);
+    // Chuffs slowing as it pulls in, the brakes, then the bell.
+    let at = 0;
+    for (let i = 0, gap = 0.13; i < 9; i += 1, gap *= 1.11) {
+      mixIn(out, hiss(0.11, 146 + i, 900, 0.8, (u) => (1 - u) ** 2), at, 0.9 - i * 0.05);
+      at += gap;
+    }
+    mixIn(out, hiss(0.4, 156, 4200, 0.6, (u) => Math.min(1, u * 10) * (1 - u) ** 1.5), 1.45, 0.5);
+    for (const t of [1.6, 1.78]) mixIn(out, tone(0.3, struck([1568, 2350, 3920], 0.12, 0.5)), t);
+    return fadeEdges(normalizePeak(out, 0.36), 0, 0.05);
+  },
+  'arrive-typhoon': () => {
+    const out = seconds(1.7);
+    const sweep = new Biquad('band', 300, 0.8);
+    const rng = new Rng(157);
+    for (let i = 0; i < out.length; i += 1) {
+      const u = i / out.length;
+      sweep.set(200 + 1300 * u * u);
+      out[i] = sweep.run(rng.next() * 2 - 1) * Math.min(1, u * 1.6) * (1 - u) ** 0.5;
+    }
+    mixIn(out, boom(0.9, 90, 40, 0.25, 158), 1.05, 0.6);
+    return fadeEdges(normalizePeak(out, 0.4), 0.02, 0.1);
   },
 
   buy: () => {

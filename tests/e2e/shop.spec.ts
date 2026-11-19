@@ -87,6 +87,25 @@ test('upgrades filter by kind, sort by price, and "buy them all" buys the afford
   await expect(buyAll.locator('.buy-all-count')).toHaveText('暂时买不起');
 });
 
+test('the counter keeps every digit on its strip while it climbs every frame', async ({ page }) => {
+  await open(page);
+  // Real time, so the rolls are interrupted again and again before they finish.
+  for (let i = 0; i < 40; i += 1) {
+    await qa(page, (api) => {
+      api.earn(api.game.sim.state.popcorn * 0.37 + 11);
+      api.advance(1 / 60);
+    });
+    await page.waitForTimeout(16);
+  }
+  const offsets = await page.locator('.marquee-count .odo-strip').evaluateAll((strips) => strips.map((strip) => Number(/translateY\((-?[\d.]+)%\)/.exec((strip as HTMLElement).style.transform)?.[1] ?? 0)));
+  expect(offsets.length).toBeGreaterThan(2);
+  // Thirty lines: the last one starts at 96.67% up.
+  for (const offset of offsets) {
+    expect(offset).toBeLessThanOrEqual(0);
+    expect(offset).toBeGreaterThanOrEqual(-96.7);
+  }
+});
+
 test('a golden kernel bursts with a gold number, and green streaks light the gauge stars', async ({ page }) => {
   await open(page);
   await qa(page, (api) => {

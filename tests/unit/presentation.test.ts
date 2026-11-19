@@ -5,7 +5,9 @@ import { SOUND_RECIPES } from '../../src/audio/bank.ts';
 import { SAMPLE_RATE, synthSpace } from '../../src/audio/dsp.ts';
 import { BED_LAYERS, bedMix, spaceForStage, SPACES } from '../../src/audio/mix.ts';
 import { STAGES } from '../../src/content/stages.ts';
+import * as THREE from 'three';
 import { CALM_ENTRANCE, ENTRANCES, type Entrance, type EntrancePose } from '../../src/render/machines/entrances.ts';
+import { planetRingPath, ringPath } from '../../src/render/scenes/paths.ts';
 
 const restPose = (): EntrancePose => ({ x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0, sx: 1, sy: 1, sz: 1 });
 
@@ -59,11 +61,45 @@ describe('rooms', () => {
   });
 });
 
+describe('machine paths', () => {
+  const options = { spacing: 4, speed: 2, scale: 1.5, capacity: 8 };
+  const position = new THREE.Vector3();
+  const tangent = new THREE.Vector3();
+  const up = new THREE.Vector3();
+
+  it('runs a level ring all the way round, heading along it', () => {
+    const path = ringPath(2, -1, 10, 0.5, options);
+    expect(path.length).toBeCloseTo(Math.PI * 20);
+    for (const d of [0, 7, path.length / 3, path.length - 1]) {
+      path.sample(d, position, tangent, up);
+      expect(Math.hypot(position.x - 2, position.z + 1)).toBeCloseTo(10);
+      expect(position.y).toBeCloseTo(0.5);
+      expect(tangent.dot(new THREE.Vector3(position.x - 2, 0, position.z + 1))).toBeCloseTo(0);
+      expect(up.y).toBe(1);
+    }
+    path.sample(path.length, position, tangent, up);
+    const end = position.clone();
+    path.sample(0, position, tangent, up);
+    expect(end.distanceTo(position)).toBeLessThan(1e-6);
+  });
+
+  it('keeps a planet ring on the ground, leaning with it', () => {
+    const path = planetRingPath(34, 14, 0, options);
+    for (const d of [0, 11, 40]) {
+      path.sample(d, position, tangent, up);
+      // On the ball whose center is 34 below the top.
+      expect(position.distanceTo(new THREE.Vector3(0, -34, 0))).toBeCloseTo(34);
+      expect(up.dot(position.clone().add(new THREE.Vector3(0, 34, 0)).normalize())).toBeCloseTo(1);
+      expect(tangent.dot(up)).toBeCloseTo(0);
+    }
+  });
+});
+
 describe('machine entrances', () => {
   const kinds = Object.keys(ENTRANCES) as Array<keyof typeof ENTRANCES>;
 
-  it('covers all ten machines', () => {
-    expect(kinds).toHaveLength(10);
+  it('covers all fifteen machines', () => {
+    expect(kinds).toHaveLength(15);
   });
 
   it.each(kinds)('%s ends exactly where the machine stands, so it never snaps into place', (kind) => {

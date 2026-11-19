@@ -4,7 +4,7 @@ import type { QaApi } from '../src/debug/index.ts';
 /**
  * Usage: node tools/perf.ts [--size=3840x2160] [--seconds=8] [--clicks=10] [--stage=1]
  *                           [--total=46000] [--units=8,6,4] [--query=quality=low] [--breakout]
- *                           [--gc] [--attribute]
+ *                           [--gc] [--attribute] [--css='.glass { backdrop-filter: none }']
  * --breakout pushes production over the next threshold, so the show itself is what gets measured.
  * --gc traces garbage collection and reports every pause and the allocation rate.
  * --attribute times the expensive steps of the game and says which ones fell inside the longest frames.
@@ -13,6 +13,8 @@ import type { QaApi } from '../src/debug/index.ts';
 const [width, height] = (argValue('size') ?? '3840x2160').split('x').map(Number);
 const seconds = Number(argValue('seconds') ?? 8);
 const query = argValue('query') ?? '';
+/** Extra CSS for the measured page, to find out what an interface style costs. */
+const css = argValue('css');
 const clicks = Number(argValue('clicks') ?? 0);
 const stage = Number(argValue('stage') ?? 0);
 const total = Number(argValue('total') ?? 0);
@@ -32,6 +34,7 @@ interface TraceEvent {
 const harness = await startHarness({ uncapped: true, extraArgs: ['--enable-precise-memory-info'] });
 try {
   const page = await harness.open(query, { width: width!, height: height! });
+  if (css) await page.addStyleTag({ content: css });
   await page.evaluate(
     ({ stageIndex, earned, counts, wantMarks }) => {
       const qa = (window as unknown as { __pop: QaApi }).__pop;

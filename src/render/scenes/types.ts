@@ -29,6 +29,26 @@ export interface UnitSlot {
   z: number;
   rotation?: number;
   scale?: number;
+  /** Leans the machine so its up follows this direction, e.g. the ground of a small planet. */
+  up?: THREE.Vector3;
+}
+
+/**
+ * A closed loop that machines ride along one behind another, like cars on a ring track. Its
+ * slots are recomputed every frame; the first copy leads.
+ */
+export interface UnitPath {
+  /** Length of the whole loop, in scene units. */
+  length: number;
+  /** Where the loop is `distance` along, which way it runs there and which way is up. */
+  sample(distance: number, position: THREE.Vector3, tangent: THREE.Vector3, up: THREE.Vector3): void;
+  /** Gap between one copy and the next, in scene units. */
+  spacing: number;
+  /** Scene units per second. */
+  speed: number;
+  scale: number;
+  /** Most copies that fit on the loop. */
+  capacity: number;
 }
 
 export interface HeroCannonPose {
@@ -110,6 +130,8 @@ export interface SceneSpec {
   /** Placement of this scene inside the next one. */
   nest: { position: THREE.Vector3; scale: number; /** Local up direction when placed on a curved surface. */ tilt?: THREE.Vector3; /** How steeply the camera climbs out, relative to its distance. */ rise?: number } | null;
   slots: Partial<Record<UnitKindName, UnitSlot[]>>;
+  /** Machines that travel instead of standing still. */
+  paths?: Partial<Record<UnitKindName, UnitPath>>;
   cannon: HeroCannonPose | null;
   perches: THREE.Vector3[];
   /**
@@ -122,4 +144,19 @@ export interface SceneSpec {
 /** A scene set under construction; see SceneSpec.build. */
 export type SceneBuild = Generator<void, SceneParts, void>;
 
-export type UnitKindName = 'pan' | 'microwave' | 'cart' | 'cannon' | 'cinema' | 'truck' | 'factory' | 'airship' | 'volcano' | 'orbital';
+export type UnitKindName =
+  | 'pan'
+  | 'microwave'
+  | 'cart'
+  | 'cannon'
+  | 'cinema'
+  | 'truck'
+  | 'factory'
+  | 'airship'
+  | 'volcano'
+  | 'orbital'
+  | 'toaster'
+  | 'mixer'
+  | 'organ'
+  | 'train'
+  | 'typhoon';

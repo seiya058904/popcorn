@@ -18,7 +18,7 @@ import type { SceneContext, SceneParts, SceneSpec, UnitKindName } from './scenes
 import { UnitRig, type UnitHost } from './units.ts';
 
 /** Same order as the producers, so a unit's index in the save picks its rig. */
-const UNIT_ORDER: UnitKindName[] = ['pan', 'microwave', 'cart', 'cannon', 'cinema', 'truck', 'factory', 'airship', 'volcano', 'orbital'];
+const UNIT_ORDER: UnitKindName[] = ['pan', 'microwave', 'cart', 'cannon', 'cinema', 'truck', 'factory', 'airship', 'volcano', 'orbital', 'toaster', 'mixer', 'organ', 'train', 'typhoon'];
 /** The vessel simmers on its own, matching the small income it makes without any machine. */
 const SIMMER_POPS_PER_SECOND = 0.55;
 /** New machines wait for the shovel to dig before they drop in. */
@@ -212,8 +212,9 @@ export class SceneRuntime {
     };
     for (const kind of UNIT_ORDER) {
       const slots = spec.slots[kind];
-      if (!slots) continue;
-      this.rigs.set(kind, yield* UnitRig.create(stage, this.root, kind, slots, host));
+      const path = spec.paths?.[kind] ?? null;
+      if (!slots && !path) continue;
+      this.rigs.set(kind, yield* UnitRig.create(stage, this.root, kind, slots ?? [], host, path));
       tagNew(`machine:${kind}`);
       yield;
     }

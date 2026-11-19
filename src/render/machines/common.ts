@@ -50,6 +50,10 @@ export interface UnitState {
   lidSpin: number;
   /** 0 standing clear, 1 swallowed by the heap; negative until first placed. */
   sunk: number;
+  /** Progress through the change of look at 25, 50 and 100 owned; negative while it waits, 1 when done. */
+  morph: number;
+  /** How far a machine on a path has rolled, in its own units, for turning its wheels. */
+  travel: number;
 }
 
 export type PutPart = (part: number, matrix: THREE.Matrix4) => void;
@@ -75,8 +79,38 @@ export interface UnitDef {
   tints?: string[];
   muzzle: [number, number, number];
   signs?: MachineSign[];
+  /**
+   * Where the rosette pinned on at 50 owned (silver) and 100 owned (gold) sits, facing +Z after
+   * `ry`. Machines that show those milestones their own way leave it out.
+   */
+  badge?: { at: [number, number, number]; size: number; ry?: number; rx?: number };
+  /** For machines on a path: the track, in pieces laid one after another when the first arrives. */
+  track?(path: import('../scenes/types.ts').UnitPath): THREE.BufferGeometry[];
   pose(st: UnitState, time: number, index: number, tier: number, base: THREE.Matrix4, put: PutPart): void;
   fire?(st: UnitState, host: UnitHost, x: number, y: number, z: number, scale: number): void;
+}
+
+/** The milestone rosette: a pressed medal with a star, a pleated ring and two ribbon tails. */
+export function rosette(gold: boolean): THREE.BufferGeometry {
+  const kit = new Kit();
+  const metal = gold ? paint(M.brass, { color: '#f2c14e', gloss: 0.95 }) : paint(M.chrome, { color: '#e4e9f0' });
+  const ribbon = gold ? { ...M.canvasRed, color: '#d8313a' } : { ...M.canvasRed, color: '#3d6fd6' };
+  // Ribbon tails hang below and behind the medal.
+  for (const side of [-1, 1]) kit.add(P.box(0.26, 0.62, 0.02, 0.01, 1), { ...ribbon, matrix: at(side * 0.13, -0.32, -0.03, [0, 0, side * 0.32]) });
+  // Pleated cockade ring.
+  for (let i = 0; i < 16; i += 1) {
+    const a = (i / 16) * Math.PI * 2;
+    kit.add(P.box(0.18, 0.1, 0.03, 0.02, 1), { ...ribbon, outline: 0.3, matrix: at(Math.cos(a) * 0.34, Math.sin(a) * 0.34, -0.015, [0, 0, a]) });
+  }
+  kit.add(P.puck(0.27, 0.27, 0.05, 28, 0.02), { ...metal, matrix: at(0, 0, 0, [Math.PI / 2, 0, 0]) });
+  kit.add(P.torus(0.255, 0.02, 6, 28), { ...metal, outline: 0, matrix: at(0, 0, 0.05) });
+  // A raised five-pointed star.
+  for (let i = 0; i < 5; i += 1) {
+    const a = (i / 5) * Math.PI * 2 + Math.PI / 2;
+    kit.add(P.box(0.07, 0.2, 0.03, 0.012, 1), { ...metal, outline: 0, matrix: at(Math.cos(a) * 0.08, Math.sin(a) * 0.08, 0.06, [0, 0, a - Math.PI / 2]) });
+  }
+  kit.add(P.sphere(0.06, 10, 8), { ...metal, outline: 0, matrix: at(0, 0, 0.06, [0, 0, 0], [1, 1, 0.45]) });
+  return kit.build();
 }
 
 export const smooth = (a: number, b: number, x: number): number => {

@@ -40,8 +40,13 @@ float noise3d(vec3 p) {
     u.z);
 }
 
+// Patterns laid on a surface pick the two axes that run along it; level is 1 on tops and bottoms.
+vec2 alongSurface(vec3 q, float level) {
+  return level > 0.5 ? q.xz : vec2(q.x + q.z, q.y);
+}
+
 // Surface relief painted per pixel. Returns height; tone scales the paint.
-float surfacePattern(float id, vec3 q, inout float tone, inout float finest) {
+float surfacePattern(float id, vec3 q, float level, inout float tone, inout float finest) {
   float h = 0.0;
   if (id < 1.5) { // brushed metal
     finest = 70.0;
@@ -77,10 +82,47 @@ float surfacePattern(float id, vec3 q, inout float tone, inout float finest) {
     finest = 54.0;
     h = noise3d(q * 54.0);
     tone = 0.97 + h * 0.05;
-  } else { // painted plaster: soft mottling, so large walls are never one flat color
+  } else if (id < 7.5) { // painted plaster: soft mottling, so large walls are never one flat color
     finest = 34.0;
     tone = 0.95 + noise3d(q * 2.4) * 0.07 + noise3d(q * 9.0) * 0.03;
     h = noise3d(q * 34.0);
+  } else if (id < 8.5) { // knurling: two sets of diagonal grooves
+    finest = 64.0;
+    float a = abs(sin((q.x + q.y + q.z) * 64.0));
+    float b = abs(sin((q.x - q.y + q.z * 0.5) * 64.0));
+    h = a * b;
+    tone = 0.82 + 0.24 * h;
+  } else if (id < 9.5) { // perforated sheet: staggered round holes
+    vec2 g = alongSurface(q, level) * 18.0;
+    g.x += mod(floor(g.y), 2.0) * 0.5;
+    float d = length(fract(g) - 0.5);
+    float hole = 1.0 - smoothstep(0.24, 0.31, d);
+    finest = 20.0;
+    tone = mix(1.0, 0.16, hole);
+    h = 1.0 - hole;
+  } else if (id < 10.5) { // tread plate: lozenges turning a quarter from cell to cell
+    vec2 g = alongSurface(q, level) * 9.0;
+    vec2 c = fract(g) - 0.5;
+    float turn = mod(floor(g.x) + floor(g.y), 2.0);
+    vec2 r = turn < 0.5 ? vec2(c.x + c.y, c.x - c.y) : vec2(c.x - c.y, c.x + c.y);
+    float lozenge = 1.0 - smoothstep(0.1, 0.16, length(vec2(r.x * 0.32, r.y)));
+    finest = 12.0;
+    tone = 0.94 + lozenge * 0.12;
+    h = lozenge;
+  } else if (id < 11.5) { // glaze: pooled color and a fine crackle
+    finest = 16.0;
+    float crackle = 1.0 - smoothstep(0.0, 0.035, abs(noise3d(q * 13.0) - 0.5));
+    tone = 0.96 + noise3d(q * 2.5) * 0.08 - crackle * 0.07;
+    h = noise3d(q * 6.0) * 0.4 - crackle * 0.3;
+  } else if (id < 12.5) { // leather: pebbled grain over soft creases
+    finest = 44.0;
+    float grain = 1.0 - abs(noise3d(q * 44.0) * 2.0 - 1.0);
+    tone = 0.9 + noise3d(q * 5.0) * 0.12 + grain * 0.05;
+    h = grain * 0.7 + noise3d(q * 9.0) * 0.3;
+  } else { // paper: fibers and a slightly uneven press
+    finest = 56.0;
+    tone = 0.95 + noise3d(q * vec3(56.0, 9.0, 56.0)) * 0.06 + noise3d(q * 3.0) * 0.04;
+    h = noise3d(q * 56.0) * 0.5;
   }
   return h;
 }
@@ -112,11 +154,17 @@ void main() {
     float scale = pow(2.0, fract(code) * 6.0 - 3.0);
     vec3 q = vLocal * scale;
     float tone = 1.0, finest = 40.0;
-    float h = surfacePattern(id, q, tone, finest);
-    // Relief finer than a pixel would only shimmer, so it fades out with distance.
-    float visible = smoothstep(0.7, 0.18, length(fwidth(q)) * finest);
+    float h = surfacePattern(id, q, step(0.7, abs(N.y)), tone, finest);
+    // Relief finer than a pixel would only shimmer, so it fades out with distance. It is gone well
+    // before half a cycle per pixel, or glossy paint in strong sun glitters with it.
+    float visible = smoothstep(0.42, 0.1, length(fwidth(q)) * finest);
     albedo *= mix(1.0, tone, max(visible, 0.45));
-    float relief = id < 1.5 ? 0.0012 : id > 3.5 && id < 4.5 ? 0.012 : 0.004;
+    float relief = id < 1.5 ? 0.0012
+      : id > 3.5 && id < 4.5 ? 0.012
+      : id > 9.5 && id < 10.5 ? 0.007
+      : id > 10.5 && id < 11.5 ? 0.0008
+      : id > 12.5 ? 0.0008
+      : 0.004;
     N = bumped(N, vLocal, h, relief * visible / scale);
   }
   if (wear > 0.0) {

@@ -12,6 +12,7 @@ import { popcornUniforms } from '../materials/popcorn.ts';
 import { toyMaterials } from '../materials/toy.ts';
 import { PieceBatches } from '../popcorn/batches.ts';
 import type { PileShape } from '../popcorn/pile.ts';
+import { planetRingPath, planetUp } from './paths.ts';
 import type { FinalePlan, SceneContext, SceneBuild, SceneSpec, UnitSlot } from './types.ts';
 
 const R = 34;
@@ -245,18 +246,57 @@ function starsGeometry(): THREE.BufferGeometry {
   return kit.build();
 }
 
-function fingerSegment(length: number, radius: number): THREE.BufferGeometry {
+const SKIN = { color: '#ffd2ab', gloss: 0.28 };
+const CREASE = { color: '#e9a184', gloss: 0.2, outline: 0 };
+
+/**
+ * One bone of a finger, from its joint at the origin up +Y. Fingers curl toward -X, so the back
+ * of the hand, with its knuckle creases and nails, faces +X.
+ */
+function fingerSegment(length: number, radius: number, tip = false): THREE.BufferGeometry {
   const kit = new Kit();
-  kit.add(P.capsule(radius, length, 5, 14), { color: '#ffd2ab', gloss: 0.25, matrix: at(0, length / 2, 0) });
+  // Slightly tapered, with a rounded end below the joint so a bent finger never shows a seam.
+  const end = tip ? radius * 0.86 : radius * 0.92;
+  kit.add(
+    P.lathe([[0, -radius * 0.95], [radius * 0.72, -radius * 0.68], [radius, 0], [radius * 0.96, length * 0.55], [end, length], [end * 0.7, length + end * 0.6], [0, length + end * 0.95]], 26, radius * 0.35, 4),
+    SKIN,
+  );
+  // Two soft creases over the joint on the back.
+  for (const y of [radius * 0.12, radius * 0.4]) {
+    kit.add(P.torus(radius * 1.0, radius * 0.045, 4, 14, Math.PI * 0.6), { ...CREASE, matrix: at(0, y, 0, [Math.PI / 2, 0, Math.PI * 0.3]) });
+  }
+  if (tip) {
+    // A glossy nail with its pale half-moon.
+    kit.add(P.box(radius * 0.22, length * 0.52, radius * 1.15, radius * 0.28, 3), { color: '#ffe8de', gloss: 0.85, coat: 0.6, outline: 0.4, matrix: at(radius * 0.86, length * 0.64, 0) });
+    kit.add(P.sphere(radius * 0.34, 12, 8), { color: '#fff6f0', gloss: 0.8, outline: 0, matrix: at(radius * 0.94, length * 0.44, 0, [0, 0, 0], [0.25, 0.45, 1.1]) });
+  }
   return kit.build();
 }
 
+/** The palm, knuckles along Z; the palm itself faces -X, the back of the hand +X. */
 function palmGeometry(): THREE.BufferGeometry {
   const kit = new Kit();
-  // Knuckles run along Z, so the fingers close in the plane of the screen.
-  kit.add(P.box(18, 50, 44, 8.5, 5), { color: '#ffd2ab', gloss: 0.25 });
-  kit.add(P.capsule(13, 44, 5, 14), { color: '#ffd2ab', gloss: 0.25, matrix: at(0, -46, 0) });
-  kit.add(P.torus(14.2, 2.2, 8, 28), { color: '#d8313a', gloss: 0.8, matrix: at(0, -34, 0, [Math.PI / 2, 0, 0]) });
+  kit.add(P.box(18, 50, 44, 8.8, 6), SKIN);
+  for (const z of [-15.5, -5.2, 5.2, 15.5]) {
+    // Knuckles on the back, pads on the palm side under each finger.
+    kit.add(P.sphere(5.6, 18, 12), { ...SKIN, matrix: at(5.4, 23, z, [0, 0, 0], [0.8, 0.85, 1]) });
+    kit.add(P.sphere(5.8, 18, 12), { ...SKIN, matrix: at(-6.2, 19, z * 0.98, [0, 0, 0], [0.55, 0.72, 0.95]) });
+  }
+  // The heel of the hand: the thumb's mound and the pad opposite it.
+  kit.add(P.sphere(12, 20, 14), { ...SKIN, matrix: at(-5.2, -10, 10, [0, 0, 0], [0.5, 1.1, 0.9]) });
+  kit.add(P.sphere(10.5, 20, 14), { ...SKIN, matrix: at(-5.2, -11, -12, [0, 0, 0], [0.45, 1.05, 0.85]) });
+  // Palm lines: heart, head and life.
+  const line = (points: THREE.Vector3[]): void => {
+    kit.add(P.tube(points, 0.55, 18, 5), CREASE);
+  };
+  line([new THREE.Vector3(-9.1, 12, -19), new THREE.Vector3(-9.2, 13.5, -6), new THREE.Vector3(-9.1, 11, 6), new THREE.Vector3(-8.8, 13, 15)]);
+  line([new THREE.Vector3(-9.1, 4, -18), new THREE.Vector3(-9.2, 3, -4), new THREE.Vector3(-9.1, 0, 8)]);
+  line([new THREE.Vector3(-9.0, 8, 12), new THREE.Vector3(-9.2, -2, 6), new THREE.Vector3(-9.0, -14, 4)]);
+  // Wrist and a red cuff with two buttons.
+  kit.add(P.capsule(13, 44, 5, 16), { ...SKIN, matrix: at(0, -46, 0) });
+  kit.add(P.torus(14.2, 2.2, 8, 32), { color: '#d8313a', gloss: 0.8, matrix: at(0, -34, 0, [Math.PI / 2, 0, 0]) });
+  kit.add(P.puck(15.2, 15.2, 9, 32, 1.5), { color: '#d8313a', gloss: 0.55, pattern: 5.5, matrix: at(0, -44, 0) });
+  for (const y of [-38.5, -43]) kit.add(P.sphere(1.3, 10, 8), { color: '#f2c14e', gloss: 0.9, metal: 1, outline: 0, matrix: at(15.3, y, 0) });
   return kit.build();
 }
 
@@ -360,23 +400,26 @@ function* buildEarth(stage: Stage, root: THREE.Group): SceneBuild {
   hand.visible = false;
   sky.add(hand);
   addToy(stage, hand, palmGeometry());
-  const segment = (parent: THREE.Object3D, length: number, radius: number, x: number, y: number, z: number): THREE.Group => {
+  const segment = (parent: THREE.Object3D, length: number, radius: number, x: number, y: number, z: number, tip = false): THREE.Group => {
     const joint = new THREE.Group();
     joint.position.set(x, y, z);
     parent.add(joint);
-    addToy(stage, joint, fingerSegment(length, radius));
+    addToy(stage, joint, fingerSegment(length, radius, tip));
     return joint;
   };
   hand.scale.setScalar(HAND_SCALE);
+  // Middle finger longest, then ring, index and little finger, as on a real hand.
+  const LENGTHS = [19, 24, 26, 23];
   const fingers: Finger[] = [-15.5, -5.2, 5.2, 15.5].map((z, index) => {
-    const length = index === 1 || index === 2 ? 25 : 21;
-    const base = segment(hand, length, 5.2, 5, 25, z);
-    const middle = segment(base, length * 0.8, 4.7, 0, length, 0);
-    const tip = segment(middle, length * 0.62, 4.2, 0, length * 0.8, 0);
+    const length = LENGTHS[index]!;
+    const radius = index === 0 ? 4.7 : 5.2;
+    const base = segment(hand, length, radius, 4, 25, z);
+    const middle = segment(base, length * 0.78, radius * 0.92, 0, length, 0);
+    const tip = segment(middle, length * 0.6, radius * 0.84, 0, length * 0.78, 0, true);
     return { base, middle, tip };
   });
   const thumbBase = segment(hand, 22, 6.2, -8, 2, 0);
-  const thumbTip = segment(thumbBase, 17, 5.4, 0, 22, 0);
+  const thumbTip = segment(thumbBase, 17, 5.4, 0, 22, 0, true);
 
   // Every orbital mirror turns on the moon for the finale.
   const moonBeams = ORBITAL_SLOTS.map((slot) => {
@@ -402,17 +445,23 @@ function* buildEarth(stage: Stage, root: THREE.Group): SceneBuild {
   let grabbed = false;
   const carried = new THREE.Vector3();
 
-  const setFingers = (curl: number): void => {
+  const setFingers = (curl: number, t: number): void => {
     fingers.forEach((finger, index) => {
-      // Fingers fan out and close slightly out of step, so they read as four, not one.
-      const spread = (index - 1.5) * 0.17 * (1 - curl * 0.55);
+      // Each finger closes a beat after its neighbor, and each joint after the one before it,
+      // the way a real hand wraps round something; until then the fingers stir a little.
+      const own = clamp01(curl * 1.15 - index * 0.04);
+      const near = smooth(0, 0.65, own);
+      const mid = smooth(0.12, 0.85, own);
+      const far = smooth(0.28, 1, own);
+      const stir = (1 - own) * 0.04 * Math.sin(t * 2.3 + index * 1.4);
+      const spread = (index - 1.5) * 0.17 * (1 - near * 0.6);
       const lag = 1 - Math.abs(index - 1.5) * 0.09;
-      finger.base.rotation.set(spread, 0, 0.08 + index * 0.035 + curl * 0.5 * lag);
-      finger.middle.rotation.z = 0.1 + curl * 0.86 * lag;
-      finger.tip.rotation.z = 0.08 + curl * 0.72 * lag;
+      finger.base.rotation.set(spread, 0, 0.1 + index * 0.035 + stir + near * 0.55 * lag);
+      finger.middle.rotation.z = 0.12 + stir * 0.8 + mid * 0.95 * lag;
+      finger.tip.rotation.z = 0.1 + stir * 0.6 + far * 0.78 * lag;
     });
-    thumbBase.rotation.z = 1.5 - curl * 0.42;
-    thumbTip.rotation.z = -0.15 - curl * 0.85;
+    thumbBase.rotation.z = 1.5 - smooth(0, 0.7, curl) * 0.42;
+    thumbTip.rotation.z = -0.15 - smooth(0.2, 1, curl) * 0.85;
   };
 
   const showMoonFlake = (scale: number, pop: number, glow: number): void => {
@@ -430,7 +479,7 @@ function* buildEarth(stage: Stage, root: THREE.Group): SceneBuild {
     carried.set(leave * LEAVE_X, lift + leave * LEAVE_Y, 0);
     hand.position.set(lerp(330, HAND_REST.x, enter), HAND_REST.y, HAND_REST.z).add(carried);
     hand.rotation.set(0, 0, Math.PI / 2 - 0.06 - leave * 0.12);
-    setFingers(smooth(GRAB_AT - 0.9, GRAB_AT + 0.05, t));
+    setFingers(smooth(GRAB_AT - 0.9, GRAB_AT + 0.05, t), t);
     if (t >= GRAB_AT) grabbed = true;
     if (grabbed) {
       // The planet leaves with the hand; the sky stays behind.
@@ -545,6 +594,11 @@ function* buildEarth(stage: Stage, root: THREE.Group): SceneBuild {
 }
 
 const onPlanet = (x: number, z: number, rotation: number, scale: number): UnitSlot => ({ x, y: sphereY(Math.hypot(x, z)) - 0.1, z, rotation, scale });
+/** Storms lean with the sea under them, so they lie flat on the curve of the planet. */
+const overSea = (x: number, z: number, rotation: number, scale: number): UnitSlot => {
+  const y = sphereY(Math.hypot(x, z));
+  return { x, y, z, rotation, scale, up: planetUp(R, x, y, z) };
+};
 
 export const earthSpec: SceneSpec = {
   id: 4,
@@ -602,7 +656,10 @@ export const earthSpec: SceneSpec = {
     orbital: ORBITAL_SLOTS,
     factory: [onPlanet(-21, 2, 1.5, 2), onPlanet(20, -8, -2, 2), onPlanet(4, 22, 0, 2)],
     volcano: [onPlanet(-11, -13, 0.7, 2.4), onPlanet(13, -14, -0.7, 2.4), onPlanet(-20, -9, 1.2, 2.3), onPlanet(22, 7, -1.4, 2.3), onPlanet(-3, -21, 0.1, 2.3), onPlanet(-24, 11, 1.1, 2.2), onPlanet(23, 13, -1.1, 2.2), onPlanet(9, 24, -0.3, 2.2)],
+    typhoon: [overSea(-13, 19, 0.3, 1.35), overSea(17, -2, 1.1, 1.3), overSea(-7, -27, 2, 1.25)],
   },
+  // Round the crater's skirt, leaning with the planet as it goes.
+  paths: { train: planetRingPath(R, 14.4, 0, { spacing: 4.4, speed: 2.2, scale: 1.4, capacity: 10 }) },
   cannon: { position: new THREE.Vector3(10.5, sphereY(13) + 0.1, 8), rotation: Math.PI - 0.7, scale: 2.5 },
   perches: [],
   build: buildEarth,

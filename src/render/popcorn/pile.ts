@@ -28,7 +28,8 @@ export interface PileShape {
 
 const STEP = 1 / 60;
 const ROW_INTERLACE = 4;
-const SURFACE_SHAPES = 4;
+/** The heap mixes the first shapes, which include a round mushroom head among the butterflies. */
+const SURFACE_SHAPES = 6;
 /** Steepest slope the cliff map can store; the heap shaders read it back with the same factor. */
 const CLIFF_RANGE = 6;
 

@@ -5,7 +5,7 @@ import { argValue, startHarness } from './lib/harness.ts';
 import { qa, totalAt } from './shot-presets.ts';
 
 /**
- * Close-up review of every machine: one copy, four sides, on a sheet per machine.
+ * Close-up review of every machine: one copy, four views across its front, on a sheet per machine.
  * Usage: node tools/turntable.ts [--only=pan,cart] [--owned=26] [--size=800x600]
  * --owned sets how many are bought, which decides the milestone trim on show.
  */
@@ -20,6 +20,11 @@ const MACHINES = [
   ['airship', 7, 3],
   ['volcano', 8, 4],
   ['orbital', 9, 4],
+  ['toaster', 10, 0],
+  ['mixer', 11, 1],
+  ['organ', 12, 2],
+  ['train', 13, 3],
+  ['typhoon', 14, 4],
 ] as const;
 
 const only = argValue('only')?.split(',');
@@ -46,14 +51,15 @@ try {
       { stage, unit, owned, total: totalAt(stage, 0.02) },
     );
     const files: string[] = [];
+    // Machines stand against walls and beside the heap, so the views sweep across the front.
     for (let side = 0; side < 4; side += 1) {
       await qa(
         page,
-        (api, value: { kind: string; side: number }) => {
-          api.viewMachine(value.kind, 0.7 + (value.side * Math.PI) / 2);
+        (api, value: { kind: string; angle: number }) => {
+          api.viewMachine(value.kind, value.angle);
           api.advance(1 / 60);
         },
-        { kind, side },
+        { kind, angle: [-1.05, -0.35, 0.35, 1.05][side]! },
       );
       const file = join(outDir, `${kind}-${side}.png`);
       await page.screenshot({ path: file, animations: 'disabled' });

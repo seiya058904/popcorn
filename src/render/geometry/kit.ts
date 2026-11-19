@@ -12,6 +12,18 @@ export const Pattern = {
   Fabric: 5.5,
   Rubber: 6.5,
   Plaster: 7.5,
+  /** Crossed diagonal grooves, for knobs and grips. */
+  Knurl: 8.5,
+  /** Rows of round holes, for vents, grilles and speaker cloth. */
+  Perforated: 9.5,
+  /** Raised lozenges in alternating directions, for steps, decks and floor plates. */
+  Tread: 10.5,
+  /** Glazed ceramic: deep gloss with faint crazing and pooled color. */
+  Glaze: 11.5,
+  /** Pebbled hide, for seats, handles and straps. */
+  Leather: 12.5,
+  /** Paper fibers, for labels, cards and boxes. */
+  Paper: 13.5,
 } as const;
 
 /** 0 keeps only the main shapes, 1 adds medium parts, 2 adds the finest. */

@@ -2,7 +2,15 @@ import * as THREE from 'three';
 import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import { Rng } from '../../motion/rng.ts';
 
-export const FLAKE_SHAPES = 6;
+export const FLAKE_SHAPES = 10;
+
+/**
+ * Popcorn comes in two kinds: "butterfly" flakes with wings flung out in every direction, and
+ * round, crinkled "mushroom" heads. These shapes are mushrooms; the rest are butterflies.
+ */
+const MUSHROOM_SHAPES: ReadonlySet<number> = new Set([3, 6, 9]);
+
+export const isMushroom = (shape: number): boolean => MUSHROOM_SHAPES.has(shape);
 
 interface Vec {
   x: number;
@@ -63,21 +71,25 @@ export function createFlakeGeometry(shape: number, detail: number): THREE.Buffer
 
   const hull = randomUnit(rng);
   const lobes: Lobe[] = [];
-  const lobeCount = 7 + (shape % 4);
+  const mushroom = isMushroom(shape);
+  // Mushrooms are many even bumps around a ball; butterflies a few big wings and some small ones.
+  const lobeCount = mushroom ? 14 + (shape % 3) : 7 + (shape % 4);
   for (let i = 0; i < lobeCount; i += 1) {
     let center = randomUnit(rng);
     // Lobes burst away from the hull, like the wings of a real flake.
-    if (center.dot(hull) > 0.3) center = center.addScaledVector(hull, -1.4).normalize();
+    if (!mushroom && center.dot(hull) > 0.3) center = center.addScaledVector(hull, -1.4).normalize();
     for (const other of lobes) {
-      if (center.dot(other.center) > 0.8) center = center.sub(other.center.clone().multiplyScalar(0.55)).normalize();
+      if (center.dot(other.center) > (mushroom ? 0.86 : 0.8)) center = center.sub(other.center.clone().multiplyScalar(0.55)).normalize();
     }
     const big = i < 3;
     lobes.push({
       center,
-      size: big ? rng.range(0.92, 1.14) : rng.range(0.62, 0.88),
-      sharp: big ? rng.range(3.2, 5) : rng.range(6, 11),
+      size: mushroom ? rng.range(0.86, 0.98) : big ? rng.range(0.92, 1.14) : rng.range(0.62, 0.88),
+      sharp: mushroom ? rng.range(5, 7.5) : big ? rng.range(3.2, 5) : rng.range(6, 11),
     });
   }
+  // Close-up flakes get a second, finer layer of crinkles.
+  const fine = detail >= FLAKE_DETAIL_HIGH ? 1 : 0;
 
   const pos = geometry.getAttribute('position') as THREE.BufferAttribute;
   const count = pos.count;
@@ -92,7 +104,8 @@ export function createFlakeGeometry(shape: number, detail: number): THREE.Buffer
     const nx = valueNoise3(dir.x * 2.2 + seed, dir.y * 2.2, dir.z * 2.2) - 0.5;
     const ny = valueNoise3(dir.x * 2.2, dir.y * 2.2 + seed, dir.z * 2.2) - 0.5;
     const nz = valueNoise3(dir.x * 2.2, dir.y * 2.2, dir.z * 2.2 + seed) - 0.5;
-    warped.set(dir.x + nx * 0.42, dir.y + ny * 0.42, dir.z + nz * 0.42).normalize();
+    const warp = mushroom ? 0.22 : 0.42;
+    warped.set(dir.x + nx * warp, dir.y + ny * warp, dir.z + nz * warp).normalize();
 
     let best = 0;
     let second = 0;
@@ -110,12 +123,15 @@ export function createFlakeGeometry(shape: number, detail: number): THREE.Buffer
     }
     const field = Math.pow(sum, 1 / 9);
     const blister = valueNoise3(dir.x * 5.2 + seed, dir.y * 5.2, dir.z * 5.2);
+    const crinkle = (valueNoise3(dir.x * 23 + seed, dir.y * 23, dir.z * 23 - seed) - 0.5) * 0.035 * fine;
     const wrinkle =
-      Math.pow(blister, 2) * 0.17 - 0.05 + (valueNoise3(dir.x * 11 + seed, dir.y * 11, dir.z * 11) - 0.5) * 0.06;
+      Math.pow(blister, 2) * (mushroom ? 0.22 : 0.17) - 0.05 + (valueNoise3(dir.x * 11 + seed, dir.y * 11, dir.z * 11) - 0.5) * (mushroom ? 0.09 : 0.06) + crinkle;
     const hullDot = dot(dir, hull);
     const core = smooth(0.87, 0.97, hullDot) * (0.65 + 0.35 * valueNoise3(dir.x * 16, dir.y * 16 + seed, dir.z * 16));
-    let radius = 0.27 + 0.8 * field + wrinkle * smooth(0.25, 0.6, field);
-    radius *= 1 - 0.34 * smooth(0.6, 0.98, hullDot);
+    // A mushroom is a round head: its lobes are pulled in toward one even ball.
+    const body = mushroom ? 0.42 + 0.58 * field : 0.27 + 0.8 * field;
+    let radius = body + wrinkle * smooth(0.25, 0.6, field);
+    radius *= 1 - (mushroom ? 0.18 : 0.34) * smooth(0.6, 0.98, hullDot);
     pos.setXYZ(i, dir.x * radius, dir.y * radius, dir.z * radius);
 
     // Folds between lobes and low valleys both toast darker.

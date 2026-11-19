@@ -3,6 +3,8 @@ import { SIGN_TEXT } from '../../content/signs.ts';
 import { at, cycleOf, glassCase, HIDDEN, Kit, M, P, paint, Pattern, puffs, putIf, putLocal, rivets, rod, smooth, spokedWheel, V, windUp, type UnitDef, type UnitState } from './common.ts';
 import { CART_STOPS, MICROWAVE_DOOR_OPENS, PAN_LID_LANDS } from './entrances.ts';
 
+const LABEL = { color: '#fff4dc', gloss: 0.12, pattern: Pattern.Paper, outline: 0.4, fixedColor: true };
+
 // Saucepan -----------------------------------------------------------------------
 
 function panShell(): THREE.BufferGeometry {
@@ -28,6 +30,10 @@ function panShell(): THREE.BufferGeometry {
   kit.add(P.torus(0.04, 0.012, 6, 14), { ...M.brass, outline: 0, detail: 1, matrix: at(1.72, 0.58, 0) });
   // Pouring lip on the far side.
   kit.add(P.torus(0.12, 0.024, 6, 14, Math.PI), { ...M.steel, matrix: at(-0.74, 0.5, 0, [0, Math.PI / 2, Math.PI / 2]) });
+  // A paper price tag tied to the hanging ring, and a maker's mark stamped on the bracket.
+  rod(kit, V(1.72, 0.55, 0), V(1.76, 0.42, 0.03), 0.004, M.dark, 4);
+  kit.add(P.box(0.13, 0.085, 0.006, 0.012, 1), { ...LABEL, detail: 1, matrix: at(1.77, 0.37, 0.04, [0.1, 0.4, 0.2]) });
+  kit.add(P.box(0.09, 0.05, 0.012, 0.02, 1), { ...M.brass, outline: 0, detail: 2, matrix: at(0.78, 0.44, 0.09, [0, 0, -0.14]) });
   return kit.build();
 }
 
@@ -61,7 +67,11 @@ function microwaveBody(): THREE.BufferGeometry {
   // Control column.
   kit.add(P.box(0.44, 1.02, 0.03, 0.012, 1), { color: '#2f2c38', gloss: 0.5, outline: 0, fixedColor: true, matrix: at(0.77, 0.68, 0.567) });
   kit.add(P.box(0.34, 0.15, 0.012, 0.004, 1), { color: '#6fe6b6', emissive: 0.95, outline: 0, fixedColor: true, matrix: at(0.77, 1.05, 0.586) });
-  kit.add(P.puck(0.11, 0.1, 0.05, 20, 0.012), { ...M.chrome, matrix: at(0.77, 0.8, 0.585, [Math.PI / 2, 0, 0]) });
+  kit.add(P.puck(0.11, 0.1, 0.05, 20, 0.012), { ...M.chrome, pattern: Pattern.Knurl, matrix: at(0.77, 0.8, 0.585, [Math.PI / 2, 0, 0]) });
+  // A perforated grille on the side wall, and a paper note taped on top.
+  kit.add(P.box(0.012, 0.5, 0.62, 0.006, 1), { ...M.darkIron, pattern: Pattern.Perforated + 0.2, outline: 0, detail: 1, matrix: at(1.053, 0.82, -0.12) });
+  kit.add(P.box(0.32, 0.006, 0.22, 0.01, 1), { ...LABEL, detail: 1, matrix: at(-0.62, 1.292, 0.28, [0, 0.22, 0]) });
+  kit.add(P.box(0.12, 0.008, 0.05, 0.004, 1), { color: '#f3e7b0', gloss: 0.5, outline: 0, fixedColor: true, detail: 2, matrix: at(-0.62, 1.295, 0.18, [0, 0.22, 0]) });
   kit.add(P.box(0.018, 0.09, 0.012, 0.004, 1), { ...M.red, outline: 0, matrix: at(0.77, 0.84, 0.64) });
   for (let row = 0; row < 3; row += 1) {
     for (let column = 0; column < 3; column += 1) {
@@ -146,6 +156,10 @@ function cartBody(): THREE.BufferGeometry {
   // A scoop hanging on the end.
   kit.add(P.sphere(0.075, 10, 6), { ...M.chrome, matrix: at(-0.92, 1.02, 0.2, [0, 0, 0], [1, 0.7, 1]) });
   rod(kit, V(-0.92, 1.04, 0.2), V(-0.9, 1.2, 0.2), 0.012, M.chrome, 5);
+  // A price card propped in the case, and a tread-plate step under the push bar.
+  kit.add(P.box(0.3, 0.19, 0.006, 0.012, 1), { ...LABEL, detail: 1, matrix: at(0.48, 1.42, 0.42, [-0.25, 0, 0]) });
+  for (let row = 0; row < 2; row += 1) kit.add(P.box(0.2, 0.012, 0.004, 0.002, 1), { ...M.red, outline: 0, detail: 2, matrix: at(0.48, 1.46 - row * 0.06, 0.427, [-0.25, 0, 0]) });
+  kit.add(P.box(0.34, 0.03, 0.56, 0.01, 1), { ...M.steel, pattern: Pattern.Tread + 0.3, matrix: at(0.96, 0.36, 0) });
   return kit.build();
 }
 
@@ -195,6 +209,10 @@ export function cannonFrame(): THREE.BufferGeometry {
     const lit = i % 4 === 0;
     kit.add(P.sphere(0.05 + (i % 3) * 0.008, 6, 4), { ...(lit ? M.coal : paint(M.darkIron, { emissive: 0.08, color: '#5a2c1e', metal: 0, outline: 0 })), matrix: at(-0.34 + (i % 6) * 0.135, 0.41 + (i % 2) * 0.02, -0.24 + ((i * 5) % 6) * 0.095) });
   }
+  // A tread-plate step for the gunner and a paper notice tacked to a plank.
+  kit.add(P.box(0.5, 0.02, 0.28, 0.008, 1), { ...M.steel, pattern: Pattern.Tread + 0.3, matrix: at(-0.62, 0.145, 0.36) });
+  kit.add(P.box(0.28, 0.006, 0.2, 0.01, 1), { ...LABEL, detail: 1, matrix: at(0.66, 0.138, 0.2, [0, 0.15, 0]) });
+  for (const [x, z] of [[0.54, 0.12], [0.78, 0.3]] as const) kit.add(P.sphere(0.012, 5, 4), { ...M.steel, outline: 0, detail: 2, matrix: at(x, 0.142, z) });
   return kit.build();
 }
 
@@ -233,7 +251,7 @@ function cannonCrank(): THREE.BufferGeometry {
   kit.add(P.torus(0.2, 0.02, 6, 20), { ...M.brass, matrix: at(0, 0, 0) });
   for (let i = 0; i < 3; i += 1) kit.add(P.box(0.4, 0.024, 0.024, 0.008, 1), { ...M.brass, outline: 0, matrix: at(0, 0, 0, [0, 0, (i / 3) * Math.PI]) });
   rod(kit, V(0.2, 0, 0), V(0.2, 0, 0.16), 0.016, M.steel, 6);
-  kit.add(P.capsule(0.022, 0.08, 2, 6), { ...M.darkWood, outline: 0, matrix: at(0.2, 0, 0.2, [Math.PI / 2, 0, 0]) });
+  kit.add(P.capsule(0.022, 0.08, 2, 6), { ...M.darkWood, pattern: Pattern.Leather, outline: 0, matrix: at(0.2, 0, 0.2, [Math.PI / 2, 0, 0]) });
   return kit.build();
 }
 
@@ -268,6 +286,7 @@ export const HOME_MACHINES: Record<'pan' | 'microwave' | 'cart' | 'cannon', Unit
     interval: [2.2, 4.2],
     tints: ['#fff0d2', '#ffc94f', '#8fe0c8', '#8cc4ff', '#ffa9a0', '#f2e7ff', '#ffd9a3', '#b8ecd9', '#c3dcff', '#ffc6bd'],
     muzzle: [0, 0.72, 0],
+    badge: { at: [0, 0.34, 0.715], size: 0.24 },
     pose(st, time, index, _tier, base, put) {
       put(0, base);
       const arc = 4 * st.kick * (1 - st.kick);
@@ -290,6 +309,7 @@ export const HOME_MACHINES: Record<'pan' | 'microwave' | 'cart' | 'cannon', Unit
     shadowParts: 2,
     interval: [1.8, 3],
     muzzle: [-0.2, 0.75, 1.15],
+    badge: { at: [0.77, 0.22, 0.6], size: 0.2 },
     signs: [{ text: SIGN_TEXT.microwave, style: { background: '#1c3d35', color: '#7ff0c2', glow: 1, aspect: 2.1 }, width: 0.3, height: 0.13, matrix: at(0.77, 1.05, 0.595) }],
     pose(st, _time, _index, tier, base, put) {
       put(0, base);
@@ -313,6 +333,7 @@ export const HOME_MACHINES: Record<'pan' | 'microwave' | 'cart' | 'cannon', Unit
     shadowParts: 1,
     interval: [1.4, 2.5],
     muzzle: [0, 2.05, 0.5],
+    badge: { at: [0.63, 0.84, 0.505], size: 0.26 },
     signs: [{ text: SIGN_TEXT.popcorn, style: { background: '#ffc63f', color: '#8f1f26', border: '#8f1f26', aspect: 2.8 }, width: 0.84, height: 0.3, matrix: at(0, 0.84, 0.494) }],
     pose(st, _time, _index, tier, base, put) {
       put(0, base);
@@ -334,6 +355,7 @@ export const HOME_MACHINES: Record<'pan' | 'microwave' | 'cart' | 'cannon', Unit
     inkParts: 2,
     interval: [3.4, 5.6],
     muzzle: [1.36, 1.72, 0],
+    badge: { at: [0, 0.3, 0.345], size: 0.2 },
     pose(st, _time, _index, tier, base, put) {
       put(0, base);
       const recoil = Math.max(0, st.shake) * 0.22 - windUp(st, 0.8) * 0.03;

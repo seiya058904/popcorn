@@ -151,8 +151,28 @@ export class Hud {
     return (this.shop.root.offsetWidth + 16) / Math.max(1, window.innerWidth);
   }
 
+  /**
+   * Where floating numbers may start: low enough that their climb stays clear of the counter, and
+   * left of the shop. Measured again only when the window changes size.
+   */
+  private floatBounds: { top: number; right: number } | null = null;
+
+  private boundsForFloats(): { top: number; right: number } {
+    if (!this.floatBounds) {
+      const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 10;
+      const marquee = this.countNode.parentElement!.getBoundingClientRect();
+      // The climb is 8rem; the number itself is about 3rem tall.
+      this.floatBounds = { top: marquee.bottom + rem * 10, right: this.shop.root.getBoundingClientRect().left - rem * 3 };
+      window.addEventListener('resize', () => (this.floatBounds = null), { once: true });
+    }
+    return this.floatBounds;
+  }
+
   /** A golden kernel's number comes up larger, in gold, and stays a little longer. */
-  floatGain(x: number, y: number, gain: number, golden = false): void {
+  floatGain(screenX: number, screenY: number, gain: number, golden = false): void {
+    const bounds = this.boundsForFloats();
+    const x = Math.min(screenX, bounds.right);
+    const y = Math.max(screenY, bounds.top);
     const float = this.floats[this.floatCursor]!;
     this.floatCursor = (this.floatCursor + 1) % FLOAT_POOL;
     float.textContent = `+${formatAmount(gain)}`;

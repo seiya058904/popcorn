@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { SIGN_TEXT } from '../../content/signs.ts';
 import { Spring } from '../../motion/ease.ts';
+import { ringPath } from './paths.ts';
 import { Rng } from '../../motion/rng.ts';
 import type { Stage } from '../core/stage.ts';
 import { PopcornSnow } from '../fx/snow.ts';
@@ -429,7 +430,10 @@ export const townSpec: SceneSpec = {
       { x: 60, y: 24, z: 4, rotation: 2.6, scale: 3.4 },
     ],
     factory: [slot(-62, -30, 0.8, 5.2), slot(32, -62, -0.3, 5.2), slot(70, 2, -1.4, 5.2), slot(-70, 14, 1.3, 5.2), slot(60, 34, -2, 5), slot(-52, 44, 2.2, 5), slot(-12, -72, 0.1, 5.2), slot(76, -42, -1, 5)],
+    organ: [slot(-10.5, -8, 0.4, 2.5), slot(10.5, -8, -0.4, 2.5)],
   },
+  // A ring of track between the plaza and the ring road; each one bought is another car.
+  paths: { train: ringPath(0, 0, 20.8, 0.06, { spacing: 6.6, speed: 3, scale: 2.1, capacity: 12 }) },
   cannon: { position: new THREE.Vector3(32, 0.05, 14), rotation: Math.PI - 0.45, scale: 5.5 },
   perches: [
     new THREE.Vector3(20, 37.6, -40),

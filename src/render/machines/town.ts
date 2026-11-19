@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { SIGN_TEXT } from '../../content/signs.ts';
-import { at, glassCase, Kit, M, P, paint, puffs, putIf, putLocal, rod, smooth, V, windUp, type UnitDef } from './common.ts';
+import { at, glassCase, Kit, M, P, paint, Pattern, puffs, putIf, putLocal, rod, smooth, V, windUp, type UnitDef } from './common.ts';
 import { CINEMA_TOP } from './entrances.ts';
 
 const TRUCK_WHEEL_RADIUS = 0.46;
@@ -28,6 +28,12 @@ function cinemaBody(): THREE.BufferGeometry {
   kit.add(P.box(2.46, 0.72, 0.24, 0.07, 2), { ...M.red, matrix: at(0, 3.22, 0.1) });
   kit.add(P.box(2.2, 0.48, 0.03, 0.02, 1), { ...M.brass, outline: 0, matrix: at(0, 3.22, 0.225) });
   kit.add(P.lathe([[0, 0], [0.3, 0], [0.2, 0.14], [0.05, 0.2], [0, 0.3]], 12, 0.03, 1), { ...M.brass, matrix: at(0, 3.58, 0.1) });
+  // Striped paper bags hanging ready on a brass rail at the side.
+  rod(kit, V(1.17, 1.16, -0.45), V(1.17, 1.16, 0.45), 0.014, M.brass, 5);
+  for (const z of [-0.3, 0, 0.3]) {
+    kit.add(P.box(0.1, 0.26, 0.18, 0.02, 1), { color: '#fff4dc', gloss: 0.12, pattern: Pattern.Paper, outline: 0.4, fixedColor: true, detail: 1, matrix: at(1.2, 0.98, z) });
+    kit.add(P.box(0.102, 0.26, 0.05, 0.004, 1), { ...M.red, outline: 0, detail: 2, matrix: at(1.2, 0.98, z) });
+  }
   return kit.build();
 }
 
@@ -157,6 +163,10 @@ function factoryBody(): THREE.BufferGeometry {
   // Main chimney, in brick with a stone cap.
   kit.add(P.lathe([[0, 0], [0.52, 0], [0.38, 3.2], [0.46, 3.3], [0.46, 3.5], [0.34, 3.5], [0.3, 3.2], [0, 3.1]], 20, 0.04, 1), { ...paint(M.brick, { pattern: 4.6 }), matrix: at(-1.6, 2.1, -0.7) });
   kit.add(P.torus(0.44, 0.04, 6, 20), { ...M.concrete, outline: 0, matrix: at(-1.6, 4.9, -0.7, [Math.PI / 2, 0, 0]) });
+  // A tread-plate ramp up to the loading door and a shift notice pinned beside it.
+  kit.add(P.box(1.04, 0.05, 0.56, 0.015, 1), { ...M.steel, pattern: Pattern.Tread + 0.2, matrix: at(1.62, 0.15, 1.7, [0.12, 0, 0]) });
+  kit.add(P.box(0.34, 0.24, 0.015, 0.01, 1), { color: '#fff4dc', gloss: 0.12, pattern: Pattern.Paper, outline: 0.4, fixedColor: true, detail: 1, matrix: at(0.92, 1.05, 1.43) });
+  for (let row = 0; row < 3; row += 1) kit.add(P.box(0.24, 0.012, 0.004, 0.002, 1), { ...M.dark, outline: 0, detail: 2, matrix: at(0.92, 1.12 - row * 0.06, 1.44) });
   return kit.build();
 }
 
@@ -193,6 +203,7 @@ export const TOWN_MACHINES: Record<'cinema' | 'truck' | 'factory', UnitDef> = {
     shadowParts: 1,
     interval: [1.1, 2],
     muzzle: [0, 2.3, 0.6],
+    badge: { at: [0, 0.82, 0.83], size: 0.28 },
     signs: [{ text: SIGN_TEXT.cinema, style: { background: '#fff3cf', color: '#a31d28', aspect: 4.6, glow: 0.85 }, width: 2.1, height: 0.42, matrix: at(0, 3.22, 0.245) }],
     pose(st, time, index, tier, base, put) {
       put(0, base);
@@ -217,6 +228,7 @@ export const TOWN_MACHINES: Record<'cinema' | 'truck' | 'factory', UnitDef> = {
     shadowParts: 1,
     interval: [1.5, 2.6],
     muzzle: [-0.45, 1.6, 1.4],
+    badge: { at: [0.78, 1.06, 0.89], size: 0.32 },
     signs: [{ text: SIGN_TEXT.truck, style: { background: '#fff3d6', color: '#a31d28', border: '#d62f38', aspect: 5 }, width: 1.8, height: 0.36, matrix: at(-0.45, 1.06, 0.875) }],
     pose(st, time, index, tier, base, put) {
       // Backs up a little, then rolls forward to hand the batch over.
@@ -240,6 +252,7 @@ export const TOWN_MACHINES: Record<'cinema' | 'truck' | 'factory', UnitDef> = {
     shadowParts: 1,
     interval: [1.6, 2.8],
     muzzle: [-1.6, 5.7, -0.7],
+    badge: { at: [0.43, 1.98, 1.43], size: 0.36 },
     signs: [{ text: SIGN_TEXT.caramel, style: { background: '#ffc63f', color: '#7a2a12', border: '#7a2a12', aspect: 4.2 }, width: 2.1, height: 0.5, matrix: at(0.1, 3.42, 1.32) }],
     pose(st, time, index, tier, base, put) {
       put(0, base);

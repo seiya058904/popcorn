@@ -493,6 +493,9 @@ export const cinemaSpec: SceneSpec = {
     cart: [floorSlot(-24, 8, 0.6, 4), floorSlot(24, 8, -0.6, 4), floorSlot(-33, 14, 0.9, 4), floorSlot(33, 14, -0.9, 4)],
     truck: [floorSlot(-21, -7, 0.9, 2.3), floorSlot(21, -12, 2.3, 2.3), floorSlot(-40, 0, 0.5, 2.4), floorSlot(41, -2, 2.65, 2.4)],
     cinema: [floorSlot(-16, -26, 0.25, 3.6), floorSlot(16, -26, -0.25, 3.6), floorSlot(-28, -22, 0.4, 3.6), floorSlot(28, -22, -0.4, 3.6), floorSlot(-36, 2, 0.8, 3.8), floorSlot(38, 2, -0.8, 3.8), floorSlot(-6, -30, 0.1, 3.4), floorSlot(6, -30, -0.1, 3.4)],
+    mixer: [stageSlot(0.25, 12.3, 2.3), stageSlot(2.9, 12.3, 2.3)],
+    // Flanking the stage behind the bucket, facing the house, as in the old movie palaces.
+    organ: [stageSlot(4.3, 10.6, 2.2, 4.3 + 0.18), stageSlot(5.12, 10.6, 2.2, 5.12 - 0.18)],
   },
   cannon: { position: new THREE.Vector3(20, GROUND, 5), rotation: Math.PI - 0.25, scale: 5 },
   perches: [

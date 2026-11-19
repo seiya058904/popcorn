@@ -540,6 +540,12 @@ export const kitchenSpec: SceneSpec = {
       onFloor(-23, -3, 0.1, 2.5),
       onFloor(24, 2.5, 3.1, 2.5),
     ],
+    toaster: [
+      { x: 9.1, y: COUNTER_TOP + 0.03, z: -14.7, rotation: 0.1, scale: 1.45 },
+      { x: 11.7, y: COUNTER_TOP + 0.03, z: -14.8, rotation: -0.1, scale: 1.45 },
+    ],
+    // Out to the sides: straight behind the table, the close-up of a new one would be blocked.
+    mixer: [onFloor(-11.2, -12.2, 0.3, 2.3), onFloor(13.8, -11.8, -0.3, 2.3)],
   },
   cannon: { position: new THREE.Vector3(12, GROUND, 2.5), rotation: Math.PI - 0.1, scale: 2.5 },
   perches: [

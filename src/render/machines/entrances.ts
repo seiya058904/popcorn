@@ -71,8 +71,15 @@ const AIRSHIP_ARRIVES = 1.55;
 const VOLCANO_BURSTS = 0.55;
 const ORBITAL_DOCKS = 1.4;
 export const ORBITAL_UNFOLD: [number, number] = [0.75, 1.4];
+const TOASTER_LANDS = 0.42;
+const MIXER_STOPS = 0.8;
+const ORGAN_UP = 0.95;
+const TRAIN_STOPS = 1.5;
+const TYPHOON_FORMS = 1.1;
 
-export const ENTRANCES: Record<UnitKindName, Entrance> = {
+type LaterKind = 'toaster' | 'mixer' | 'organ' | 'train' | 'typhoon';
+
+const FIRST_TEN: Record<Exclude<UnitKindName, LaterKind>, Entrance> = {
   pan: {
     seconds: 1.15,
     pose(t, out) {
@@ -263,6 +270,80 @@ export const ENTRANCES: Record<UnitKindName, Entrance> = {
     ],
   },
 };
+
+// The later five ------------------------------------------------------------------------
+
+const LATER_FIVE: Record<LaterKind, Entrance> = {
+  toaster: {
+    seconds: 1.25,
+    pose(t, out) {
+      // Dropped in end over end, then two springy bounces on its feet.
+      const k = Math.min(1, t / TOASTER_LANDS);
+      out.y = 3.2 * (1 - k * k);
+      out.rx = (1 - k) * TAU * 0.5;
+      const since = after(t, TOASTER_LANDS);
+      if (since > 0) {
+        out.y = 0.42 * hop(since, 7.5, 3.6);
+        squash(out, 0.22 * ring(since, 24, 9));
+      }
+    },
+    beats: [sound('arrive-toaster', TOASTER_LANDS), { at: TOASTER_LANDS, run: (host, p) => host.dust(p.x, p.y, p.z, 0.7 * p.s) }],
+  },
+  mixer: {
+    seconds: 1.35,
+    pose(t, out) {
+      // Slid along the counter, leaning into the stop.
+      const k = easeOutCubic(t / MIXER_STOPS);
+      out.x = -4.5 * (1 - k);
+      out.rz = 0.12 * (1 - k);
+      const since = after(t, MIXER_STOPS);
+      if (since > 0) out.rz = -0.07 * ring(since, 16, 6);
+    },
+    beats: [sound('arrive-mixer'), { at: MIXER_STOPS, run: (host, p) => host.dust(p.x, p.y, p.z, 0.8 * p.s) }],
+  },
+  organ: {
+    seconds: 1.75,
+    pose(t, out) {
+      // Up from the orchestra pit on its lift; the pipes rise one by one after it (see the pose).
+      out.y = -3.4 * (1 - easeOutBack(t / ORGAN_UP, 1.1));
+      const since = after(t, ORGAN_UP);
+      if (since > 0) squash(out, 0.05 * ring(since, 20, 8));
+    },
+    beats: [
+      sound('arrive-organ'),
+      { at: ORGAN_UP, run: (host, p) => host.dust(p.x, p.y, p.z, 1.1 * p.s) },
+      { at: 1.5, run: (host, p) => host.sparkle(p.mx, p.my, p.mz, 0.6 * p.s) },
+    ],
+  },
+  train: {
+    seconds: 1.9,
+    pose(t, out) {
+      // Pulls in along the track and stops with a jolt that runs down the couplings.
+      out.x = -9 * (1 - easeOutCubic(t / TRAIN_STOPS));
+      const since = after(t, TRAIN_STOPS);
+      if (since > 0) {
+        out.x += 0.08 * ring(since, 14, 6);
+        out.rz = 0.025 * ring(since, 14, 6);
+      }
+    },
+    beats: [sound('arrive-train'), { at: TRAIN_STOPS, run: (host, p) => host.smoke(p.mx, p.my, p.mz, 0.9 * p.s) }],
+  },
+  typhoon: {
+    seconds: 1.6,
+    pose(t, out) {
+      // Spun up from a little whirl on the water into the full storm.
+      const k = Math.min(1, t / TYPHOON_FORMS);
+      const size = 0.08 + 0.92 * easeOutBack(k, 1.4);
+      out.sx = size;
+      out.sz = size;
+      out.sy = 0.3 + 0.7 * easeOutCubic(k);
+      out.ry = (1 - easeOutCubic(k)) * TAU * 2;
+    },
+    beats: [sound('arrive-typhoon'), { at: TYPHOON_FORMS, run: (host, p) => host.flash(p.x, p.y + 1.3 * p.s, p.z, 1.2 * p.s) }],
+  },
+};
+
+export const ENTRANCES: Record<UnitKindName, Entrance> = { ...FIRST_TEN, ...LATER_FIVE };
 
 /** With reduced motion every machine simply settles into place. */
 export const CALM_ENTRANCE: Entrance = {

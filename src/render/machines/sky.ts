@@ -228,6 +228,7 @@ export const SKY_MACHINES: Record<'airship' | 'volcano' | 'orbital', UnitDef> = 
     shadowParts: 1,
     interval: [1, 1.9],
     muzzle: [0.2, -2.5, 0],
+    badge: { at: [-1.7, 0.02, 1.48], size: 0.42 },
     signs: [{ text: SIGN_TEXT.airship, style: { background: '#fff3d6', color: '#a31d28', border: '#d62f38', aspect: 5.6 }, width: 2.2, height: 0.42, matrix: at(0, 0.02, 1.56) }],
     pose(st, time, index, tier, base, put) {
       const bob = Math.sin(time * 0.7 + index * 2) * 0.22 - st.kick * 0.05;
@@ -250,6 +251,7 @@ export const SKY_MACHINES: Record<'airship' | 'volcano' | 'orbital', UnitDef> = 
     shadowParts: 1,
     interval: [0.9, 1.7],
     muzzle: [0, 3, 0],
+    badge: { at: [0, 0.75, 1.42], size: 0.4, rx: -0.45 },
     pose(st, time, index, tier, base, put) {
       put(0, base);
       const breathe = 1 + Math.sin(time * 2.2 + index) * 0.03 + windUp(st) * 0.14 + st.shake * 0.5;
@@ -269,6 +271,7 @@ export const SKY_MACHINES: Record<'airship' | 'volcano' | 'orbital', UnitDef> = 
     shadowParts: 1,
     interval: [0.9, 1.6],
     muzzle: [0, 1.7, 0],
+    badge: { at: [0, 0.55, 0.5], size: 0.26 },
     pose(st, time, index, tier, base, put) {
       const sway = Math.sin(time * 0.3 + index * 1.7) * 0.05;
       const turn = Math.sin(time * 0.12 + index) * 0.5;
