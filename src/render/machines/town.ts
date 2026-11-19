@@ -1,6 +1,9 @@
 import * as THREE from 'three';
 import { SIGN_TEXT } from '../../content/signs.ts';
 import { at, glassCase, Kit, M, P, paint, puffs, putIf, putLocal, rod, smooth, V, windUp, type UnitDef } from './common.ts';
+import { CINEMA_TOP } from './entrances.ts';
+
+const TRUCK_WHEEL_RADIUS = 0.46;
 
 // Cinema popcorn machine ---------------------------------------------------------
 
@@ -190,19 +193,23 @@ export const TOWN_MACHINES: Record<'cinema' | 'truck' | 'factory', UnitDef> = {
     shadowParts: 1,
     interval: [1.1, 2],
     muzzle: [0, 2.3, 0.6],
-    dropHeight: 6,
     signs: [{ text: SIGN_TEXT.cinema, style: { background: '#fff3cf', color: '#a31d28', aspect: 4.6, glow: 0.85 }, width: 2.1, height: 0.42, matrix: at(0, 3.22, 0.245) }],
     pose(st, time, index, tier, base, put) {
       put(0, base);
-      const tip = windUp(st) * -0.25 + st.kick * st.kick * 1.5;
+      const arriving = st.enter < 1;
+      // It takes a bow at the top of the lift.
+      const bow = arriving && st.age > CINEMA_TOP ? Math.sin(Math.min(1, (st.age - CINEMA_TOP) / 0.42) * Math.PI) * 0.8 : 0;
+      const tip = windUp(st) * -0.25 + st.kick * st.kick * 1.5 + bow;
       putLocal(base, put, 1, 0.1, 2.3 - st.kick * 0.04, 0, 0, 0, tip);
-      // The marquee chases faster on a machine with a following.
-      const chase = Math.floor(time * (tier >= 1 ? 7 : 3.5) + index) % 2 === 0;
-      putIf(put, 2, chase || tier >= 2, base);
-      putIf(put, 3, !chase || tier >= 2, base);
+      // The marquee chases faster on a machine with a following, and races on the way up.
+      const chase = Math.floor(time * (arriving ? 16 : tier >= 1 ? 7 : 3.5) + index) % 2 === 0;
+      const allLit = tier >= 2 || (arriving && st.age > CINEMA_TOP);
+      putIf(put, 2, chase || allLit, base);
+      putIf(put, 3, !chase || allLit, base);
     },
-    fire(st) {
+    fire(st, host) {
       st.kick = 1;
+      if (host.rng.next() < 0.3) host.sound('work-cinema');
     },
   },
   truck: {
@@ -210,14 +217,14 @@ export const TOWN_MACHINES: Record<'cinema' | 'truck' | 'factory', UnitDef> = {
     shadowParts: 1,
     interval: [1.5, 2.6],
     muzzle: [-0.45, 1.6, 1.4],
-    dropHeight: 6,
     signs: [{ text: SIGN_TEXT.truck, style: { background: '#fff3d6', color: '#a31d28', border: '#d62f38', aspect: 5 }, width: 1.8, height: 0.36, matrix: at(-0.45, 1.06, 0.875) }],
     pose(st, time, index, tier, base, put) {
       // Backs up a little, then rolls forward to hand the batch over.
       const roll = smooth(0.35, 1, 1 - st.kick) * 0.28 - windUp(st, 0.5) * 0.28 + st.kick * 0.1;
       const idle = Math.sin(time * 9 + index) * 0.006;
       putLocal(base, put, 0, roll, idle, 0, 0, 0, roll * 0.01);
-      const turn = -roll * 2.2 - st.spin * 0.05;
+      // Wheels turn by the distance covered, so nothing skids on the way in.
+      const turn = -roll * 2.2 - st.spin * 0.05 - st.enterX / TRUCK_WHEEL_RADIUS;
       putLocal(base, put, 1, 1.9 + roll, 0.46, 0, 0, 0, turn);
       putLocal(base, put, 2, -1.5 + roll, 0.46, 0, 0, 0, turn);
       if (tier >= 1) putLocal(base, put, 3, roll, idle, 0);
@@ -233,7 +240,6 @@ export const TOWN_MACHINES: Record<'cinema' | 'truck' | 'factory', UnitDef> = {
     shadowParts: 1,
     interval: [1.6, 2.8],
     muzzle: [-1.6, 5.7, -0.7],
-    dropHeight: 5,
     signs: [{ text: SIGN_TEXT.caramel, style: { background: '#ffc63f', color: '#7a2a12', border: '#7a2a12', aspect: 4.2 }, width: 2.1, height: 0.5, matrix: at(0.1, 3.42, 1.32) }],
     pose(st, time, index, tier, base, put) {
       put(0, base);
@@ -245,6 +251,7 @@ export const TOWN_MACHINES: Record<'cinema' | 'truck' | 'factory', UnitDef> = {
     fire(st, host, x, y, z, s) {
       st.kick = 1;
       host.caramel(x, y, z, s);
+      if (host.rng.next() < 0.35) host.sound('work-factory');
     },
   },
 };

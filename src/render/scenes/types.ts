@@ -101,6 +101,8 @@ export interface SceneSpec {
   shadow: { center: THREE.Vector3; radius: number };
   pile: PileShape;
   homeRadius: number;
+  /** Footprint of the big central object, when it is much wider than its opening. */
+  vesselRadius?: number;
   /** Where this scene's heap center throws steam from. */
   steamY: number;
   /** Radius the flavor color has to travel to cover the whole heap. */

@@ -579,6 +579,7 @@ export const earthSpec: SceneSpec = {
   pile: earthPile,
   debris: ['#5b4150', '#ff7a2f', '#84606e'],
   homeRadius: CRATER.innerR * 0.72,
+  vesselRadius: CRATER.skirtR,
   steamY: CRATER.rimY,
   spreadRadius: 46,
   nest: null,

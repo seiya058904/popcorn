@@ -49,6 +49,9 @@ const COMBO_STEP = 12;
 const SPOTLIGHT_IN = 0.45;
 const SPOTLIGHT_HOLD = 1.55;
 const SPOTLIGHT_OUT = 0.55;
+const SPOTLIGHT_DISTANCE = 2.45;
+/** Directions tried for a close-up, as turns away from the scene's wide shot. */
+const SPOTLIGHT_TURNS = [0, 0.4, 0.8, 1.2, 1.6, 2, 2.4, 2.8];
 const HOPPER_HIT_RADIUS_REM = 5.2;
 /** How many camera positions are tried when fitting the machines into the picture. */
 const FRAMING_STEPS = 12;
@@ -164,7 +167,7 @@ export class World {
   private wantedOpen = 0;
   private framedInset = Number.NaN;
   private readonly framingCamera = new THREE.PerspectiveCamera();
-  private spotlight: { center: THREE.Vector3; size: number; rotation: number; t: number } | null = null;
+  private spotlight: { center: THREE.Vector3; size: number; yaw: number; elevation: number; t: number } | null = null;
 
   constructor(stage: Stage, sim: Simulation, bus: EventBus<GameEvents>, impact: ImpactDirector, hooks: WorldHooks) {
     this.stage = stage;
@@ -187,6 +190,7 @@ export class World {
       },
       onMachineCannon: () => this.hooks.onMachineCannon(),
       onMachineSound: (name) => this.hooks.onMachineSound(name),
+      onMachineThump: () => this.impact.hit('medium'),
     };
 
     bus.on('auto_popped', () => this.current?.autoPop());
@@ -407,19 +411,61 @@ export class World {
   private startSpotlight(producer: number): void {
     if (this.reduceMotion || this.attract || this.transition || this.finaleTime !== -1) return;
     const copy = this.current?.machineFocus(producer);
-    if (copy) this.spotlight = { ...copy, t: 0 };
+    if (copy) this.spotlight = { center: copy.center, size: copy.size, ...this.spotlightDirection(copy.center, copy.size, copy.rotation), t: 0 };
+  }
+
+  /**
+   * The scene's wide shot is composed so every machine can be seen, so the close-up starts from
+   * that direction, then turns just far enough for the big pot and its heap not to block it.
+   */
+  private spotlightDirection(center: THREE.Vector3, size: number, rotation: number): { yaw: number; elevation: number } {
+    const runtime = this.current!;
+    const wide = runtime.spec.camera.position;
+    const dx = wide.x - center.x;
+    const dz = wide.z - center.z;
+    const base = Math.atan2(dx, dz);
+    const elevation = THREE.MathUtils.clamp(Math.atan2(wide.y - center.y, Math.hypot(dx, dz)), 0.14, 0.5);
+    const distance = size * SPOTLIGHT_DISTANCE * Math.cos(elevation);
+    const blocked = Math.max(runtime.spec.vesselRadius ?? (runtime.spec.homeRadius / 0.72) * 1.3, runtime.pile.shape.landingRadius(this.level));
+    const front = rotation + 0.55;
+    const toFront = Math.sin(front - base) >= 0 ? 1 : -1;
+    let best = base;
+    let bestClearance = -1;
+    for (const turn of SPOTLIGHT_TURNS) {
+      for (const side of turn === 0 ? [1] : [toFront, -toFront]) {
+        const yaw = base + turn * side;
+        const ex = center.x + Math.sin(yaw) * distance;
+        const ez = center.z + Math.cos(yaw) * distance;
+        // Closest the line of sight comes to the middle of the scene, seen from above.
+        const lx = ex - center.x;
+        const lz = ez - center.z;
+        const along = clamp01(-(center.x * lx + center.z * lz) / (lx * lx + lz * lz));
+        const clearance = Math.hypot(center.x + lx * along, center.z + lz * along);
+        if (clearance > blocked) return { yaw, elevation };
+        if (clearance > bestClearance) {
+          bestClearance = clearance;
+          best = yaw;
+        }
+      }
+    }
+    // Standing right beside the big object: the view from the far side is the clearest there is.
+    return { yaw: best, elevation };
   }
 
   private spotlightPose(rest: Pose): Pose {
     const s = this.spotlight!;
     const u = easeInOutCubic(clamp01(s.t / SPOTLIGHT_IN)) * (1 - easeInOutCubic(clamp01((s.t - SPOTLIGHT_IN - SPOTLIGHT_HOLD) / SPOTLIGHT_OUT)));
-    const distance = s.size * 2.1;
-    const a = s.rotation + 0.55 + s.t * 0.09;
-    const eye = v2.set(s.center.x + Math.sin(a) * distance, s.center.y + distance * 0.3, s.center.z + Math.cos(a) * distance);
+    const distance = s.size * SPOTLIGHT_DISTANCE;
+    const a = s.yaw + s.t * 0.06;
+    const flat = distance * Math.cos(s.elevation);
+    const eye = v2.set(s.center.x + Math.sin(a) * flat, s.center.y + distance * Math.sin(s.elevation), s.center.z + Math.cos(a) * flat);
+    // Aiming a little high leaves the machine clear of the counter at the top of the screen.
+    const aim = s.center.clone();
+    aim.y += s.size * 0.1;
     return {
       ...rest,
       position: rest.position.clone().lerp(eye, u),
-      target: rest.target.clone().lerp(s.center, u),
+      target: rest.target.clone().lerp(aim, u),
       focusDistance: lerp(rest.focusDistance, distance, u),
       focusRange: lerp(rest.focusRange, s.size * 1.1, u),
     };
@@ -633,7 +679,10 @@ export class World {
       this.spotlight.t += dt;
       if (this.spotlight.t >= SPOTLIGHT_IN + SPOTLIGHT_HOLD + SPOTLIGHT_OUT) this.spotlight = null;
     }
-    if (this.current) this.current.holdLaunches = this.spotlight !== null;
+    if (this.current) {
+      this.current.holdLaunches = this.spotlight !== null;
+      this.current.calmEntrances = this.reduceMotion;
+    }
 
     const current = this.current!;
     const cooling = this.sim.state.cannonCooldown > 0;

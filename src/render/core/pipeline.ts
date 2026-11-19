@@ -278,12 +278,16 @@ vec3 toSrgb(vec3 c) {
 }
 
 vec3 sampleScene(vec2 uv) {
-  vec3 col = texture2D(tColor, uv).rgb;
+  vec4 scene = texture2D(tColor, uv);
+  vec3 col = scene.rgb;
   if (uHasBlur > 0.5) {
     // Full-resolution depth decides the mix, so in-focus silhouettes stay crisp.
     float d = linearDepth(uv) - uFocus;
     float coc = clamp(((d > 0.0 ? d : -d * 0.45) - uRange * 0.35) / uRange, 0.0, 1.0);
-    col = mix(col, texture2D(tBlur, uv).rgb, smoothstep(0.02, 0.4, coc));
+    // Alpha above 1 marks refracting glass. What it shows no longer lines up with the depth
+    // buffer, so it has done its own focus blur already.
+    float glass = clamp(scene.a - 1.0, 0.0, 1.0);
+    col = mix(col, texture2D(tBlur, uv).rgb, smoothstep(0.02, 0.4, coc) * (1.0 - glass));
   }
   return col;
 }

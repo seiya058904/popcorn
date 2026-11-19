@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { SIGN_TEXT } from '../../content/signs.ts';
 import { at, Kit, M, P, Pattern, puffs, putIf, putLocal, rod, smooth, V, windUp, type UnitDef } from './common.ts';
+import { ORBITAL_UNFOLD } from './entrances.ts';
 
 const noise = (x: number, y: number, z: number): number =>
   Math.sin(x * 2.1 + y * 1.3) * Math.cos(z * 2.7 - y * 0.9) * 0.5 + Math.sin(x * 5.3 - z * 4.1 + y * 3.7) * 0.28 + Math.sin(z * 9.1 + x * 7.7 - y * 6.3) * 0.14;
@@ -227,19 +228,21 @@ export const SKY_MACHINES: Record<'airship' | 'volcano' | 'orbital', UnitDef> = 
     shadowParts: 1,
     interval: [1, 1.9],
     muzzle: [0.2, -2.5, 0],
-    dropHeight: 8,
     signs: [{ text: SIGN_TEXT.airship, style: { background: '#fff3d6', color: '#a31d28', border: '#d62f38', aspect: 5.6 }, width: 2.2, height: 0.42, matrix: at(0, 0.02, 1.56) }],
     pose(st, time, index, tier, base, put) {
       const bob = Math.sin(time * 0.7 + index * 2) * 0.22 - st.kick * 0.05;
       const roll = Math.sin(time * 0.45 + index) * 0.035;
       const pitch = Math.sin(time * 0.33 + index * 1.4) * 0.022;
       putLocal(base, put, 0, 0, bob, 0, roll, 0, pitch);
-      for (const [part, side] of [[1, -1], [2, 1]] as const) putLocal(base, put, part, -1.32, bob - 1.34, side * 1.32, st.spin * 9, 0, 0);
+      // Full power on the way in, easing back once it is on station.
+      const props = st.spin * 9 + (1 - st.enter) * 40;
+      for (const [part, side] of [[1, -1], [2, 1]] as const) putLocal(base, put, part, -1.32, bob - 1.34, side * 1.32, props, 0, 0);
       if (tier >= 1) putLocal(base, put, 3, 0, bob, 0, roll, 0, pitch);
       else putLocal(base, put, 3, 0, 0, 0, 0, 0, 0, 0);
     },
-    fire(st) {
+    fire(st, host) {
       st.kick = 1;
+      if (host.rng.next() < 0.35) host.sound('airship-drop');
     },
   },
   volcano: {
@@ -247,7 +250,6 @@ export const SKY_MACHINES: Record<'airship' | 'volcano' | 'orbital', UnitDef> = 
     shadowParts: 1,
     interval: [0.9, 1.7],
     muzzle: [0, 3, 0],
-    dropHeight: 3,
     pose(st, time, index, tier, base, put) {
       put(0, base);
       const breathe = 1 + Math.sin(time * 2.2 + index) * 0.03 + windUp(st) * 0.14 + st.shake * 0.5;
@@ -259,6 +261,7 @@ export const SKY_MACHINES: Record<'airship' | 'volcano' | 'orbital', UnitDef> = 
       host.flash(x, y, z, 1.2 * s);
       host.ember(x, y, z, s);
       host.smoke(x, y + 0.3 * s, z, 0.8 * s);
+      if (host.rng.next() < 0.4) host.sound('work-volcano');
     },
   },
   orbital: {
@@ -266,13 +269,14 @@ export const SKY_MACHINES: Record<'airship' | 'volcano' | 'orbital', UnitDef> = 
     shadowParts: 1,
     interval: [0.9, 1.6],
     muzzle: [0, 1.7, 0],
-    dropHeight: 10,
     pose(st, time, index, tier, base, put) {
       const sway = Math.sin(time * 0.3 + index * 1.7) * 0.05;
       const turn = Math.sin(time * 0.12 + index) * 0.5;
       putLocal(base, put, 0, 0, sway, 0, 0, turn, Math.sin(time * 0.2 + index) * 0.03);
       // The mirror draws back, then snaps onto its target.
-      putLocal(base, put, 1, 0, 0.46 + sway - windUp(st) * 0.05, 0, 0.16 + st.kick * 0.12, time * 0.08 + index, 0);
+      // The mirror stays folded until the station has nearly docked.
+      const unfold = st.enter < 1 ? Math.max(0.001, smooth(ORBITAL_UNFOLD[0], ORBITAL_UNFOLD[1], st.age)) : 1;
+      putLocal(base, put, 1, 0, 0.46 + sway - windUp(st) * 0.05, 0, 0.16 + st.kick * 0.12, time * 0.08 + index + (1 - unfold) * 3, 0, unfold);
       if (tier >= 1) putLocal(base, put, 2, 0, sway, 0, 0, turn, 0);
       else putLocal(base, put, 2, 0, 0, 0, 0, 0, 0, 0);
     },

@@ -107,7 +107,7 @@ export class Game {
         this.audio.effect('cannon-fire', 'tap', 1.5);
         this.audio.effect('pigeons');
       },
-      onMachineSound: (name) => this.audio.effect(name, 'tap'),
+      onMachineSound: (name) => this.audio.machine(name),
       onCombo: (count) => this.audio.effect('combo', 'small', Math.min(1.6, 0.9 + count / 150)),
       onBreakBeat: (beat, stage) => this.onBreakBeat(beat, stage),
       onFinaleBeat: (beat) => this.onFinaleBeat(beat),
@@ -180,6 +180,7 @@ export class Game {
     } else {
       audio.effect('break-arrive', 'large');
       audio.setTrack(stage + 1 >= WORLD_MUSIC_STAGE ? 'world' : 'home');
+      audio.setSpace(stage + 1);
       this.hud.showSlate(stage + 1);
       this.hud.setSkipVisible(false);
     }
@@ -256,6 +257,7 @@ export class Game {
     const outcome = await this.saves.load();
     this.world.syncToSave();
     this.audio.setTrack(this.sim.state.stage >= WORLD_MUSIC_STAGE ? 'world' : 'home');
+    this.audio.setSpace(this.sim.state.stage);
     // Warming up front keeps the first click from stalling on shader or buffer work.
     this.stage.preload(this.stage.scene);
     if (outcome.migrated) {

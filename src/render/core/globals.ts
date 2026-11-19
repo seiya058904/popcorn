@@ -2,6 +2,9 @@ import * as THREE from 'three';
 
 export const MAX_LAMPS = 12;
 
+/** Refracting glass, drawn after everything else so it can look at the finished scene. */
+export const GLASS_LAYER = 2;
+
 /** Uniform objects shared by reference across every material. */
 export const globals = {
   uTime: { value: 0 },

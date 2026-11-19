@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { SIGN_TEXT } from '../../content/signs.ts';
-import { at, cycleOf, glassCase, HIDDEN, Kit, M, P, paint, Pattern, puffs, putIf, putLocal, rivets, rod, smooth, spokedWheel, V, windUp, type UnitDef } from './common.ts';
+import { at, cycleOf, glassCase, HIDDEN, Kit, M, P, paint, Pattern, puffs, putIf, putLocal, rivets, rod, smooth, spokedWheel, V, windUp, type UnitDef, type UnitState } from './common.ts';
+import { CART_STOPS, MICROWAVE_DOOR_OPENS, PAN_LID_LANDS } from './entrances.ts';
 
 // Saucepan -----------------------------------------------------------------------
 
@@ -32,7 +33,7 @@ function panShell(): THREE.BufferGeometry {
 
 function panLid(): THREE.BufferGeometry {
   const kit = new Kit();
-  kit.add(P.lathe([[0.69, 0.005], [0.56, 0.06], [0.3, 0.14], [0, 0.17]], 36, 0.02, 2), { ...M.glassWarm });
+  kit.add(P.lathe([[0.69, 0.005], [0.56, 0.06], [0.3, 0.14], [0, 0.17]], 36, 0.02, 2), { ...M.glassWarm, lens: 0.25, thickness: 0.05 });
   kit.add(P.torus(0.7, 0.026, 8, 40), { ...M.steel, matrix: at(0, 0, 0, [Math.PI / 2, 0, 0]) });
   kit.add(P.puck(0.1, 0.07, 0.05, 14, 0.01), { ...M.brass, matrix: at(0, 0.165, 0) });
   kit.add(P.sphere(0.09, 14, 10), { ...M.darkWood, gloss: 0.5, matrix: at(0, 0.28, 0, [0, 0, 0], [1, 0.85, 1]) });
@@ -77,7 +78,7 @@ function microwaveDoor(): THREE.BufferGeometry {
   const frame = M.steel;
   for (const y of [-0.5, 0.5]) kit.add(P.box(1.5, 0.1, 0.07, 0.03, 2), { ...frame, matrix: at(0.75, y, 0) });
   for (const x of [0.04, 1.46]) kit.add(P.box(0.09, 1.08, 0.07, 0.03, 2), { ...frame, matrix: at(x, 0, 0) });
-  kit.add(P.box(1.32, 0.92, 0.012, 0.004, 1), { color: '#ffdca6', glass: true, matrix: at(0.75, 0, 0.005) });
+  kit.add(P.box(1.32, 0.92, 0.012, 0.004, 1), { ...M.glassWarm, matrix: at(0.75, 0, 0.005) });
   kit.add(P.capsule(0.03, 0.62, 3, 8), { ...M.chrome, matrix: at(1.36, 0, 0.1) });
   for (const y of [-0.27, 0.27]) kit.add(P.box(0.07, 0.04, 0.09, 0.012, 1), { ...M.chrome, outline: 0, matrix: at(1.36, y, 0.06) });
   return kit.build();
@@ -245,6 +246,21 @@ function cannonTrim(): THREE.BufferGeometry {
   return kit.build();
 }
 
+/** Where a tossed pan's lid is while it comes down after the pan and settles. */
+function arrivingLid(st: UnitState): { y: number; rx: number; rz: number } {
+  const t = st.age;
+  if (st.enter >= 1 || t < 0) return { y: 0, rx: 0, rz: 0 };
+  if (t < PAN_LID_LANDS) {
+    const k = t / PAN_LID_LANDS;
+    return { y: 1.5 * (1 - k) + 1.3 * 4 * k * (1 - k), rx: (1 - k) * 9, rz: (1 - k) * 4 };
+  }
+  // Spins faster and flatter as it dies away.
+  const since = t - PAN_LID_LANDS;
+  const lean = 0.3 * Math.exp(-since * 5);
+  const phase = 40 * since + 20 * since * since;
+  return { y: lean * 0.12, rx: Math.cos(phase) * lean, rz: Math.sin(phase) * lean };
+}
+
 export const HOME_MACHINES: Record<'pan' | 'microwave' | 'cart' | 'cannon', UnitDef> = {
   pan: {
     parts: [panShell, panLid],
@@ -252,20 +268,21 @@ export const HOME_MACHINES: Record<'pan' | 'microwave' | 'cart' | 'cannon', Unit
     interval: [2.2, 4.2],
     tints: ['#fff0d2', '#ffc94f', '#8fe0c8', '#8cc4ff', '#ffa9a0', '#f2e7ff', '#ffd9a3', '#b8ecd9', '#c3dcff', '#ffc6bd'],
     muzzle: [0, 0.72, 0],
-    dropHeight: 4.5,
     pose(st, time, index, _tier, base, put) {
       put(0, base);
       const arc = 4 * st.kick * (1 - st.kick);
       // The lid chatters more and more as the next batch gets ready to pop.
       const chatter = windUp(st, 0.6) * 0.014 * Math.sin(time * 58 + index);
       const lift = arc * (st.lidSpin !== 0 ? 1.15 : 0.16);
-      putLocal(base, put, 1, 0, 0.64 + Math.abs(chatter) + lift, 0, arc * 0.32 + chatter * 2, time * 0.1 + index, st.lidSpin * arc * 0.3 - chatter);
+      const landing = arrivingLid(st);
+      putLocal(base, put, 1, 0, 0.64 + Math.abs(chatter) + lift + landing.y, 0, arc * 0.32 + chatter * 2 + landing.rx, time * 0.1 + index, st.lidSpin * arc * 0.3 - chatter + landing.rz);
     },
     fire(st, host, x, y, z, s) {
       const gag = host.rng.next() < 0.3;
       st.kick = gag ? 1 : 0.36;
       st.lidSpin = gag ? host.rng.range(4, 7) * host.rng.sign() : 0;
       host.smoke(x, y + 0.1 * s, z, 0.3 * s);
+      if (gag) host.sound('work-pan');
     },
   },
   microwave: {
@@ -273,12 +290,13 @@ export const HOME_MACHINES: Record<'pan' | 'microwave' | 'cart' | 'cannon', Unit
     shadowParts: 2,
     interval: [1.8, 3],
     muzzle: [-0.2, 0.75, 1.15],
-    dropHeight: 5,
     signs: [{ text: SIGN_TEXT.microwave, style: { background: '#1c3d35', color: '#7ff0c2', glow: 1, aspect: 2.1 }, width: 0.3, height: 0.13, matrix: at(0.77, 1.05, 0.595) }],
     pose(st, _time, _index, tier, base, put) {
       put(0, base);
       // Snaps open at the bell, then eases shut before the next batch.
-      const open = st.kick < 0 ? 0 : Math.min(1, st.kick * 1.8);
+      let open = st.kick < 0 ? 0 : Math.min(1, st.kick * 1.8);
+      // Fresh out of the box, the door gets one proud swing.
+      if (st.enter < 1 && st.age > MICROWAVE_DOOR_OPENS) open = Math.max(open, Math.sin(Math.min(1, (st.age - MICROWAVE_DOOR_OPENS) / 0.46) * Math.PI) ** 0.7 * 0.95);
       putLocal(base, put, 1, HINGE[0], HINGE[1], HINGE[2], 0, -open * open * 1.55, 0);
       const swell = 0.72 + cycleOf(st) * 0.5 + Math.sin(st.spin * 7) * windUp(st) * 0.03;
       putLocal(base, put, 2, -0.25, 0.53, 0, 0, st.spin * 1.2, 0, swell, swell, swell);
@@ -295,17 +313,19 @@ export const HOME_MACHINES: Record<'pan' | 'microwave' | 'cart' | 'cannon', Unit
     shadowParts: 1,
     interval: [1.4, 2.5],
     muzzle: [0, 2.05, 0.5],
-    dropHeight: 6,
     signs: [{ text: SIGN_TEXT.popcorn, style: { background: '#ffc63f', color: '#8f1f26', border: '#8f1f26', aspect: 2.8 }, width: 0.84, height: 0.3, matrix: at(0, 0.84, 0.494) }],
     pose(st, _time, _index, tier, base, put) {
       put(0, base);
       // Leans back, then tips right over to pour.
-      const tip = windUp(st) * -0.32 + st.kick * st.kick * 2.1;
+      let tip = windUp(st) * -0.32 + st.kick * st.kick * 2.1;
+      // On the move the kettle trails behind, then swings when the cart stops.
+      if (st.enter < 1) tip += st.age < CART_STOPS ? -0.35 : 0.9 * Math.exp(-(st.age - CART_STOPS) * 3) * Math.sin((st.age - CART_STOPS) * 11);
       putLocal(base, put, 1, 0, 1.86, 0, tip, 0, Math.sin(st.spin) * 0.03);
       putIf(put, 2, tier >= 1, base);
     },
-    fire(st) {
+    fire(st, host) {
       st.kick = 1;
+      if (host.rng.next() < 0.3) host.sound('work-cart');
     },
   },
   cannon: {
@@ -314,11 +334,11 @@ export const HOME_MACHINES: Record<'pan' | 'microwave' | 'cart' | 'cannon', Unit
     inkParts: 2,
     interval: [3.4, 5.6],
     muzzle: [1.36, 1.72, 0],
-    dropHeight: 6,
     pose(st, _time, _index, tier, base, put) {
       put(0, base);
       const recoil = Math.max(0, st.shake) * 0.22 - windUp(st, 0.8) * 0.03;
-      putLocal(base, put, 1, -recoil, 1.42, 0, st.spin * 3, 0, 0.26);
+      // The landing sets the drum spinning.
+      putLocal(base, put, 1, -recoil, 1.42, 0, st.spin * 3 + (1 - st.enter) * 14, 0, 0.26);
       putLocal(base, put, 2, 0, 1.38, 0.68, 0, 0, -st.spin * 2.4);
       put(3, tier >= 1 ? base : HIDDEN);
     },

@@ -9,6 +9,10 @@ export interface QualitySettings {
   depthOfField: boolean;
   /** Screen-space reflections on polished floors. */
   reflections: boolean;
+  /** Glass bends what is seen through it. Needs a multisampled scene. */
+  refraction: boolean;
+  /** Refraction splits slightly by color at glass edges. */
+  dispersion: boolean;
   /** How many local lights are evaluated per pixel. */
   lamps: number;
   /** Model detail: 0 main shapes, 1 medium parts, 2 everything. */
@@ -27,6 +31,8 @@ export const QUALITY: Record<QualityTier, QualitySettings> = {
     ambientOcclusion: false,
     depthOfField: false,
     reflections: false,
+    refraction: false,
+    dispersion: false,
     lamps: 3,
     detail: 0,
     bloomLevels: 3,
@@ -41,6 +47,8 @@ export const QUALITY: Record<QualityTier, QualitySettings> = {
     ambientOcclusion: false,
     depthOfField: true,
     reflections: false,
+    refraction: false,
+    dispersion: false,
     lamps: 6,
     detail: 1,
     bloomLevels: 4,
@@ -55,6 +63,8 @@ export const QUALITY: Record<QualityTier, QualitySettings> = {
     ambientOcclusion: true,
     depthOfField: true,
     reflections: true,
+    refraction: true,
+    dispersion: false,
     lamps: 12,
     detail: 2,
     bloomLevels: 5,
@@ -69,6 +79,8 @@ export const QUALITY: Record<QualityTier, QualitySettings> = {
     ambientOcclusion: true,
     depthOfField: true,
     reflections: true,
+    refraction: true,
+    dispersion: true,
     lamps: 12,
     detail: 2,
     bloomLevels: 5,

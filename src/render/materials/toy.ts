@@ -186,22 +186,35 @@ void main() { gl_Position = projectionMatrix * viewMatrix * worldMatrixOf() * ve
 `;
 
 const glassVertex = /* glsl */ `
-varying vec3 vWorld, vNormal, vColor;
+attribute vec4 aMat, aMat2;
+varying vec3 vWorld, vNormal, vColor, vLocal;
+varying float vThickness, vLens, vViewDepth;
 ${GLSL_INSTANCE_WORLD}
 void main() {
   mat4 world = worldMatrixOf();
   vec4 wp = world * vec4(position, 1.0);
   vWorld = wp.xyz;
+  vLocal = position;
   vNormal = normalize(transpose(inverse(mat3(world))) * normal);
   vColor = color;
-  gl_Position = projectionMatrix * viewMatrix * wp;
+  vThickness = aMat.x * length(world[1].xyz);
+  vLens = aMat2.x;
+  vec4 view = viewMatrix * wp;
+  vViewDepth = -view.z;
+  gl_Position = projectionMatrix * view;
 }
 `;
 
+const glassVaryings = /* glsl */ `
+varying vec3 vWorld, vNormal, vColor, vLocal;
+varying float vThickness, vLens, vViewDepth;
+`;
+
+/** The simple glass of the lower quality tiers: reflections over a slight veil, in one draw. */
 const glassFragment = /* glsl */ `
 ${GLSL_UTIL}
 ${GLSL_LIGHT_PARS}
-varying vec3 vWorld, vNormal, vColor;
+${glassVaryings}
 void main() {
   vec3 N = normalize(vNormal);
   vec3 toCam = cameraPosition - vWorld;
@@ -219,12 +232,146 @@ void main() {
 }
 `;
 
+const refractionPars = /* glsl */ `
+uniform sampler2D tSceneColor, tSceneDepth;
+uniform float uDispersion, uBlurPx;
+uniform vec2 uSceneSize, uNearFar, uFocus;
+uniform mat4 uViewProjection;
+
+float sceneDepth(vec2 uv) {
+  float d = textureLod(tSceneDepth, uv, 0.0).r * 2.0 - 1.0;
+  return 2.0 * uNearFar.x * uNearFar.y / (uNearFar.y + uNearFar.x - d * (uNearFar.y - uNearFar.x));
+}
+`;
+
+/**
+ * What is seen through the glass. Each piece writes depth, so only the nearest pane survives:
+ * adding every pane up would show the things behind a display case twice.
+ */
+const glassBodyFragment = /* glsl */ `
+${GLSL_UTIL}
+${refractionPars}
+${glassVaryings}
+const float IOR = 1.5;
+
+// Follows one ray through the glass and returns where on screen it comes out.
+vec2 throughGlass(vec3 N, vec3 I, float eta, float gap, vec2 here) {
+  vec3 T = refract(I, N, eta);
+  float along = max(dot(T, -N), 0.25);
+  // A pane hands the ray back parallel but shifted; a curved piece keeps it bent.
+  vec3 exitPoint = vWorld + T * vThickness / along;
+  vec3 hit = exitPoint + normalize(mix(I, T, vLens)) * gap;
+  vec4 clip = uViewProjection * vec4(hit, 1.0);
+  vec2 uv = clamp(clip.xy / clip.w * 0.5 + 0.5, vec2(0.001), vec2(0.999));
+  // Whatever stands in front of the glass cannot be seen through it, so the ray eases back
+  // toward the straight view as it nears such a thing. A hard switch would leave a torn edge.
+  float inFront = vViewDepth - sceneDepth(uv);
+  return mix(uv, here, smoothstep(-vThickness, vThickness * 2.0, inFront));
+}
+
+vec3 texel(vec2 uv) { return min(textureLod(tSceneColor, uv, 0.0).rgb, vec3(6.0)); }
+
+// The same focus falloff as the depth of field, which cannot reach what glass has moved.
+float blurAmount(float z) {
+  float d = z - uFocus.x;
+  return clamp(((d > 0.0 ? d : -d * 0.45) - uFocus.y * 0.35) / uFocus.y, 0.0, 1.0);
+}
+
+vec3 sceneAt(vec2 uv) {
+  float z = sceneDepth(uv);
+  float coc = blurAmount(z);
+  float radius = coc * smoothstep(0.02, 0.4, coc) * uBlurPx;
+  vec3 sum = texel(uv);
+  float weight = 1.0;
+  if (radius >= 0.5) {
+    for (int i = 1; i <= 8; i++) {
+      float t = sqrt(float(i) / 8.0);
+      float a = float(i) * 2.39996323;
+      vec2 q = uv + vec2(cos(a), sin(a)) * t * radius / uSceneSize;
+      // Something sharp in front must not bleed into the soft background behind it.
+      float nearer = sceneDepth(q);
+      float w = nearer < z - 0.15 ? blurAmount(nearer) : 1.0;
+      sum += texel(q) * w;
+      weight += w;
+    }
+  }
+  return sum / weight;
+}
+
+void main() {
+  vec3 N = normalize(vNormal);
+  vec3 V = normalize(cameraPosition - vWorld);
+  float ndv = sat(dot(N, V));
+  float fresnel = 0.05 + 0.95 * pow(1.0 - ndv, 5.0);
+  vec2 here = gl_FragCoord.xy / uSceneSize;
+  // Hand-poured glass is never quite flat.
+  vec3 ripple = vec3(sin(vLocal.y * 23.0 + vLocal.x * 7.0), sin(vLocal.x * 19.0 - vLocal.z * 11.0), sin(vLocal.z * 21.0 + vLocal.y * 5.0));
+  vec3 bent = normalize(N + ripple * 0.012);
+  vec3 I = -V;
+  float gap = clamp(sceneDepth(here) - vViewDepth, 0.0, vThickness * 16.0);
+  float eta = 1.0 / IOR;
+  vec3 through;
+  if (uDispersion > 0.5) {
+    through = vec3(
+      sceneAt(throughGlass(bent, I, eta * 1.012, gap, here)).r,
+      sceneAt(throughGlass(bent, I, eta, gap, here)).g,
+      sceneAt(throughGlass(bent, I, eta * 0.988, gap, here)).b
+    );
+  } else {
+    through = sceneAt(throughGlass(bent, I, eta, gap, here));
+  }
+  // The longer the path through the glass, the more of its color the light picks up.
+  float thick = pow(1.0 - ndv, 2.0);
+  vec3 tint = pow(max(vColor, vec3(0.02)), vec3(0.16 + thick * 1.5));
+  // Alpha 2 tells the later passes this pixel is glass: no focus blur, no floor reflection.
+  gl_FragColor = vec4(through * tint * (1.0 - fresnel), 2.0);
+}
+`;
+
+/** Reflections off every pane, near and far, added over what the glass let through. */
+const glassSurfaceFragment = /* glsl */ `
+${GLSL_UTIL}
+${GLSL_LIGHT_PARS}
+${refractionPars}
+${glassVaryings}
+void main() {
+  // Depth testing is off here, because the nearest pane has already written its depth.
+  if (vViewDepth > sceneDepth(gl_FragCoord.xy / uSceneSize) + vThickness * 0.5) discard;
+  vec3 N = normalize(vNormal);
+  vec3 toCam = cameraPosition - vWorld;
+  float dist = length(toCam);
+  vec3 V = toCam / dist;
+  float ndv = sat(dot(N, V));
+  float fresnel = 0.05 + 0.95 * pow(1.0 - ndv, 5.0);
+  vec3 R = reflect(-V, N);
+  vec3 reflected = envColor(R) + uSunColor * studioSoft(R, 0.05) * 1.4 + lampSheen(vWorld, N, V, 0.08);
+  float thick = pow(1.0 - ndv, 2.0);
+  float fog = sat((dist - uFogRange.x) / (uFogRange.y - uFogRange.x));
+  gl_FragColor = vec4((reflected * fresnel + vColor * thick * 0.05) * (1.0 - fog * fog * (3.0 - 2.0 * fog)), 0.0);
+}
+`;
+
 export interface ToyMaterials {
   body: THREE.ShaderMaterial;
   outline: THREE.ShaderMaterial;
   depth: THREE.ShaderMaterial;
   glass: THREE.ShaderMaterial;
+  glassBody: THREE.ShaderMaterial;
+  glassSurface: THREE.ShaderMaterial;
 }
+
+/** What glass needs to know about the picture behind it; the stage fills these in each frame. */
+export const glassUniforms = {
+  tSceneColor: { value: null as THREE.Texture | null },
+  tSceneDepth: { value: null as THREE.Texture | null },
+  uSceneSize: { value: new THREE.Vector2(1, 1) },
+  uNearFar: { value: new THREE.Vector2(0.5, 120) },
+  uViewProjection: { value: new THREE.Matrix4() },
+  uDispersion: { value: 0 },
+  /** Distance in focus and how quickly focus falls off. */
+  uFocus: { value: new THREE.Vector2(10, 3) },
+  uBlurPx: { value: 0 },
+};
 
 let shared: ToyMaterials | null = null;
 
@@ -267,6 +414,30 @@ export function toyMaterials(): ToyMaterials {
       blendSrc: THREE.OneFactor,
       blendDst: THREE.OneMinusSrcAlphaFactor,
       // The destination alpha holds the reflection mask and must survive.
+      blendSrcAlpha: THREE.ZeroFactor,
+      blendDstAlpha: THREE.OneFactor,
+    }),
+    glassBody: new THREE.ShaderMaterial({
+      name: 'toy-glass-body',
+      vertexShader: glassVertex,
+      fragmentShader: glassBodyFragment,
+      uniforms: { ...globals, ...glassUniforms },
+      vertexColors: true,
+      blending: THREE.NoBlending,
+    }),
+    glassSurface: new THREE.ShaderMaterial({
+      name: 'toy-glass-surface',
+      vertexShader: glassVertex,
+      fragmentShader: glassSurfaceFragment,
+      uniforms: { ...globals, ...glassUniforms },
+      vertexColors: true,
+      transparent: true,
+      depthTest: false,
+      depthWrite: false,
+      blending: THREE.CustomBlending,
+      blendEquation: THREE.AddEquation,
+      blendSrc: THREE.OneFactor,
+      blendDst: THREE.OneFactor,
       blendSrcAlpha: THREE.ZeroFactor,
       blendDstAlpha: THREE.OneFactor,
     }),

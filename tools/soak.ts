@@ -1,16 +1,21 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { argValue, startHarness } from './lib/harness.ts';
-import { qa } from './shot-presets.ts';
+import { STAGES } from '../src/content/stages.ts';
+import { argValue, hasFlag, startHarness } from './lib/harness.ts';
+import { qa, totalAt } from './shot-presets.ts';
 
 /**
  * Real-time stress run: a simulated player keeps playing while memory is sampled after forced GC.
- * Usage: node tools/soak.ts [--minutes=120] [--size=1920x1080]
+ * Usage: node tools/soak.ts [--minutes=120] [--size=1920x1080] [--stage=4] [--hold]
  * Scene changes legitimately load new assets, so growth is judged inside each scene.
+ * --stage starts in a later scene; --hold keeps the run there, however long it lasts.
  */
 const minutes = Number(argValue('minutes') ?? 120);
 const [width, height] = (argValue('size') ?? '1920x1080').split('x').map(Number);
+const startStage = Number(argValue('stage') ?? 0);
+const hold = hasFlag('hold');
 const outDir = join('artifacts', 'soak');
+const reportName = argValue('stage') ? `stage-${startStage}.json` : 'report.json';
 mkdirSync(outDir, { recursive: true });
 
 interface Sample {
@@ -56,7 +61,7 @@ const analyse = (): { stage: number; minutes: number; heapStart: number; heapEnd
 };
 
 const write = (): void => {
-  writeFileSync(join(outDir, 'report.json'), JSON.stringify({ minutes, size: `${width}x${height}`, perStage: analyse(), errors, samples }, null, 1));
+  writeFileSync(join(outDir, reportName), JSON.stringify({ minutes, startStage, hold, size: `${width}x${height}`, perStage: analyse(), errors, samples }, null, 1));
 };
 
 try {
@@ -67,11 +72,20 @@ try {
   });
   await qa(
     page,
-    (api) => {
+    (api, value: { stage: number; total: number; ceiling: number; hold: boolean }) => {
+      if (value.stage > 0) api.set({ stage: value.stage, totalEarned: value.total, popcorn: value.total });
+      if (value.hold) {
+        api.game.onFrame(() => {
+          // Spending money stays possible, but production must not outgrow the scene.
+          const state = api.game.sim.state;
+          state.totalEarned = Math.min(state.totalEarned, value.ceiling);
+          state.popcorn = Math.min(state.popcorn, value.ceiling * 0.1);
+        });
+      }
       api.startBot(0);
       api.driveBot();
     },
-    null,
+    { stage: startStage, total: totalAt(startStage, 0.1), ceiling: STAGES[startStage]!.threshold * 0.6, hold },
   );
   const started = Date.now();
   for (let minute = 1; minute <= minutes; minute += 1) {

@@ -37,6 +37,10 @@ export interface Paint {
   fixedColor?: boolean;
   /** Goes into the see-through pass instead of the solid body. */
   glass?: boolean;
+  /** Glass only: how thick it is, in model units. Miniature glass is thick for its size. */
+  thickness?: number;
+  /** Glass only: 0 is a flat pane, 1 a curved piece that bends everything behind it like a lens. */
+  lens?: number;
   /** Skipped when the quality level is below this. */
   detail?: number;
   /** Baked occlusion; a function receives the transformed vertex. */
@@ -72,7 +76,8 @@ export class Kit {
     }
     if (paint.glass) {
       this.glass ??= new Kit();
-      this.glass.add(geometry, { ...paint, glass: false });
+      // Glass has no paint to speak of, so these two channels carry its optics instead.
+      this.glass.add(geometry, { ...paint, glass: false, gloss: paint.thickness ?? 0.05, metal: paint.lens ?? 0 });
       return this;
     }
     const pos = geometry.getAttribute('position');
@@ -245,12 +250,25 @@ export function addToy(
   if (options.outline !== false) group.add(new THREE.Mesh(geometry, materials.outline));
   const glass = geometry.userData.glass as THREE.BufferGeometry | undefined;
   if (glass) {
-    const pane = new THREE.Mesh(glass, materials.glass);
-    pane.renderOrder = 2;
-    group.add(pane);
+    addGlassPiece(stage, group, (material) => new THREE.Mesh(glass, material));
   }
   parent.add(group);
   return group;
+}
+
+/** Glass exists in a simple form and a refracting one; the stage shows whichever applies. */
+function addGlassPiece<T extends THREE.Mesh>(stage: Stage, parent: THREE.Object3D, make: (material: THREE.Material) => T): T[] {
+  const materials = toyMaterials();
+  const simple = make(materials.glass);
+  const body = make(materials.glassBody);
+  const surface = make(materials.glassSurface);
+  simple.renderOrder = 2;
+  surface.renderOrder = 2;
+  body.visible = false;
+  surface.visible = false;
+  stage.addGlass({ simple, body, surface });
+  parent.add(simple, body, surface);
+  return [simple, body, surface];
 }
 
 export interface ToyInstances {
@@ -283,15 +301,15 @@ export function addToyInstances(
   if (castShadow) stage.shadow.add(body, materials.depth);
   parent.add(body, ink);
   const glassGeometry = geometry.userData.glass as THREE.BufferGeometry | undefined;
-  let glass: THREE.InstancedMesh | null = null;
-  if (glassGeometry) {
-    glass = new THREE.InstancedMesh(glassGeometry, materials.glass, capacity);
-    glass.instanceMatrix = body.instanceMatrix;
-    glass.frustumCulled = false;
-    glass.count = 0;
-    glass.renderOrder = 2;
-    parent.add(glass);
-  }
+  const glass = glassGeometry
+    ? addGlassPiece(stage, parent, (material) => {
+        const mesh = new THREE.InstancedMesh(glassGeometry, material, capacity);
+        mesh.instanceMatrix = body.instanceMatrix;
+        mesh.frustumCulled = false;
+        mesh.count = 0;
+        return mesh;
+      })
+    : [];
   return {
     body,
     ink,
@@ -299,7 +317,7 @@ export function addToyInstances(
     commit(count) {
       body.count = count;
       ink.count = count;
-      if (glass) glass.count = count;
+      for (const mesh of glass) mesh.count = count;
       body.instanceMatrix.needsUpdate = true;
     },
   };

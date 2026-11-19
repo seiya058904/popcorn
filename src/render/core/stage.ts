@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { setKitDetail } from '../geometry/kit.ts';
-import { globals } from './globals.ts';
+import { glassUniforms } from '../materials/toy.ts';
+import { GLASS_LAYER, globals } from './globals.ts';
 import { PostPipeline } from './pipeline.ts';
 import { QUALITY, type QualitySettings, type QualityTier } from './quality.ts';
 import { ShadowPass } from './shadow.ts';
@@ -10,6 +11,15 @@ export interface StageOptions {
   /** Keeps the drawing buffer readable so captures can screenshot between frames. */
   capture: boolean;
   quality?: QualityTier;
+}
+
+/** One piece of glass, in its simple form and in the two parts of the refracting form. */
+export interface GlassPiece {
+  simple: THREE.Mesh;
+  body: THREE.Mesh;
+  surface: THREE.Mesh;
+  /** Part of a scene seen from far away, where refraction would cost draws and show nothing. */
+  distant?: boolean;
 }
 
 export interface FrameStats {
@@ -34,6 +44,7 @@ export class Stage {
   private appliedShift = Number.NaN;
   /** Same pixel format as the scene target, so warmed-up shaders are the ones really used. */
   private readonly preloadTarget = new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType });
+  private readonly glass: GlassPiece[] = [];
 
   constructor(options: StageOptions) {
     this.canvas = options.canvas;
@@ -51,6 +62,7 @@ export class Stage {
     this.renderer.info.autoReset = false;
     this.renderer.autoClear = true;
     this.renderer.setClearColor('#120a12', 1);
+    this.camera.layers.enable(GLASS_LAYER);
     this.post = new PostPipeline(this.renderer, this.quality);
     this.shadow.setSize(this.quality.shadowSize);
     this.resize();
@@ -101,12 +113,81 @@ export class Stage {
     this.renderer.info.reset();
     this.camera.updateMatrixWorld();
     this.shadow.render(this.renderer, this.scene);
-    this.renderer.setRenderTarget(this.post.sceneTarget);
-    this.renderer.clear(true, true, false);
-    this.renderer.render(this.scene, this.camera);
+    this.renderScene();
     this.post.finish(this.camera, time, this.outputWidth, this.outputHeight);
     this.stats.drawCalls = this.renderer.info.render.calls;
     this.stats.triangles = this.renderer.info.render.triangles;
+  }
+
+  addGlass(piece: GlassPiece): void {
+    piece.body.layers.set(GLASS_LAYER);
+    piece.surface.layers.set(GLASS_LAYER);
+    this.glass.push(piece);
+  }
+
+  /** Everything under `root` has become scenery in the distance. */
+  setGlassDistant(root: THREE.Object3D): void {
+    for (const piece of this.glass) {
+      let node: THREE.Object3D | null = piece.simple;
+      while (node && node !== root) node = node.parent;
+      if (node === root) piece.distant = true;
+    }
+  }
+
+  private glassInView(): boolean {
+    for (const { simple, distant } of this.glass) {
+      if (distant) continue;
+      if ((simple as THREE.InstancedMesh).isInstancedMesh && (simple as THREE.InstancedMesh).count === 0) continue;
+      let node: THREE.Object3D | null = simple.parent;
+      while (node && node.visible && node !== this.scene) node = node.parent;
+      if (node === this.scene) return true;
+    }
+    return false;
+  }
+
+  private showGlass(simple: boolean, refracting: boolean): void {
+    for (const piece of this.glass) {
+      piece.simple.visible = simple || piece.distant === true;
+      piece.body.visible = refracting && piece.distant !== true;
+      piece.surface.visible = refracting && piece.distant !== true;
+    }
+  }
+
+  /**
+   * With refraction on, the picture is drawn in two steps. Everything but glass goes first and
+   * is resolved into the scene texture; glass then reads that texture while drawing into the
+   * multisampled buffer, which is a separate surface and keeps its depth from the first step.
+   * Glass depth stays out of the resolved depth, so the later effects still see the real scene.
+   */
+  private renderScene(): void {
+    const { renderer, camera, scene } = this;
+    const target = this.post.sceneTarget;
+    renderer.setRenderTarget(target);
+    renderer.clear(true, true, false);
+    const refract = this.quality.refraction && target.samples > 0 && this.glassInView();
+    this.showGlass(!refract, refract);
+    if (!refract) {
+      renderer.render(scene, camera);
+      return;
+    }
+    camera.layers.set(0);
+    renderer.render(scene, camera);
+    glassUniforms.tSceneColor.value = target.texture;
+    glassUniforms.tSceneDepth.value = target.depthTexture;
+    glassUniforms.uSceneSize.value.set(target.width, target.height);
+    glassUniforms.uNearFar.value.set(camera.near, camera.far);
+    glassUniforms.uViewProjection.value.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    glassUniforms.uDispersion.value = this.quality.dispersion ? 1 : 0;
+    const post = this.post.params;
+    glassUniforms.uFocus.value.set(post.focusDistance, post.focusRange);
+    glassUniforms.uBlurPx.value = this.quality.depthOfField ? post.maxBlurPx * (target.height / 1080) : 0;
+    camera.layers.set(GLASS_LAYER);
+    renderer.autoClear = false;
+    target.resolveDepthBuffer = false;
+    renderer.render(scene, camera);
+    target.resolveDepthBuffer = true;
+    renderer.autoClear = true;
+    camera.layers.enable(0);
   }
 
   /**
@@ -122,6 +203,8 @@ export class Stage {
       }
     });
     this.camera.updateMatrixWorld();
+    // Every form of the glass gets compiled, whichever one this machine ends up using.
+    this.showGlass(true, true);
     this.shadow.render(this.renderer, root);
     this.renderer.setRenderTarget(this.preloadTarget);
     this.renderer.render(root, this.camera);

@@ -17,13 +17,27 @@ export interface UnitHost {
   smoke(x: number, y: number, z: number, size: number): void;
   caramel(x: number, y: number, z: number, size: number): void;
   ember(x: number, y: number, z: number, size: number): void;
+  /** A ring of dust thrown out along the ground. */
+  dust(x: number, y: number, z: number, size: number): void;
+  sparkle(x: number, y: number, z: number, size: number): void;
+  /** Something heavy landed: the camera feels it. */
+  thump(): void;
   onCannonFired(): void;
   /** A machine's own working noise; the world keeps these from piling up. */
   sound(name: string): void;
+  /** True when the player asked for reduced motion. */
+  readonly calm: boolean;
 }
 
 export interface UnitState {
+  /** Seconds since this machine started arriving; negative while it waits its turn. */
   age: number;
+  /** Progress through the entrance, 1 once it is finished. */
+  enter: number;
+  /** How many of the entrance's timed events have happened. */
+  beat: number;
+  /** How far from its spot the entrance has it, along its own length. */
+  enterX: number;
   /** Seconds until the next work cycle fires, out of `period`. */
   timer: number;
   period: number;
@@ -60,7 +74,6 @@ export interface UnitDef {
   interval: [number, number];
   tints?: string[];
   muzzle: [number, number, number];
-  dropHeight: number;
   signs?: MachineSign[];
   pose(st: UnitState, time: number, index: number, tier: number, base: THREE.Matrix4, put: PutPart): void;
   fire?(st: UnitState, host: UnitHost, x: number, y: number, z: number, scale: number): void;
@@ -120,8 +133,8 @@ export const M = {
   brick: { color: '#bd5f43', gloss: 0.12, pattern: Pattern.Brick, fixedColor: true },
   concrete: { color: '#b7ad9f', gloss: 0.1, pattern: Pattern.Plaster, fixedColor: true },
   windowPane: { color: '#2b3d58', gloss: 0.95, coat: 0.9, metal: 0.25, outline: 0, fixedColor: true },
-  glass: { color: '#c6ecf6', glass: true },
-  glassWarm: { color: '#ffe3b4', glass: true },
+  glass: { color: '#c6ecf6', glass: true, thickness: 0.07 },
+  glassWarm: { color: '#ffe3b4', glass: true, thickness: 0.07 },
   popcorn: { color: '#fff4d8', gloss: 0.1, emissive: 0.42, outline: 0.2, fixedColor: true },
   bulb: { color: '#fff0c2', emissive: 1, outline: 0, fixedColor: true },
   glow: { color: '#ffd691', emissive: 0.75, outline: 0, fixedColor: true },

@@ -1,8 +1,9 @@
 import * as THREE from 'three';
-import { easeOutCubic, Spring } from '../motion/ease.ts';
+import { Spring } from '../motion/ease.ts';
 import type { Stage } from './core/stage.ts';
 import { addToyInstances, type ToyInstances } from './geometry/kit.ts';
 import { HIDDEN, type UnitDef, type UnitHost, type UnitState } from './machines/common.ts';
+import { CALM_ENTRANCE, ENTRANCES, type Entrance, type EntrancePose, type EntranceSpot } from './machines/entrances.ts';
 import { HOME_MACHINES } from './machines/home.ts';
 import { SKY_MACHINES } from './machines/sky.ts';
 import { TOWN_MACHINES } from './machines/town.ts';
@@ -16,10 +17,16 @@ export const UNIT_DEFS: Record<UnitKindName, UnitDef> = { ...HOME_MACHINES, ...T
 
 const pos = new THREE.Vector3();
 const quat = new THREE.Quaternion();
+const turn = new THREE.Quaternion();
 const euler = new THREE.Euler();
 const scale = new THREE.Vector3();
 /** A machine goes under once the heap reaches this share of its height. */
 const BURY_AT = 0.6;
+/** When several are bought at once they arrive one after another. */
+const ARRIVAL_STAGGER = 0.05;
+
+const frame: EntrancePose = { x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0, sx: 1, sy: 1, sz: 1 };
+const spot: EntranceSpot = { x: 0, y: 0, z: 0, mx: 0, my: 0, mz: 0, s: 1 };
 
 interface SignInstances {
   mesh: THREE.InstancedMesh;
@@ -29,6 +36,7 @@ interface SignInstances {
 /** All visible copies of one unit type in one scene. */
 export class UnitRig {
   private readonly def: UnitDef;
+  private readonly entrance: Entrance;
   private readonly slots: UnitSlot[];
   private readonly host: UnitHost;
   private readonly parts: ToyInstances[];
@@ -43,6 +51,7 @@ export class UnitRig {
 
   constructor(stage: Stage, parent: THREE.Object3D, kind: UnitKindName, slots: UnitSlot[], host: UnitHost) {
     this.def = UNIT_DEFS[kind];
+    this.entrance = ENTRANCES[kind];
     this.slots = slots;
     this.host = host;
     const shadowParts = this.def.shadowParts ?? this.def.parts.length;
@@ -98,7 +107,11 @@ export class UnitRig {
       if (st.sunk >= 1) return;
       const slot = this.slots[index]!;
       const s = slot.scale ?? 1;
-      out.push(new THREE.Vector3(slot.x, slot.y + this.height * s, slot.z), new THREE.Vector3(slot.x, slot.y + this.lowest * s, slot.z));
+      const reach = this.reach * s;
+      // Its full width counts too, or a machine at the edge of the picture gets cut in half.
+      for (const [dx, dz] of [[reach, 0], [-reach, 0], [0, reach], [0, -reach]] as const) {
+        out.push(new THREE.Vector3(slot.x + dx, slot.y + this.height * s, slot.z + dz), new THREE.Vector3(slot.x + dx, slot.y + this.lowest * s, slot.z + dz));
+      }
     });
   }
 
@@ -126,7 +139,14 @@ export class UnitRig {
   dropIn(startDelay: number): void {
     this.states.forEach((st, index) => {
       st.age = -startDelay - index * 0.07;
+      st.enter = 0;
+      st.beat = 0;
     });
+  }
+
+  /** Nobody can read a machine's sign once its whole scene is shrinking away. */
+  hideSigns(): void {
+    for (const sign of this.signs) sign.mesh.visible = false;
   }
 
   /** Leaves one copy on show, so it can be inspected without its neighbors in the way. */
@@ -143,10 +163,14 @@ export class UnitRig {
   sync(owned: number, animate: boolean, delay = 0): void {
     const count = Math.min(owned, this.slots.length);
     this.tier = owned >= 100 ? 3 : owned >= 50 ? 2 : owned >= 25 ? 1 : 0;
+    let queued = 0;
     while (this.states.length < count) {
       const period = this.def.interval[1];
       this.states.push({
-        age: animate ? -delay : 10,
+        age: animate ? -delay - queued * ARRIVAL_STAGGER : 10,
+        enter: animate ? 0 : 1,
+        beat: animate ? 0 : Number.POSITIVE_INFINITY,
+        enterX: 0,
         timer: this.host.rng.range(0.3, period),
         period,
         hop: new Spring(0, 260, 11),
@@ -156,6 +180,7 @@ export class UnitRig {
         lidSpin: 0,
         sunk: -1,
       });
+      queued += 1;
     }
     this.states.length = Math.min(this.states.length, count);
   }
@@ -168,6 +193,7 @@ export class UnitRig {
       this.cursors[part]! += 1;
     };
     const speed = 1 + this.tier * 0.35;
+    const entrance = this.host.calm ? CALM_ENTRANCE : this.entrance;
     this.states.forEach((st, index) => {
       st.age += dt;
       const slot = this.slots[index]!;
@@ -189,7 +215,8 @@ export class UnitRig {
       st.timer -= dt * tempo * speed;
       st.spin += dt * (2.2 + tempo) * speed;
       const rotation = slot.rotation ?? 0;
-      if (st.timer <= 0 && st.age > 0.7) {
+      st.enter = Math.min(1, st.age / entrance.seconds);
+      if (st.timer <= 0 && st.enter >= 1) {
         st.period = this.host.rng.range(def.interval[0], def.interval[1]);
         st.timer = st.period;
         st.shake = 1;
@@ -207,19 +234,38 @@ export class UnitRig {
       st.shake = Math.max(0, st.shake - dt * 3.2);
       st.kick = Math.max(0, st.kick - dt * 1.55);
       const hop = st.hop.update(dt);
-      const drop = 1 - easeOutCubic(st.age / 0.42);
-      const landing = st.age < 0.75 ? Math.exp(-(st.age - 0.42) * 12) * Math.sin(Math.max(0, st.age - 0.42) * 38) * 0.2 : 0;
+      frame.x = frame.y = frame.z = frame.rx = frame.ry = frame.rz = 0;
+      frame.sx = frame.sy = frame.sz = 1;
+      if (st.enter < 1) entrance.pose(st.age, frame, index);
+      st.enterX = frame.x;
+      const c = Math.cos(rotation);
+      const sn = Math.sin(rotation);
+      if (st.beat < entrance.beats.length) {
+        const [mx, my, mz] = def.muzzle;
+        spot.x = slot.x;
+        spot.y = slot.y;
+        spot.z = slot.z;
+        spot.mx = slot.x + (mx * c + mz * sn) * s;
+        spot.my = slot.y + my * s;
+        spot.mz = slot.z + (-mx * sn + mz * c) * s;
+        spot.s = s;
+        while (st.beat < entrance.beats.length && st.age >= entrance.beats[st.beat]!.at) {
+          entrance.beats[st.beat]!.run(this.host, spot, st);
+          st.beat += 1;
+        }
+      }
       const jitter = st.shake * 0.018 * s;
       pos.set(
-        slot.x + Math.sin(time * 61 + index) * jitter,
-        slot.y + (drop * drop * def.dropHeight + Math.max(0, hop) * 0.06) * s - st.sunk * st.sunk * height * 0.85,
-        slot.z + Math.cos(time * 53 + index) * jitter,
+        slot.x + (frame.x * c + frame.z * sn) * s + Math.sin(time * 61 + index) * jitter,
+        slot.y + (frame.y + Math.max(0, hop) * 0.06) * s - st.sunk * st.sunk * height * 0.85,
+        slot.z + (-frame.x * sn + frame.z * c) * s + Math.cos(time * 53 + index) * jitter,
       );
-      const squash = 1 + landing - hop * 0.05;
-      euler.set(0, rotation, 0);
-      quat.setFromEuler(euler);
+      const squash = 1 - hop * 0.05;
+      quat.setFromEuler(euler.set(0, rotation, 0));
+      quat.multiply(turn.setFromEuler(euler.set(frame.rx, frame.ry, frame.rz)));
       const shrink = s * (1 - st.sunk * 0.3);
-      scale.set(shrink * (1 + (1 - squash) * 0.5), shrink * squash, shrink * (1 + (1 - squash) * 0.5));
+      const wide = shrink * (1 + (1 - squash) * 0.5);
+      scale.set(wide * frame.sx, shrink * squash * frame.sy, wide * frame.sz);
       this.base.compose(pos, quat, scale);
       def.pose(st, time, index, this.tier, this.base, put);
     });

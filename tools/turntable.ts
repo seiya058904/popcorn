@@ -6,7 +6,7 @@ import { qa, totalAt } from './shot-presets.ts';
 
 /**
  * Close-up review of every machine: one copy, four sides, on a sheet per machine.
- * Usage: node tools/turntable.ts [--only=pan,cart] [--owned=26]
+ * Usage: node tools/turntable.ts [--only=pan,cart] [--owned=26] [--size=800x600]
  * --owned sets how many are bought, which decides the milestone trim on show.
  */
 const MACHINES = [
@@ -24,6 +24,7 @@ const MACHINES = [
 
 const only = argValue('only')?.split(',');
 const owned = Number(argValue('owned') ?? 26);
+const [width, height] = (argValue('size') ?? '800x600').split('x').map(Number);
 const outDir = join('artifacts', 'turntable');
 mkdirSync(outDir, { recursive: true });
 
@@ -31,7 +32,7 @@ const harness = await startHarness();
 try {
   for (const [kind, unit, stage] of MACHINES) {
     if (only && !only.includes(kind)) continue;
-    const page = await harness.open('capture=1', { width: 800, height: 600 });
+    const page = await harness.open('capture=1', { width: width!, height: height! });
     await page.addStyleTag({ content: 'body > *:not(canvas), #ui { visibility: hidden !important; } canvas { visibility: visible !important; }' });
     await qa(
       page,
@@ -40,7 +41,7 @@ try {
         api.advance(0.2);
         api.buy(value.unit, value.owned);
         api.set({ popcorn: 0 });
-        api.advance(1.6);
+        api.advance(3.6);
       },
       { stage, unit, owned, total: totalAt(stage, 0.02) },
     );

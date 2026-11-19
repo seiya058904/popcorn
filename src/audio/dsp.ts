@@ -1,4 +1,5 @@
 import { Rng } from '../motion/rng.ts';
+import type { AcousticSpace } from './mix.ts';
 
 export const SAMPLE_RATE = 44100;
 
@@ -157,6 +158,30 @@ export function synthPop(variation: number, sampleRate = SAMPLE_RATE): Float32Ar
   const tail = Math.floor(0.012 * sampleRate);
   for (let i = 0; i < tail; i += 1) out[out.length - 1 - i]! *= i / tail;
   return normalizePeak(out, 0.82);
+}
+
+/**
+ * Impulse response of a room: a few distinct echoes, then a noise tail that darkens as it fades.
+ * Each channel gets its own seed, which is what makes the room feel wide.
+ */
+export function synthSpace(space: AcousticSpace, channel: number, sampleRate: number): Float32Array {
+  const out = new Float32Array(Math.ceil((space.preDelay + space.decay) * sampleRate));
+  const rng = new Rng(7000 + channel * 13 + Math.round(space.decay * 100));
+  const tau = space.decay / 6.91;
+  const start = Math.floor(space.preDelay * sampleRate);
+  let low = 0;
+  for (let i = start; i < out.length; i += 1) {
+    const t = (i - start) / sampleRate;
+    const cutoff = space.darkHz + (space.brightHz - space.darkHz) * Math.exp(-t / (tau * 0.7));
+    low += (1 - Math.exp((-2 * Math.PI * cutoff) / sampleRate)) * (rng.next() * 2 - 1 - low);
+    out[i] = low * Math.exp(-t / tau) * Math.min(1, t / 0.004);
+  }
+  space.echoes.forEach(([delay, level], index) => {
+    // The two ears hear each reflection at slightly different moments.
+    const at = Math.floor((delay * (channel === 0 ? 1 : 1.07) + index * 0.0003) * sampleRate);
+    for (let i = 0; i < 24 && at + i < out.length; i += 1) out[at + i]! += level * Math.exp(-i / 6) * (i % 2 === 0 ? 1 : -0.6);
+  });
+  return normalizePeak(out, 0.8);
 }
 
 /** Softer, duller crackle for machines. */

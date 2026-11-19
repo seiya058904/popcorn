@@ -5,7 +5,7 @@ import { at, Kit, M, P, paint, Pattern, rod, V } from '../machines/common.ts';
 /** Set dressing: the small things that make each place feel lived in. */
 
 function jar(kit: Kit, x: number, y: number, z: number, r: number, h: number, fill: string, lid = M.brass): void {
-  kit.add(P.lathe([[r, 0], [r, h * 0.82], [r * 0.72, h * 0.95], [r * 0.72, h]], 18, 0.03, 2), { ...M.glass, matrix: at(x, y, z) });
+  kit.add(P.lathe([[r, 0], [r, h * 0.82], [r * 0.72, h * 0.95], [r * 0.72, h]], 18, 0.03, 2), { ...M.glass, lens: 0.5, thickness: 0.04, matrix: at(x, y, z) });
   kit.add(P.puck(r * 0.92, r * 0.92, h * 0.62, 16, 0.02), { color: fill, gloss: 0.2, emissive: 0.08, outline: 0, fixedColor: true, matrix: at(x, y + 0.01, z) });
   kit.add(P.puck(r * 0.8, r * 0.8, h * 0.12, 16, 0.012), { ...lid, matrix: at(x, y + h, z) });
 }

@@ -38,7 +38,45 @@ const warmedUp = async (page: Page, amount: number): Promise<void> => {
 const click = (page: Page, x: number, y: number): Promise<void> =>
   qa(page, (api, value: { x: number; y: number }) => api.click(value.x, value.y), { x, y });
 
+/** Scene and shop position of every machine, for watching each one arrive. */
+const MACHINE_HOMES: Array<[string, number, number]> = [
+  ['pan', 0, 0],
+  ['microwave', 1, 0],
+  ['cart', 2, 1],
+  ['cannon', 3, 1],
+  ['cinema', 4, 2],
+  ['truck', 5, 2],
+  ['factory', 6, 3],
+  ['airship', 7, 3],
+  ['volcano', 8, 4],
+  ['orbital', 9, 4],
+];
+
+const arrivals = Object.fromEntries(
+  MACHINE_HOMES.map(([kind, unit, stage]): [string, FilmScenario] => [
+    `arrive-${kind}`,
+    {
+      clip: { x: 0, y: 0, width: 1280, height: 720 },
+      frames: 24,
+      columns: 6,
+      setup: async (page) => {
+        await qa(
+          page,
+          (api, value: { stage: number; total: number; unit: number }) => {
+            api.set({ stage: value.stage, totalEarned: value.total, popcorn: 1e24 });
+            api.advance(1.5);
+            api.buy(value.unit);
+          },
+          { stage, total: totalAt(stage, 0.02), unit },
+        );
+      },
+      step: (page) => advance(page, FRAME * 6),
+    },
+  ]),
+);
+
 export const filmScenarios: Record<string, FilmScenario> = {
+  ...arrivals,
   /** Every frame of one pop, from press to the flake settling into the heap. */
   click: {
     clip: POT_CLIP,

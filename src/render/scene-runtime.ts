@@ -28,6 +28,9 @@ const MACHINE_LAUNCHES_PER_SECOND = 7;
 
 /** Two of the same machine noise never overlap closer than this. */
 const SOUND_GAP = 0.45;
+/** Landings closer together than this count as one, as far as the camera is concerned. */
+const THUMP_GAP = 0.4;
+const dustColor = new THREE.Color('#c9b8a2');
 const sparkleColor = new THREE.Color(2.4, 2, 1.1);
 const comboColor = new THREE.Color(2, 1.5, 0.7);
 const flashColor = new THREE.Color(2.4, 1.8, 1);
@@ -41,6 +44,7 @@ export interface RuntimeHooks {
   onSquash(): void;
   onMachineCannon(): void;
   onMachineSound(name: string): void;
+  onMachineThump(): void;
 }
 
 /** Everything alive in one scene. Once outgrown it stays on as a static prop in the next one. */
@@ -62,8 +66,11 @@ export class SceneRuntime {
   private readonly parcel: Parcel | null = null;
   private readonly soundClock = new Map<string, number>();
   private clock = 0;
+  private lastThump = -9;
   /** While the camera is right up against a machine, nothing should fly into the lens. */
   holdLaunches = false;
+  /** The player asked for reduced motion, so machines arrive without any flourish. */
+  calmEntrances = false;
   private readonly rigs = new Map<UnitKindName, UnitRig>();
   private readonly rng: Rng;
   private launchBudget = 0;
@@ -114,8 +121,12 @@ export class SceneRuntime {
     this.parcel = new Parcel(stage, this.root, k);
     if (spec.cannon) this.heroCannon = new HeroCannon(stage, this.root, spec.cannon, this.sprites, this.director, rng);
 
+    const runtime = this;
     const host: UnitHost = {
       rng,
+      get calm() {
+        return runtime.calmEntrances;
+      },
       launch: (x, y, z) => {
         if (this.launchBudget < 1 || this.holdLaunches) return;
         this.launchBudget -= 1;
@@ -135,6 +146,25 @@ export class SceneRuntime {
         for (let i = 0; i < 5; i += 1) {
           this.sprites.spawn({ x, y, z, vx: rng.range(-1, 1) * size, vy: rng.range(1.6, 3.6) * size, vz: rng.range(-1, 1) * size, gravity: 4 * size, sizeStart: 0.1 * size, sizeEnd: 0.02 * size, life: rng.range(0.5, 0.9), color: emberColor, alpha: 1, additive: 1, kind: SpriteKind.Drop });
         }
+      },
+      dust: (x, y, z, size) => {
+        for (let i = 0; i < 9; i += 1) {
+          const a = (i / 9) * 6.28 + rng.range(-0.25, 0.25);
+          const speed = rng.range(1.5, 2.6) * size;
+          this.sprites.spawn({ x, y: y + 0.05 * size, z, vx: Math.cos(a) * speed, vy: rng.range(0.05, 0.3) * size, vz: Math.sin(a) * speed, drag: 3.2, sizeStart: 0.22 * size, sizeEnd: rng.range(0.55, 0.85) * size, life: rng.range(0.45, 0.75), color: dustColor, alpha: 0.34, kind: SpriteKind.Puff, spin: rng.range(-1, 1) });
+        }
+      },
+      sparkle: (x, y, z, size) => {
+        this.sprites.spawn({ x, y, z, sizeStart: 0.3 * size, sizeEnd: 1.8 * size, life: 0.5, color: sparkleColor, alpha: 0.75, additive: 1, kind: SpriteKind.Ring });
+        for (let i = 0; i < 7; i += 1) {
+          const a = rng.range(0, 6.28);
+          this.sprites.spawn({ x, y, z, vx: Math.cos(a) * 1.8 * size, vy: rng.range(0.8, 2.6) * size, vz: Math.sin(a) * 1.8 * size, gravity: 3.5 * size, sizeStart: 0.24 * size, sizeEnd: 0.03 * size, life: rng.range(0.45, 0.8), color: sparkleColor, alpha: 1, additive: 1, kind: SpriteKind.Star, spin: rng.range(-4, 4) });
+        }
+      },
+      thump: () => {
+        if (this.clock - this.lastThump < THUMP_GAP) return;
+        this.lastThump = this.clock;
+        hooks.onMachineThump();
       },
       onCannonFired: () => {
         this.flock?.scare();
@@ -322,8 +352,10 @@ export class SceneRuntime {
 
   /** As the camera pulls away, this scene stops casting shadows: they would be too small to see. */
   beginShrinking(stage: Stage): void {
+    stage.setGlassDistant(this.root);
     stage.shadow.removeTree(this.root);
     this.dropOutlines();
+    for (const rig of this.rigs.values()) rig.hideSigns();
     this.flock?.setHidden(true);
   }
 
@@ -342,6 +374,7 @@ export class SceneRuntime {
   /** Called once this scene has been outgrown and shrinks into a prop in the next one. */
   retire(stage: Stage): void {
     this.live = false;
+    stage.setGlassDistant(this.root);
     stage.shadow.removeTree(this.root);
     this.dropOutlines();
     this.pile.setSurfaceVisible(false);

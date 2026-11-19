@@ -5,10 +5,15 @@ import { MUSIC_HOME, MUSIC_WORLD, renderMusic } from './music.ts';
 const TAU = Math.PI * 2;
 
 /** Scatters short grains across a buffer; the density is what separates each production layer. */
-function grainBed(lengthSeconds: number, grainsPerSecond: number, seed: number, grainGain: () => number): Float32Array {
+function grainBed(
+  lengthSeconds: number,
+  grainsPerSecond: number,
+  seed: number,
+  grainGain: () => number,
+  grains: Float32Array[] = Array.from({ length: 6 }, (_, i) => synthCrackle(i + 20)),
+): Float32Array {
   const rng = new Rng(seed);
   const out = seconds(lengthSeconds + 0.5);
-  const grains = Array.from({ length: 6 }, (_, i) => synthCrackle(i + 20));
   const count = Math.floor(grainsPerSecond * lengthSeconds);
   for (let n = 0; n < count; n += 1) {
     const grain = grains[rng.int(0, grains.length)]!;
@@ -68,8 +73,55 @@ function boom(duration: number, startHz: number, endHz: number, decay: number, s
   return out;
 }
 
+/** Plays a sound slower and lower, the way a bigger object would make it. */
+function stretched(source: Float32Array, factor: number): Float32Array {
+  const out = new Float32Array(Math.floor(source.length * factor));
+  for (let i = 0; i < out.length; i += 1) {
+    const position = i / factor;
+    const index = Math.floor(position);
+    const next = source[Math.min(index + 1, source.length - 1)]!;
+    out[i] = source[index]! + (next - source[index]!) * (position - index);
+  }
+  return out;
+}
+
+/** Struck metal: unrelated partials, the high ones dying first. */
+const struck = (frequencies: number[], decay: number, level = 1) => (t: number): number => {
+  let sum = 0;
+  frequencies.forEach((frequency, index) => {
+    sum += (Math.sin(TAU * frequency * t) * Math.exp(-t / (decay / (1 + index * 0.55)))) / (1 + index * 0.5);
+  });
+  return sum * Math.min(1, t / 0.0015) * level;
+};
+
+/** A dull knock: wood, steel doors and anything else that stops suddenly. */
+function knock(frequency: number, decay: number, seed: number, duration = 0.2): Float32Array {
+  const out = seconds(duration);
+  const rng = new Rng(seed);
+  const band = new Biquad('band', frequency * 2.4, 1.4);
+  for (let i = 0; i < out.length; i += 1) {
+    const t = i / SAMPLE_RATE;
+    const pitch = frequency * (1 + 0.5 * Math.exp(-t / 0.012));
+    out[i] = Math.sin(TAU * pitch * t) * Math.exp(-t / decay) + band.run(rng.next() * 2 - 1) * Math.exp(-t / (decay * 0.3)) * 0.8;
+  }
+  return out;
+}
+
+function hiss(duration: number, seed: number, hz: number, q: number, envelope: (u: number) => number): Float32Array {
+  const band = new Biquad('band', hz, q);
+  return burstNoise(duration, seed, band, (t) => envelope(t / duration));
+}
+
+/** A propeller: a low drone chopped by its blades, for `duration` seconds. */
+const propeller = (duration: number, hz: number, bladeHz: number, slide: number) => (t: number): number => {
+  const u = t / duration;
+  const pitch = hz * (1 + slide * (0.5 - u));
+  const chop = 0.55 + 0.45 * Math.sin(TAU * bladeHz * t * (1 + slide * (0.5 - u)));
+  return (Math.sin(TAU * pitch * t) + 0.5 * Math.sin(TAU * pitch * 2 * t) + 0.22 * Math.sin(TAU * pitch * 3.02 * t)) * chop;
+};
+
 export const SOUND_RECIPES: Record<string, () => Float32Array> = {
-  // Production layers, quietest to loudest.
+  // Production layers, quietest to loudest. `mix.ts` decides how they cross over.
   'layer-crackle': () => normalizeRms(grainBed(7, 16, 301, () => 0.7), 0.05, 0.5),
   'layer-dense': () => normalizeRms(grainBed(6, 110, 302, () => 0.55), 0.075, 0.55),
   'layer-rain': () => {
@@ -80,10 +132,209 @@ export const SOUND_RECIPES: Record<string, () => Float32Array> = {
     for (let i = 0; i < Math.min(bed.length, grains.length); i += 1) bed[i]! += grains[i]! * 0.45;
     return normalizeRms(bed, 0.075, 0.5);
   },
+  // Popcorn by the truckload: the same crackle, but from much bigger pieces.
+  'layer-hail': () => {
+    const heavy = Array.from({ length: 6 }, (_, i) => stretched(synthCrackle(i + 40), 2.3 + i * 0.12));
+    const bed = grainBed(6, 300, 306, () => 0.5, heavy);
+    const body = new Biquad('band', 620, 0.6);
+    const mass = filteredNoise(6, 307, (n) => body.run(n));
+    for (let i = 0; i < Math.min(bed.length, mass.length); i += 1) bed[i]! += mass[i]! * 0.5;
+    return normalizeRms(bed, 0.085, 0.55);
+  },
+  // No single pops left: one continuous mass, breathing like surf.
+  'layer-roar': () => {
+    const length = 8;
+    const rng = new Rng(308);
+    const low = new Biquad('band', 170, 0.7);
+    const mid = new Biquad('band', 430, 0.6);
+    const high = new Biquad('band', 1100, 0.7);
+    const out = seconds(length + 0.5);
+    for (let i = 0; i < out.length; i += 1) {
+      const t = i / SAMPLE_RATE;
+      const n = rng.next() * 2 - 1;
+      out[i] =
+        low.run(n) * 1.6 * (0.72 + 0.28 * Math.sin((TAU * 3 * t) / length)) +
+        mid.run(n) * 1.1 * (0.7 + 0.3 * Math.sin((TAU * 5 * t) / length + 1.3)) +
+        high.run(n) * 0.34 * (0.65 + 0.35 * Math.sin((TAU * 7 * t) / length + 2.4));
+    }
+    return normalizeRms(makeLoop(out, 0.5), 0.1, 0.6);
+  },
   'layer-rumble': () => {
+    const length = 7;
     const low = new Biquad('low', 120, 0.8);
     const lower = new Biquad('low', 60, 0.8);
-    return normalizeRms(filteredNoise(7, 305, (n) => low.run(n) * 0.6 + lower.run(n) * 1.3), 0.1, 0.55);
+    const bed = filteredNoise(length, 305, (n) => low.run(n) * 0.6 + lower.run(n) * 1.3);
+    // Two close bass tones beat slowly against each other, so the ground seems to heave.
+    for (let i = 0; i < bed.length; i += 1) {
+      const t = i / SAMPLE_RATE;
+      bed[i]! += (Math.sin((TAU * 287 * t) / length) + Math.sin((TAU * 304 * t) / length)) * 0.035;
+    }
+    return normalizeRms(bed, 0.11, 0.6);
+  },
+  // The last stretch turns from noise into something like a choir, on the world theme's tonic.
+  'layer-swell': () => {
+    const length = 12;
+    const out = seconds(length);
+    // Whole cycles per loop, so every partial closes on itself.
+    const partials: Array<[number, number, number]> = [
+      [55, 0.9, 1], [82.5, 0.6, 2], [110, 0.75, 3], [165, 0.42, 2], [220, 0.34, 5], [330, 0.2, 3], [440, 0.16, 7], [660, 0.09, 4], [880, 0.06, 5],
+    ];
+    for (let i = 0; i < out.length; i += 1) {
+      const t = i / SAMPLE_RATE;
+      let sum = 0;
+      for (const [hz, level, drift] of partials) {
+        const cycles = Math.round(hz * length);
+        const slow = 0.6 + 0.4 * Math.sin((TAU * drift * t) / length + hz);
+        sum += (Math.sin((TAU * cycles * t) / length) + Math.sin((TAU * (cycles + drift) * t) / length)) * level * slow;
+      }
+      out[i] = sum;
+    }
+    return normalizeRms(out, 0.06, 0.5);
+  },
+
+  // Machines at work, kept short and low so that dozens of them stay a texture.
+  'work-pan': () => {
+    const out = seconds(0.3);
+    [0, 0.05, 0.095, 0.13].forEach((at, i) => mixIn(out, tone(0.09, struck([1760, 3120, 4510], 0.03, 1 - i * 0.18)), at));
+    return fadeEdges(normalizePeak(out, 0.11), 0, 0.03);
+  },
+  'work-cart': () => {
+    const out = seconds(0.34);
+    mixIn(out, tone(0.3, struck([520, 1240, 2230], 0.09)), 0);
+    mixIn(out, hiss(0.2, 110, 2400, 0.8, (u) => Math.sin(u * Math.PI)), 0.05, 0.3);
+    return fadeEdges(normalizePeak(out, 0.13), 0, 0.03);
+  },
+  'work-cinema': () => {
+    const out = seconds(0.55);
+    mixIn(out, knock(240, 0.05, 111), 0, 0.6);
+    const grains = grainBed(0.3, 90, 112, () => 0.6);
+    mixIn(out, grains, 0.04, 0.8);
+    return fadeEdges(normalizePeak(out, 0.14), 0, 0.08);
+  },
+  'work-factory': () => {
+    const out = seconds(0.7);
+    mixIn(out, hiss(0.34, 113, 3400, 0.7, (u) => Math.min(1, u * 14) * (1 - u) ** 2), 0);
+    mixIn(out, knock(92, 0.09, 114, 0.3), 0.02, 0.7);
+    return fadeEdges(normalizePeak(out, 0.15), 0, 0.06);
+  },
+  'work-volcano': () => {
+    const out = boom(0.9, 96, 38, 0.2, 115);
+    return fadeEdges(normalizePeak(out, 0.2), 0, 0.1);
+  },
+  // The drop hatch: a latch, the flutter of the load falling away, the propellers behind it.
+  'airship-drop': () => {
+    const out = seconds(0.95);
+    mixIn(out, knock(330, 0.03, 116, 0.1), 0, 0.8);
+    mixIn(out, knock(210, 0.05, 117, 0.14), 0.07, 0.6);
+    const flutter = new Biquad('band', 1500, 1.1);
+    const falling = new Rng(118);
+    const air = seconds(0.72);
+    for (let i = 0; i < air.length; i += 1) {
+      const u = i / air.length;
+      flutter.set(2300 - 1700 * u);
+      air[i] = flutter.run(falling.next() * 2 - 1) * Math.sin(u * Math.PI) * (0.65 + 0.35 * Math.sin(TAU * 26 * u));
+    }
+    mixIn(out, air, 0.08, 1.1);
+    mixIn(out, tone(0.9, (t) => propeller(0.9, 74, 19, 0)(t) * Math.sin((t / 0.9) * Math.PI) * 0.12), 0);
+    return fadeEdges(normalizePeak(out, 0.17), 0.002, 0.08);
+  },
+
+  // Each machine announces itself differently when it arrives.
+  'arrive-pan': () => {
+    const out = seconds(1.05);
+    mixIn(out, tone(0.5, struck([412, 1023, 1876, 2640], 0.16)), 0);
+    // The lid lands a moment later and spins itself flat, like a dropped coin.
+    let at = 0.2;
+    for (let i = 0, gap = 0.1; i < 11; i += 1, gap *= 0.86) {
+      mixIn(out, tone(0.07, struck([1980, 3330, 5120], 0.018, 0.56 + i * 0.015)), at);
+      at += gap;
+    }
+    return fadeEdges(normalizePeak(out, 0.42), 0, 0.06);
+  },
+  'arrive-microwave': () => {
+    const out = seconds(0.85);
+    mixIn(out, knock(120, 0.07, 120, 0.25), 0, 1);
+    mixIn(out, knock(420, 0.03, 121, 0.1), 0.24, 0.55);
+    for (const at of [0.36, 0.52]) {
+      mixIn(out, tone(0.1, (t) => Math.sign(Math.sin(TAU * 1975 * t)) * 0.22 * Math.min(1, t / 0.003) * Math.min(1, (0.1 - t) / 0.006)), at);
+    }
+    const soft = new Biquad('low', 5200, 0.7);
+    for (let i = 0; i < out.length; i += 1) out[i] = soft.run(out[i]!);
+    return fadeEdges(normalizePeak(out, 0.38), 0, 0.04);
+  },
+  'arrive-cart': () => {
+    const out = seconds(1.3);
+    const rattle = new Biquad('band', 560, 1.2);
+    mixIn(out, burstNoise(0.75, 122, rattle, (t) => Math.min(1, t / 0.08) * (1 - t / 0.75) * (0.55 + 0.45 * Math.sign(Math.sin(TAU * 13 * t)))), 0, 0.8);
+    mixIn(out, knock(150, 0.08, 123, 0.25), 0.72, 0.9);
+    // A bicycle bell on the handlebar: two quick rings.
+    for (const at of [0.8, 0.95]) mixIn(out, tone(0.35, struck([2093, 2794, 4190, 5588], 0.14, 0.6)), at);
+    return fadeEdges(normalizePeak(out, 0.4), 0, 0.06);
+  },
+  'arrive-cannon': () => {
+    const out = boom(1.2, 120, 36, 0.22, 124);
+    for (let i = 0; i < 7; i += 1) mixIn(out, tone(0.08, struck([2240 + i * 170, 3700 - i * 90], 0.02, 0.16)), 0.09 + i * 0.043);
+    return fadeEdges(normalizePeak(out, 0.62), 0, 0.12);
+  },
+  'arrive-cinema': () => {
+    const out = seconds(1.7);
+    // A harp run as it rises through the floor, then the marquee's big finish.
+    [262, 330, 392, 523, 659, 784, 1047, 1319].forEach((hz, i) => mixIn(out, tone(0.6, bell(hz, 0.2, 0.34)), 0.1 + i * 0.1));
+    [523, 659, 784, 1047].forEach((hz) => mixIn(out, tone(0.7, bell(hz, 0.3, 0.42)), 1.02));
+    mixIn(out, knock(110, 0.1, 125, 0.3), 1.02, 0.5);
+    return fadeEdges(normalizePeak(out, 0.42), 0, 0.1);
+  },
+  'arrive-truck': () => {
+    const out = seconds(1.9);
+    for (const at of [0, 0.34, 0.68, 1.02]) mixIn(out, tone(0.17, (t) => Math.sin(TAU * 1046 * t) * Math.min(1, t / 0.005) * Math.min(1, (0.17 - t) / 0.01) * 0.2), at);
+    mixIn(out, hiss(0.34, 126, 4200, 0.6, (u) => Math.min(1, u * 20) * (1 - u) ** 2), 1.22, 0.7);
+    for (const hz of [311, 392]) mixIn(out, tone(0.22, (t) => Math.sign(Math.sin(TAU * hz * t)) * 0.16 * Math.min(1, t / 0.01) * Math.min(1, (0.22 - t) / 0.03)), 1.56);
+    const soft = new Biquad('low', 3400, 0.7);
+    for (let i = 0; i < out.length; i += 1) out[i] = soft.run(out[i]!);
+    return fadeEdges(normalizePeak(out, 0.36), 0, 0.03);
+  },
+  'arrive-factory': () => {
+    const out = seconds(1.95);
+    [0.13, 0.53, 0.93].forEach((at, i) => {
+      mixIn(out, knock(150 - i * 18, 0.07, 127 + i, 0.24), at, 0.9);
+      mixIn(out, tone(0.1, struck([1540, 2610], 0.03, 0.3)), at);
+    });
+    // Shift whistle: two pipes a third apart, with steam around them.
+    mixIn(out, tone(0.62, (t) => (Math.sin(TAU * 784 * t) + 0.8 * Math.sin(TAU * 988 * t) + 0.2 * Math.sin(TAU * 1568 * t)) * Math.min(1, t / 0.05) * Math.min(1, (0.62 - t) / 0.12) * 0.2), 1.22);
+    mixIn(out, hiss(0.66, 130, 5200, 0.5, (u) => Math.sin(u * Math.PI)), 1.2, 0.2);
+    return fadeEdges(normalizePeak(out, 0.4), 0, 0.05);
+  },
+  'arrive-airship': () => {
+    const length = 1.9;
+    const out = tone(length, (t) => {
+      const u = t / length;
+      return propeller(length, 86, 23, 0.34)(t) * Math.sin(Math.min(1, u * 1.1) * Math.PI) ** 1.5 * 0.24;
+    });
+    mixIn(out, hiss(length, 131, 900, 0.5, (u) => Math.sin(u * Math.PI) ** 2), 0, 0.26);
+    return fadeEdges(normalizePeak(out, 0.32), 0.03, 0.1);
+  },
+  'arrive-volcano': () => {
+    const rng = new Rng(132);
+    const low = new Biquad('low', 110, 1.1);
+    const out = seconds(2);
+    for (let i = 0; i < out.length; i += 1) {
+      const u = i / out.length;
+      out[i] = low.run(rng.next() * 2 - 1) * 3 * Math.min(1, u * 3.6) * (1 - u) ** 1.4;
+    }
+    mixIn(out, boom(1.4, 170, 34, 0.3, 133), 0.74, 1.1);
+    const debris = new Biquad('band', 1500, 0.8);
+    mixIn(out, burstNoise(0.9, 134, debris, (t) => Math.exp(-t / 0.26) * (0.6 + 0.4 * Math.sin(TAU * 31 * t))), 0.78, 0.5);
+    return fadeEdges(normalizePeak(out, 0.62), 0.02, 0.12);
+  },
+  'arrive-orbital': () => {
+    const out = seconds(2.1);
+    mixIn(out, hiss(1.45, 135, 2300, 0.45, (u) => Math.min(1, u * 5) * (1 - u) ** 0.6), 0, 0.9);
+    mixIn(out, tone(0.9, (t) => Math.sin(TAU * (240 * t + 170 * t * t)) * Math.sin((t / 0.9) * Math.PI) * 0.16), 0.5);
+    mixIn(out, knock(170, 0.08, 136, 0.28), 1.42, 1);
+    mixIn(out, tone(0.1, struck([1320, 2470], 0.03, 0.4)), 1.46);
+    // Docked: a clean sonar ping out into the dark.
+    mixIn(out, tone(0.58, bell(1760, 0.18, 0.36)), 1.56);
+    return fadeEdges(normalizePeak(out, 0.4), 0.01, 0.05);
   },
 
   buy: () => {

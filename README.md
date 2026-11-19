@@ -56,11 +56,11 @@ Master, music and effects volume, graphics quality (automatic or four fixed tier
 | `npm run e2e` | End-to-end tests in Chromium and Firefox, plus Chrome and Edge when installed |
 | `npm run e2e:prod` | Build, then test the production site |
 | `npm run balance` | Economy simulation, written to `docs/BALANCE.md` |
-| `npm run audio` | Loudness and clipping checks for the generated audio (needs `ffmpeg`) |
+| `npm run audio` | Loudness, clipping and mix checks, including an offline render of the real mixer (needs `ffmpeg`) |
 | `npm run shots` | Review screenshots; add `--verify` to check they are reproducible |
 | `npm run turntable` | Close-ups of every machine from four sides |
 | `npm run playthrough` | Plays the real game with a simulated player |
-| `npm run soak` | Real-time stress run with memory tracking |
+| `npm run soak` | Real-time stress run with memory tracking; `-- --stage=4 --hold --minutes=10` stays in one scene |
 
 The first end-to-end run needs browsers: `npx playwright install chromium firefox`.
 
@@ -80,7 +80,7 @@ docs                               Design, plan, balance report and credits
 - Performance was measured on one desktop with a Radeon RX 7900 XT. Integrated graphics and laptops have not been tested on real hardware.
 - The game is designed for desktop screens with a mouse. Phones and tablets are not a supported target.
 - A breakout can take one long frame, up to about 420 ms on the development machine, while a later scene is prepared. It is placed inside the blast's white flash and hit-stop.
-- Glass reflects and tints but does not bend what is behind it.
+- Glass bends what is behind it only at the high and ultra quality settings. Lower settings use a simpler reflective glass.
 - Game feel, sound quality and art direction have been checked with frame captures and loudness analysis, not yet by human players.
 - Pacing was tuned with simulated players: about 2.5 hours for an active player and about 3.1 hours for one who never clicks. Time for human players has not been measured.
 - Simplified Chinese is the only language. The settings menu has a language option, but interface text still lives in `src/ui` and has to be extracted before another language can be added.
