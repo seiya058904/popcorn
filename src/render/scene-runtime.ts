@@ -81,9 +81,17 @@ export class SceneRuntime {
     this.spec = spec;
     this.rng = rng;
     this.live = live;
+    this.root.userData.budgetScene = spec.id;
+    // Labels what each draw call belongs to, for the budget report. Costs nothing at run time.
+    const tagNew = (label: string): void => {
+      for (const child of this.root.children) child.userData.budget ??= label;
+    };
     this.parts = spec.build(stage, this.root);
+    tagNew('set');
     this.pile = new Pile(stage, this.root, spec.pile, live);
+    tagNew('pile');
     this.sprites = new Sprites(this.root);
+    tagNew('sprites');
     if (!live) {
       this.pile.setLevel(1);
       this.pile.update(0);
@@ -94,6 +102,7 @@ export class SceneRuntime {
     this.pile.update(0);
     const k = spec.pile.k;
     this.batches = new PieceBatches(stage, this.root);
+    tagNew('flying');
     this.director = new PopDirector(
       this.pile,
       this.batches,
@@ -112,14 +121,21 @@ export class SceneRuntime {
       },
       spec.homeRadius,
     );
+    tagNew('director');
     this.shovel = new Shovel(stage, this.root, this.sprites, rng, k);
+    tagNew('shovel');
     this.flavor = new FlavorShow(stage, this.root, this.sprites, rng, spec.spreadRadius, k);
+    tagNew('flavor');
     if (spec.perches.length > 0) this.flock = new Flock(stage, this.root, spec.perches, 0.62 * k, rng);
+    tagNew('flock');
     this.stirrer = new Stirrer(stage, this.root, spec.steamY, spec.homeRadius / 0.72, k);
+    tagNew('stirrer');
     this.debris = new Debris(stage, this.root, spec.debris ?? ['#ffeccb'], k);
     this.cracks = new Cracks(stage, this.root, rng, (spec.homeRadius / 0.72) * 1.13, spec.steamY, k);
     this.parcel = new Parcel(stage, this.root, k);
+    tagNew('breakout');
     if (spec.cannon) this.heroCannon = new HeroCannon(stage, this.root, spec.cannon, this.sprites, this.director, rng);
+    tagNew('hero-cannon');
 
     const runtime = this;
     const host: UnitHost = {
@@ -179,6 +195,7 @@ export class SceneRuntime {
     for (const kind of UNIT_ORDER) {
       const slots = spec.slots[kind];
       if (slots) this.rigs.set(kind, new UnitRig(stage, this.root, kind, slots, host));
+      tagNew(`machine:${kind}`);
     }
   }
 

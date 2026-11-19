@@ -1,3 +1,4 @@
+import type { Object3D } from 'three';
 import type { UnitKindName } from '../render/scenes/types.ts';
 import type { Game } from '../game.ts';
 import { BOT_PROFILES, BotPlayer } from '../sim/bots.ts';
@@ -35,6 +36,15 @@ export interface QaApi {
   setGpuSync(enabled: boolean): void;
   /** Collects frame intervals from requestAnimationFrame for the given duration. */
   sampleFrames(seconds: number): Promise<number[]>;
+  /** Renders the current frame once more and says which pass and which part of the world each draw call was for. */
+  drawBreakdown(): DrawBreakdown;
+}
+
+export interface DrawBreakdown {
+  calls: number;
+  triangles: number;
+  /** Keyed "pass | scene part", e.g. "shadow | s1 machine:pan". */
+  parts: Record<string, { calls: number; triangles: number }>;
 }
 
 export interface BotStatus {
@@ -197,6 +207,53 @@ export function installDebug(game: Game): void {
     },
     setGpuSync(enabled) {
       syncGpu = enabled;
+    },
+    drawBreakdown() {
+      const { renderer, scene, camera, shadow } = game.stage;
+      const parts: DrawBreakdown['parts'] = {};
+      let current: Object3D | null = null;
+      let pass = 'post';
+      const label = (object: Object3D): string => {
+        let part = '';
+        for (let node: Object3D | null = object; node; node = node.parent) {
+          if (!part && typeof node.userData.budget === 'string') part = node.userData.budget;
+          if (typeof node.userData.budgetScene === 'number') return `s${node.userData.budgetScene} ${part || 'root'}`;
+        }
+        return part || 'world';
+      };
+      const hooked: Array<[Object3D, Object3D['onBeforeRender']]> = [];
+      scene.traverse((node) => {
+        const original = node.onBeforeRender;
+        hooked.push([node, original]);
+        node.onBeforeRender = function (...args) {
+          current = node;
+          original.apply(this, args);
+        };
+      });
+      const render = renderer.render;
+      renderer.render = function (target, view) {
+        current = null;
+        pass = view === shadow.camera ? 'shadow' : view === camera ? (view.layers.isEnabled(0) ? 'main' : 'glass') : 'post';
+        render.call(this, target, view);
+      };
+      const info = renderer.info;
+      const update = info.update;
+      const TRIANGLES = 4;
+      info.update = function (count, mode, instances) {
+        const key = `${pass} | ${current ? label(current) : 'fullscreen'}`;
+        const entry = (parts[key] ??= { calls: 0, triangles: 0 });
+        entry.calls += 1;
+        if (mode === TRIANGLES) entry.triangles += (count / 3) * Math.max(1, instances);
+        update.call(this, count, mode, instances);
+      };
+      try {
+        game.stage.render(game.visualTime);
+      } finally {
+        renderer.render = render;
+        info.update = update;
+        for (const [node, original] of hooked) node.onBeforeRender = original;
+      }
+      return { calls: game.stage.stats.drawCalls, triangles: game.stage.stats.triangles, parts };
     },
     sampleFrames(seconds) {
       return new Promise((resolve) => {
