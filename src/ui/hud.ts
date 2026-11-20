@@ -19,6 +19,10 @@ import { pressable } from './press.ts';
 import { closeSheet, openSheet } from './sheet.ts';
 import { Shop } from './shop.ts';
 
+/** What holds the kernels in each scene, for the first hint. */
+const HINT_VESSELS = ['锅', '碗', '桶', '喷泉', '火山口'];
+/** The first hint retires after this long even if nothing has been clicked or bought. */
+const HINT_SECONDS = 120;
 /** How long a found thing's line stays up. */
 const EGG_BUBBLE_MS = 3200;
 const FLOAT_POOL = 24;
@@ -50,6 +54,9 @@ export class Hud {
   private readonly stageFill: HTMLElement;
   private readonly stageDots: HTMLElement[] = [];
   private readonly hint: HTMLElement;
+  private readonly hintText: Text;
+  /** Seconds of play this session, for retiring the first hint. */
+  private playTime = 0;
   private readonly floats: HTMLElement[] = [];
   private readonly toasts: HTMLElement;
   private readonly news: HTMLElement;
@@ -102,7 +109,8 @@ export class Hud {
 
     this.shop = new Shop(root, sim);
     this.gauge = new CannonGauge(root, sim, gaugeHooks);
-    this.hint = el('div', 'hint', root, '点一下锅里的玉米，也可以按住不放');
+    this.hint = el('div', 'hint', root);
+    this.hintText = new Text(this.hint);
 
     for (let i = 0; i < FLOAT_POOL; i += 1) this.floats.push(el('div', 'float num', root));
     this.toasts = el('div', 'toasts', root);
@@ -433,7 +441,13 @@ export class Hud {
       const more = sim.state.hopperSwarm;
       this.hopperCallText.set(sim.state.hopperSwarmSize > 1 ? (more > 0 ? `跳跳粒群！后面还有 ${more} 粒` : '最后一粒，抓住它！') : '跳跳粒出现了，快点它！');
     }
-    setClass(this.hint, 'is-gone', sim.state.stats.clicks > 0);
+    // The first hint names what is there to click in each scene, and goes away once the player
+    // has clicked, bought something, or simply been playing for a couple of minutes.
+    this.playTime += deltaSeconds;
+    const { clicks, purchases } = sim.state.stats;
+    const learned = clicks > 0 || purchases > 0 || this.playTime > HINT_SECONDS;
+    if (!learned) this.hintText.set(`点一下${HINT_VESSELS[Math.min(sim.state.stage, HINT_VESSELS.length - 1)]}里的玉米，也可以按住不放`);
+    setClass(this.hint, 'is-gone', learned);
 
     const index = Math.min(sim.state.stage, STAGES.length - 1);
     const stage = STAGES[index]!;

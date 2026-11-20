@@ -1,5 +1,6 @@
 import { Game } from './game.ts';
 import type { QualityTier } from './render/core/quality.ts';
+import { needsHandheldNotice, showHandheldNotice } from './ui/handheld.ts';
 
 /** How long to wait for the browser to give the graphics context back before reloading anyway. */
 const CONTEXT_RESTORE_WAIT_MS = 4000;
@@ -79,6 +80,7 @@ async function boot(): Promise<void> {
   await nextFrame();
   performance.mark('boot:first-frame');
   finishBoot(skipTitle);
+  if (!skipTitle && needsHandheldNotice()) await showHandheldNotice(uiRoot);
   if (title) await title;
   else game.startImmediately();
 }

@@ -1776,7 +1776,7 @@
   right: var(--edge);
 }
 
-#ui.is-title > *:not(.title, .menu-veil) {
+#ui.is-title > *:not(.title, .menu-veil, .handheld) {
   opacity: 0 !important;
   pointer-events: none !important;
 }

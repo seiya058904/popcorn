@@ -3,8 +3,10 @@ import { defineConfig, type PlaywrightTestConfig } from '@playwright/test';
 import { GPU_ARGS } from './tools/lib/gpu-args.ts';
 
 const PORT = 5199;
-const preview = process.env.E2E_TARGET === 'production';
-const baseURL = `http://127.0.0.1:${PORT}`;
+/** A deployed copy to test instead of a local server, such as the live site; ends with a slash. */
+const remote = process.env.E2E_BASE_URL;
+const preview = process.env.E2E_TARGET === 'production' || Boolean(remote);
+const baseURL = remote ?? `http://127.0.0.1:${PORT}/`;
 
 // Branded browsers are tested when this machine has them; Playwright cannot download them for us here.
 const chromeInstalled = [
@@ -37,11 +39,13 @@ export default defineConfig({
   expect: { timeout: 10_000 },
   reporter: [['list']],
   use: { baseURL, viewport: { width: 1280, height: 720 } },
-  webServer: {
-    command: preview ? `npx vite preview --host 127.0.0.1 --port ${PORT} --strictPort` : `npx vite --host 127.0.0.1 --port ${PORT} --strictPort`,
-    url: baseURL,
-    reuseExistingServer: false,
-    timeout: 60_000,
-  },
+  webServer: remote
+    ? undefined
+    : {
+        command: preview ? `npx vite preview --host 127.0.0.1 --port ${PORT} --strictPort` : `npx vite --host 127.0.0.1 --port ${PORT} --strictPort`,
+        url: baseURL,
+        reuseExistingServer: false,
+        timeout: 60_000,
+      },
   projects,
 });

@@ -481,3 +481,56 @@ kbd {
     animation: none !important;
   }
 }
+
+/* A word for phones and small windows, over the title (src/ui/handheld.ts). */
+.handheld {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: var(--s-5);
+  background: rgb(20 7 16 / 72%);
+  pointer-events: auto;
+  transition: opacity 0.2s ease-in;
+}
+
+.handheld.is-gone {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.handheld-card {
+  display: grid;
+  justify-items: center;
+  gap: var(--s-3);
+  width: min(100%, 48rem);
+  max-height: 100%;
+  overflow: auto;
+  padding: var(--s-6) var(--s-5) var(--s-5);
+  border-radius: var(--r-l);
+  background: var(--paper-raised);
+  color: var(--ink);
+  text-align: center;
+  box-shadow: inset 0 0 0 0.1rem var(--paper-line), var(--e3);
+}
+
+.handheld-icon svg {
+  display: block;
+  width: 7.2rem;
+  height: 7.2rem;
+}
+
+.handheld-card h2 {
+  margin: 0;
+  font-size: 3.2rem;
+  font-weight: 400;
+}
+
+.handheld-card p {
+  margin: 0 0 var(--s-2);
+  font-family: var(--font-text);
+  font-size: 2.2rem;
+  line-height: 1.5;
+  color: var(--ink-2);
+}

@@ -15,7 +15,11 @@ const press = async (page: Page, target: Locator): Promise<void> => {
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
 };
 
+/** Tests that read the local build's files only make sense when the build is local. */
+const local = !process.env.E2E_BASE_URL;
+
 test('the release build carries no debug tools and stays within budget', () => {
+  test.skip(!local, 'reads the local build');
   const all = files('dist');
   const scripts = all.filter((file) => file.endsWith('.js'));
   for (const file of scripts) {
@@ -36,7 +40,7 @@ test('a player can start, pop, buy, and come back to the same game', async ({ pa
   });
   page.on('requestfailed', (request) => problems.push(`failed: ${request.url()}`));
 
-  await page.goto('/');
+  await page.goto('./');
   await expect(page.locator('.title-logo')).toBeVisible();
   expect(await page.evaluate(() => '__pop' in window)).toBe(false);
   await press(page, page.locator('[data-action="start"]'));
@@ -58,4 +62,30 @@ test('a player can start, pop, buy, and come back to the same game', async ({ pa
   await press(page, page.locator('[data-action="start"]'));
   await expect(page.locator('[data-unit="0"] .ticket-owned')).toHaveText('1');
   expect(problems).toEqual([]);
+});
+
+test('the page can be shared: a card image, a description and an icon', async ({ page, request }) => {
+  const response = await page.goto('./');
+  const html = await response!.text();
+  // The loading screen is in the page itself, so it is there on the very first paint.
+  expect(html).toContain('id="boot"');
+  const meta = (selector: string) => page.locator(selector).first().getAttribute('content');
+  expect(await meta('meta[property="og:title"]')).toContain('砰！爆米花失控了');
+  expect(await meta('meta[name="twitter:card"]')).toBe('summary_large_image');
+  const image = (await meta('meta[property="og:image"]'))!;
+  expect(image).toMatch(/^https:\/\/.+\/og-image\.jpg$/);
+  // The card image and the touch icon ship with the build.
+  for (const file of ['og-image.jpg', 'apple-touch-icon.png']) {
+    const asset = await request.get(new URL(file, page.url()).href);
+    expect(asset.status(), file).toBe(200);
+  }
+  await expect(page.locator('.title-logo')).toBeVisible();
+  await expect(page.locator('#boot')).toHaveCount(0);
+});
+
+test('a failed download gets a message and a way to retry, not a blank page', async ({ page }) => {
+  await page.route(/\/assets\/index-[^/]+\.js$/, (route) => route.abort());
+  await page.goto('./');
+  await expect(page.locator('#boot.is-failed .boot-title')).toHaveText('锅没点着');
+  await expect(page.locator('#boot .boot-retry')).toBeVisible();
 });
