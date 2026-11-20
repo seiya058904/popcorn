@@ -299,7 +299,12 @@ export class Hud {
     if (!def) return;
     this.bubble.textContent = def.blurb;
     this.bubble.getAnimations().forEach((animation) => animation.cancel());
-    const at = `translate(${x}px, ${y}px) translate(-50%, -100%)`;
+    // Over the spot, but never off the screen: a thing near the edge keeps its line in view.
+    const margin = 16;
+    const half = this.bubble.offsetWidth / 2;
+    const left = Math.min(Math.max(x, half + margin), window.innerWidth - half - margin);
+    const top = Math.max(y, this.bubble.offsetHeight + margin * 3);
+    const at = `translate(${left}px, ${top}px) translate(-50%, -100%)`;
     // It pops up from the spot and floats a little; with reduced motion it only fades.
     const full: Keyframe[] = [
       { transform: `${at} translateY(0.6rem) scale(0.86)`, opacity: 0 },
