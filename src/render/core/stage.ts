@@ -41,6 +41,7 @@ export class Stage {
   private readonly canvas: HTMLCanvasElement;
   private width = 0;
   private height = 0;
+  private ratio = 0;
   private appliedShift = Number.NaN;
   /** Same pixel format as the scene target, so warmed-up shaders are the ones really used. */
   private readonly preloadTarget = new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType });
@@ -103,21 +104,31 @@ export class Stage {
     return this.renderer.domElement.height;
   }
 
+  /**
+   * Follows the window size and the view shift. Only a real size change touches the canvas:
+   * setting its size, even to the same numbers, resets the drawing buffer, and the shift glides
+   * on every frame for seconds while the framing settles.
+   */
   resize(): void {
     const width = Math.max(1, this.canvas.clientWidth);
     const height = Math.max(1, this.canvas.clientHeight);
-    if (width === this.width && height === this.height && this.appliedShift === this.viewShiftX) return;
-    this.width = width;
-    this.height = height;
+    const ratio = Math.min(window.devicePixelRatio || 1, 2);
+    const sized = width === this.width && height === this.height && ratio === this.ratio;
+    if (sized && this.appliedShift === this.viewShiftX) return;
+    if (!sized) {
+      this.width = width;
+      this.height = height;
+      this.ratio = ratio;
+      this.renderer.setPixelRatio(ratio);
+      this.renderer.setSize(width, height, false);
+      this.post.resize(this.outputWidth, this.outputHeight);
+      globals.uResolution.value.set(this.outputWidth, this.outputHeight);
+      globals.uOutlinePx.value = Math.max(0.9, this.outputHeight / 640);
+    }
     this.appliedShift = this.viewShiftX;
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-    this.renderer.setSize(width, height, false);
     this.camera.aspect = width / height;
     this.camera.setViewOffset(width, height, width * this.viewShiftX, 0, width, height);
     this.camera.updateProjectionMatrix();
-    this.post.resize(this.outputWidth, this.outputHeight);
-    globals.uResolution.value.set(this.outputWidth, this.outputHeight);
-    globals.uOutlinePx.value = Math.max(0.9, this.outputHeight / 640);
   }
 
   setTime(time: number): void {

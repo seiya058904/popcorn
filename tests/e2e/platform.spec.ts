@@ -211,6 +211,9 @@ test('a browser without WebGL 2 gets a clear message instead of a blank page', a
     } as typeof original;
   });
   await page.goto('/');
-  await expect(page.locator('.unsupported h1')).toHaveText('这口锅点不着火');
+  // The loading screen turns into the message; reloading would not help, so it offers no retry.
+  await expect(page.locator('#boot.is-failed .boot-title')).toHaveText('这口锅点不着火');
+  await expect(page.locator('#boot .boot-note')).toContainText('WebGL 2');
+  await expect(page.locator('#boot .boot-retry')).toBeHidden();
   expect(crashes).toEqual([]);
 });

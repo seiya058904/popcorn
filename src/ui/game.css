@@ -610,8 +610,14 @@
   min-height: 8.8rem;
   text-align: left;
   color: var(--ink);
-  filter: drop-shadow(0 0.1rem 0.15rem rgb(90 50 30 / 22%)) drop-shadow(0 0.4rem 0.8rem rgb(90 50 30 / 12%));
-  will-change: transform;
+  /*
+   * A box shadow, not a drop-shadow filter: filters on a layer are recomputed by the GPU every
+   * frame, and rastering fifteen filtered tickets when a scene's machines unlock stalled a 4K
+   * breakout by 85 ms. The notches are inside the box, where an outer shadow never reaches, so
+   * the paper still reads as cut. No standing layer either; a press lifts it for its animation.
+   */
+  border-radius: var(--r-m);
+  box-shadow: 0 0.1rem 0.15rem rgb(90 50 30 / 22%), 0 0.4rem 0.8rem rgb(90 50 30 / 12%);
 }
 
 .ticket-paper {
@@ -869,6 +875,26 @@
   cursor: pointer;
   touch-action: none;
   display: none;
+  /*
+   * A layer of its own: the needle and the arcs redraw the dial while charging and cooling, and
+   * that must not repaint the page underneath at 4K.
+   */
+  will-change: transform;
+}
+
+/* The ready glow is a still picture that only fades, so the compositor animates it for free. */
+.gauge::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  pointer-events: none;
+  box-shadow:
+    0 0 0 0.35rem #ffe2a6,
+    0 0 0 0.8rem #6a2d36,
+    0 0 3rem rgb(255 200 90 / 60%);
+  opacity: 0;
+  will-change: opacity;
 }
 
 .gauge.is-unlocked {
@@ -902,18 +928,12 @@
   color: var(--butter);
 }
 
-.gauge.is-ready {
+.gauge.is-ready::after {
   animation: gauge-ready 1.2s ease-in-out infinite alternate;
 }
 
 @keyframes gauge-ready {
-  to {
-    box-shadow:
-      inset 0 0.2rem 0.4rem rgb(255 255 255 / 8%),
-      0 0 0 0.35rem #ffe2a6,
-      0 0 0 0.8rem #6a2d36,
-      0 0 3rem rgb(255 200 90 / 60%);
-  }
+  to { opacity: 1; }
 }
 
 /* Green-streak stars between the hub and the caption; lit ones glow butter-yellow. */
@@ -1301,10 +1321,16 @@
   left: var(--hud-center);
   font-size: 11rem;
   white-space: nowrap;
+  letter-spacing: 0.3em;
   color: #fff6e0;
   text-shadow: 0 0.5rem 0 #6a1020, 0 0 3rem rgb(255 190 90 / 75%);
   opacity: 0;
 }
+
+.slate-letter {
+  display: inline-block;
+}
+
 
 .skip {
   position: absolute;
@@ -1492,28 +1518,44 @@
   inset: -0.5rem 0;
 }
 
-/* The moment something becomes affordable, a gleam crosses its ticket, once. */
-.ticket-paper::after {
-  content: '';
+/*
+ * The moment something becomes affordable, a gleam crosses its ticket, once. The band is drawn
+ * once and slides on a transform inside a rounded clip. It used to slide its background inside
+ * the masked paper, which repainted the mask on every frame.
+ */
+.ticket-gleam {
   position: absolute;
   inset: 0;
-  background: linear-gradient(105deg, transparent 35%, rgb(255 255 255 / 75%) 50%, transparent 65%) -150% 0 / 60% 100% no-repeat;
-  opacity: 0;
+  border-radius: var(--r-m);
+  overflow: hidden;
   pointer-events: none;
 }
 
-.ticket.is-shine .ticket-paper::after {
+.ticket-gleam::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 60%;
+  background: linear-gradient(105deg, transparent 35%, rgb(255 255 255 / 75%) 50%, transparent 65%);
+  opacity: 0;
+  transform: translateX(-100%);
+}
+
+.ticket.is-shine .ticket-gleam::before {
   animation: gleam 0.9s cubic-bezier(0.3, 0, 0.2, 1) 1;
 }
 
+/* From the band's right edge at the ticket's left, to its left edge at the ticket's right. */
 @keyframes gleam {
-  0% { opacity: 1; background-position: -150% 0; }
-  100% { opacity: 1; background-position: 250% 0; }
+  0% { opacity: 1; transform: translateX(-100%); }
+  100% { opacity: 1; transform: translateX(166.7%); }
 }
 
 /* Holding a ticket to keep buying: it glows while the purchases roll. */
 .ticket.is-repeating {
-  filter: drop-shadow(0 0 0.8rem rgb(255 190 60 / 70%)) drop-shadow(0 0.4rem 0.8rem rgb(90 50 30 / 12%));
+  box-shadow: 0 0 0.8rem rgb(255 190 60 / 70%), 0 0.4rem 0.8rem rgb(90 50 30 / 12%);
 }
 
 /* Rolling digits of the main counter. */
@@ -1554,7 +1596,9 @@
   .menu-group,
   .achievement,
   .stagebar,
+  .ticket,
   .ticket-paper,
+  .ticket-gleam,
   .seg,
   .seg-thumb,
   .ticket-icon,
@@ -1579,7 +1623,9 @@
   .toast,
   .menu-group,
   .achievement,
+  .ticket,
   .ticket-paper,
+  .ticket-gleam,
   .seg,
   .corner button,
   .menu-button {

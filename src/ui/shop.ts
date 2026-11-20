@@ -70,6 +70,7 @@ interface UnitGroup {
 function ticket(parent: HTMLElement, icon: string, small = false): TicketParts {
   const root = el('button', `ticket${small ? ' is-small' : ''}`, parent);
   el('span', 'ticket-paper', root);
+  el('span', 'ticket-gleam', root);
   const bar = el('span', 'ticket-progress', root);
   const progress = el('i', '', bar);
   el('span', 'ticket-icon', root).innerHTML = icon;

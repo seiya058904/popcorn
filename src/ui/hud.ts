@@ -220,21 +220,41 @@ export class Hud {
     }, TOAST_MS);
   }
 
-  /** The scene title that lands as a breakout settles. */
+  /**
+   * The scene title that lands as a breakout settles, its letters closing in from wide apart.
+   * Each letter moves on its own transform rather than through letter-spacing: spacing is layout,
+   * so the huge glowing title was laid out and repainted on every frame of its two seconds.
+   */
   showSlate(stage: number): void {
     const def = STAGES[stage];
     if (!def) return;
-    this.slate.textContent = def.name;
-    this.slate.getAnimations().forEach((animation) => animation.cancel());
+    const letters = [...def.name];
+    this.slate.getAnimations({ subtree: true }).forEach((animation) => animation.cancel());
+    this.slate.replaceChildren(...letters.map((letter) => el('span', 'slate-letter', undefined, letter)));
+    const timing = { duration: 1900, easing: 'cubic-bezier(.2,.8,.3,1)' };
     this.slate.animate(
       [
-        { opacity: 0, transform: 'translate(-50%, -50%) scale(1.5)', letterSpacing: '1.4em' },
-        { opacity: 1, transform: 'translate(-50%, -50%) scale(1)', letterSpacing: '0.3em', offset: 0.14 },
-        { opacity: 1, transform: 'translate(-50%, -50%) scale(0.98)', letterSpacing: '0.34em', offset: 0.78 },
-        { opacity: 0, transform: 'translate(-50%, -62%) scale(0.98)', letterSpacing: '0.36em' },
+        { opacity: 0, transform: 'translate(-50%, -50%) scale(1.5)' },
+        { opacity: 1, transform: 'translate(-50%, -50%) scale(1)', offset: 0.14 },
+        { opacity: 1, transform: 'translate(-50%, -50%) scale(0.98)', offset: 0.78 },
+        { opacity: 0, transform: 'translate(-50%, -62%) scale(0.98)' },
       ],
-      { duration: 1900, easing: 'cubic-bezier(.2,.8,.3,1)' },
+      timing,
     );
+    // Extra spacing over the resting 0.3em, as the old letter-spacing keyframes had it.
+    const middle = (letters.length - 1) / 2;
+    [...this.slate.children].forEach((letter, index) => {
+      const away = index - middle;
+      (letter as HTMLElement).animate(
+        [
+          { transform: `translateX(${away * 1.1}em)` },
+          { transform: 'translateX(0)', offset: 0.14 },
+          { transform: `translateX(${away * 0.04}em)`, offset: 0.78 },
+          { transform: `translateX(${away * 0.06}em)` },
+        ],
+        timing,
+      );
+    });
   }
 
   /** Keeps the interface off the title screen. */

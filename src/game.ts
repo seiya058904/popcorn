@@ -27,6 +27,9 @@ export interface GameOptions {
   quality?: QualityTier;
 }
 
+/** Longest the start waits for the driver's parallel shader compiles before drawing anyway. */
+const COMPILE_WAIT_MS = 15_000;
+
 /** From the cinema onward the music takes on a grander color. */
 const WORLD_MUSIC_STAGE = 2;
 
@@ -274,6 +277,7 @@ export class Game {
     this.store = this.capture ? memoryStore() : await openStore();
     // Signs on machines and buildings are painted with this font when the scenes are built.
     await document.fonts.load('64px Kuaile', '爆米花').catch(() => undefined);
+    performance.mark('boot:fonts');
     Object.assign(this.settings, await loadSettings(this.store, this.settings));
     if (!this.fixedQuality && !this.capture) {
       this.stage.setQuality(this.settings.quality === 'auto' ? initialTier(this.stage.gpuName()) : this.settings.quality);
@@ -281,11 +285,25 @@ export class Game {
     this.applySettings();
     this.saves = new SaveManager(this.sim, this.store);
     const outcome = await this.saves.load();
+    performance.mark('boot:save');
     this.world.syncToSave();
+    performance.mark('boot:scene');
     this.audio.setTrack(this.sim.state.stage >= WORLD_MUSIC_STAGE ? 'world' : 'home');
     this.audio.setSpace(this.sim.state.stage);
-    // Warming up front keeps the first click from stalling on shader or buffer work.
+    // Warming up front keeps the first click from stalling on shader or buffer work. The driver
+    // compiles in parallel while the loading screen keeps moving; drawing first would block on it.
+    this.stage.requestCompile(this.stage.scene);
+    await new Promise<void>((resolve) => {
+      const started = performance.now();
+      const poll = (): void => {
+        if (this.stage.programsReady() || performance.now() - started > COMPILE_WAIT_MS) resolve();
+        else setTimeout(poll, 16);
+      };
+      poll();
+    });
+    performance.mark('boot:compile');
     this.stage.preload(this.stage.scene);
+    performance.mark('boot:preload');
     if (outcome.upgraded) this.hud.toast(ICONS.unit, '新内容上架', '五种新设备、金色玉米、跳跳粒群和场景装修，进度都还在。');
     if (outcome.migrated) {
       this.hud.showNotice('配方大改版', '这一版的数值全部重做，这一锅要从头开始。成就、口味图鉴和再来一锅的记录都还在。');

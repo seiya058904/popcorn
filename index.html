@@ -10,11 +10,145 @@
       rel="icon"
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23d9272e'/%3E%3Cg fill='%23fff3d6'%3E%3Ccircle cx='11' cy='13' r='6'/%3E%3Ccircle cx='21' cy='12' r='6'/%3E%3Ccircle cx='16' cy='20' r='7'/%3E%3C/g%3E%3Ccircle cx='16' cy='16' r='2.5' fill='%23ffb51f'/%3E%3C/svg%3E"
     />
+    <style>
+      /* The loading screen: inline, so it is on the very first paint, before any script or font. */
+      #boot {
+        position: fixed;
+        inset: 0;
+        z-index: 100;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 2.4em;
+        padding: 4em;
+        font: 10px / 1.4 'Microsoft YaHei UI', 'PingFang SC', 'Noto Sans SC', sans-serif;
+        font-size: max(6.4px, min(calc(100vw / 192), calc(100vh / 108)));
+        color: #fff0d6;
+        text-align: center;
+        background: radial-gradient(70em 60em at 50% 46%, #43192b, #16090f 78%);
+        transition: opacity 0.38s cubic-bezier(0.3, 0, 0.2, 1);
+        user-select: none;
+      }
+      #boot.is-done {
+        opacity: 0;
+        pointer-events: none;
+      }
+      .boot-mark {
+        width: 13em;
+        height: 13em;
+        animation: boot-bob 0.9s cubic-bezier(0.45, 0, 0.55, 1) infinite alternate;
+      }
+      @keyframes boot-bob {
+        to { transform: translateY(-0.9em) rotate(-3deg); }
+      }
+      .boot-bar {
+        width: 26em;
+        height: 0.8em;
+        border-radius: 1em;
+        background: rgb(255 240 214 / 14%);
+        overflow: hidden;
+      }
+      .boot-bar i {
+        display: block;
+        height: 100%;
+        border-radius: inherit;
+        background: linear-gradient(90deg, #e3a11a, #ffc93f);
+        transform-origin: 0 50%;
+        transform: scaleX(var(--progress, 0.08));
+        transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.3, 1);
+      }
+      .boot-note {
+        margin: 0;
+        max-width: 48em;
+        font-size: 1.9em;
+        color: rgb(255 240 214 / 78%);
+      }
+      .boot-title {
+        margin: 0;
+        font-size: 4.8em;
+        font-weight: 700;
+        color: #ffc93f;
+      }
+      .boot-retry {
+        padding: 0.7em 2.2em;
+        border: 0;
+        border-radius: 99em;
+        font: inherit;
+        font-size: 2.1em;
+        color: #fff;
+        background: linear-gradient(180deg, #f0545a, #c8202d);
+        box-shadow: 0 0.3em 1em rgb(160 20 30 / 35%);
+        cursor: pointer;
+      }
+      .boot-retry:focus-visible {
+        outline: 0.15em solid #5fd6b2;
+        outline-offset: 0.15em;
+      }
+      #boot:not(.is-failed) :is(.boot-title, .boot-retry),
+      #boot.is-failed .boot-bar {
+        display: none;
+      }
+      #boot.is-failed .boot-mark {
+        animation: none;
+        filter: grayscale(0.6);
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .boot-mark {
+          animation: none;
+        }
+      }
+    </style>
     <link rel="stylesheet" href="/src/ui/base.css" />
   </head>
   <body>
     <canvas id="stage" aria-label="爆米花游戏画面"></canvas>
     <div id="ui"></div>
+    <div id="boot" role="status" aria-live="polite">
+      <svg class="boot-mark" viewBox="0 0 64 64" aria-hidden="true">
+        <g fill="#fff3d6" stroke="#e8c893" stroke-width="1">
+          <circle cx="22" cy="21" r="8" />
+          <circle cx="33" cy="15" r="9" />
+          <circle cx="43" cy="22" r="8" />
+          <circle cx="28" cy="26" r="7" />
+          <circle cx="38" cy="27" r="7" />
+        </g>
+        <circle cx="33" cy="17" r="2.6" fill="#ffc93f" />
+        <path d="M14 28h36l-4.5 30h-27z" fill="#d9272e" />
+        <path d="M23 28h6l-1 30h-5zm12 0h6l-2.5 30h-5z" fill="#fff3d6" />
+        <path d="M14 28h36" stroke="#8f1520" stroke-width="2.4" stroke-linecap="round" />
+      </svg>
+      <p class="boot-title">锅没点着</p>
+      <div class="boot-bar"><i></i></div>
+      <p class="boot-note">正在热锅…</p>
+      <button class="boot-retry" type="button" onclick="location.reload()">重新加载</button>
+    </div>
+    <script>
+      // Before the game's own code runs, a failed or stalled load still gets an answer.
+      (function () {
+        var boot = document.getElementById('boot');
+        window.__bootFail = function (title, note, retry) {
+          if (!boot || window.__booted) return;
+          boot.classList.add('is-failed');
+          boot.querySelector('.boot-title').textContent = title;
+          boot.querySelector('.boot-note').textContent = note;
+          boot.querySelector('.boot-retry').style.display = retry === false ? 'none' : '';
+        };
+        var failed = function () {
+          window.__bootFail('锅没点着', '游戏文件没能下载完整。检查一下网络，然后重新加载。');
+        };
+        window.addEventListener('error', function (event) {
+          var tag = event.target && event.target.tagName;
+          if (tag === 'SCRIPT' || tag === 'LINK') failed();
+        }, true);
+        window.addEventListener('unhandledrejection', function () {
+          if (!window.__booted) failed();
+        });
+        setTimeout(function () {
+          if (!window.__booted) window.__bootFail('还在热锅', '加载得比平时慢。可以再等一会儿，或者重新加载。');
+        }, 25000);
+      })();
+    </script>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

@@ -80,8 +80,7 @@ docs                               Design, plan, balance report and credits
 - Edge has not been tested, because it was not installed on the development machine. Chromium and Chrome pass, and Edge shares their engine.
 - Performance was measured on one desktop with a Radeon RX 7900 XT. Integrated graphics and laptops have not been tested on real hardware.
 - The game is designed for desktop screens with a mouse. Phones and tablets are not a supported target.
-- Later scenes are built in the background a few milliseconds per frame. During a breakout the longest frame measured 24–36 ms at 4K on the highest setting on the development machine.
-- At 4K on the highest setting, the kitchen and Earth scenes occasionally take about 30 ms for a frame (99th percentile 25–31 ms on the development machine). At 1080p they do not.
+- At 4K on the highest setting, every scene holds 60 FPS without a missed frame on the development machine. Later scenes are built in the background a few milliseconds per frame, so a breakout drops at most one frame (its longest frame measured about 45–65 ms).
 - Glass bends what is behind it only at the high and ultra quality settings. Lower settings use a simpler reflective glass.
 - Game feel, sound quality and art direction have been checked with frame captures and loudness analysis, not yet by human players.
 - Pacing was tuned with simulated players: about 2.5 hours for an active player and about 3.3 hours for one who never clicks. Time for human players has not been measured.

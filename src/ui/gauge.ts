@@ -43,6 +43,7 @@ export class CannonGauge {
   private greenKey = '';
   private time = 0;
   private needleAngle = START_ANGLE;
+  private cooldownPath: string | null = null;
 
   constructor(parent: HTMLElement, sim: Simulation, hooks: GaugeHooks) {
     this.sim = sim;
@@ -156,7 +157,12 @@ export class CannonGauge {
 
     const cooling = sim.state.cannonCooldown > 0;
     const remaining = sim.state.cannonCooldown / sim.derived.cannonCooldown;
-    this.cooldownArc.setAttribute('d', cooling ? arcPath(0, Math.max(0.001, remaining)) : '');
+    // Writing a path repaints the dial even when it is the same path, so only changes are written.
+    const arc = cooling ? arcPath(0, Math.max(0.001, Math.round(remaining * 400) / 400)) : '';
+    if (arc !== this.cooldownPath) {
+      this.cooldownPath = arc;
+      this.cooldownArc.setAttribute('d', arc);
+    }
     setClass(this.root, 'is-ready', sim.cannonReady && !this.charging);
     this.caption.set(
       this.charging ? '松手开炮！' : cooling ? `冷却 ${Math.ceil(sim.state.cannonCooldown)} 秒` : '按住蓄压',

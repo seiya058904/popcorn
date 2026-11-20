@@ -144,6 +144,12 @@ export class World {
     pending: THREE.Object3D[];
     longestStepMs: number;
   } | null = null;
+
+  /** True while the next scene is still being built, compiled or uploaded in the background. */
+  get preparing(): boolean {
+    return this.job !== null;
+  }
+
   private readonly stage: Stage;
   private readonly sim: Simulation;
   private readonly hooks: WorldHooks;
@@ -810,6 +816,8 @@ export class World {
     if (this.finaleTime >= 0) this.updateFinale(dt);
     // The framing glides when the interface comes or goes.
     this.shownInset += (this.uiInset - this.shownInset) * (1 - Math.exp(-dt * 3));
+    // Settle exactly once the glide is invisible, instead of creeping on for many seconds.
+    if (Math.abs(this.uiInset - this.shownInset) < 1e-4) this.shownInset = this.uiInset;
     if (Math.abs(this.uiInset - this.framedInset) > 0.01) this.updateFraming();
     this.frameOpen += (this.wantedOpen - this.frameOpen) * (1 - Math.exp(-dt * 1.6));
     this.updateEventLights(dt);
