@@ -10,11 +10,17 @@ import { addToy, addToyInstances, at, Kit, P, Pattern, type ToyInstances } from 
 import { addSign } from '../materials/sign.ts';
 import type { SceneContext, SceneBuild, SceneSpec, UnitSlot } from './types.ts';
 import { dressCinema } from './dress.ts';
+import { Cues, Pulse, type EggSpot } from './eggs.ts';
 import { SetPieces, toyFigure } from './pieces.ts';
 import { LightBank, storyWeights } from './story.ts';
 import { vesselPile } from './vessel.ts';
 
 const GROUND = -9;
+/** The curtain cord hangs just inside the gathered curtain on the left, its top at this point. */
+const CORD_AT = new THREE.Vector3(-26.2, 31, -38.2);
+const CORD_LENGTH = 17;
+/** The one in the front row who came for the film after all. */
+const FAN = 11;
 const BUCKET = { floorY: 2.2, rimY: 4.6, innerR: 3.4, outerR: 3.85 };
 const STAGE_R = 14;
 
@@ -188,6 +194,16 @@ function addStage(kit: Kit): void {
     const a = (i / 28) * Math.PI * 2;
     kit.add(P.sphere(0.34, 8, 6), { color: '#ffe9b0', emissive: 1, outline: 0, matrix: at(Math.cos(a) * (STAGE_R - 0.75), 0.25, Math.sin(a) * (STAGE_R - 0.75)) });
   }
+}
+
+/** A gold curtain cord with a tassel, hanging from its top at the origin. */
+function cordGeometry(): THREE.BufferGeometry {
+  const kit = new Kit();
+  const gold = { color: '#e8b44a', gloss: 0.7, metal: 0.6, pattern: Pattern.Fabric };
+  kit.add(P.capsule(0.2, CORD_LENGTH, 3, 8), { ...gold, matrix: at(0, -CORD_LENGTH / 2, 0) });
+  kit.add(P.sphere(0.55, 12, 9), { ...gold, matrix: at(0, -CORD_LENGTH - 0.3, 0) });
+  kit.add(P.lathe([[0, 0], [0.55, 0], [0.95, -2.2], [0, -2.3]], 14, 0.08, 2), { ...gold, color: '#d99a2e', matrix: at(0, -CORD_LENGTH - 0.6, 0) });
+  return kit.build();
 }
 
 function addProscenium(kit: Kit): void {
@@ -462,6 +478,7 @@ function* buildCinema(stage: Stage, root: THREE.Group): SceneBuild {
   seats.ink.instanceColor = seats.body.instanceColor;
   heads.ink.instanceColor = heads.body.instanceColor;
   seats.commit(audience.length);
+  const fanSeat = audience[FAN]!;
 
   // The cart-to-cinema supply line, built by the "影院专线" upgrade.
   const belt = addToy(stage, root, beltGeometry());
@@ -481,6 +498,9 @@ function* buildCinema(stage: Stage, root: THREE.Group): SceneBuild {
   const stars = pieces.group(root);
   STAR_GROUPS.forEach((_, group) => pieces.part(starsGeometry(group), stars, { shadow: false }));
   pieces.decoration('decor-stars', stars, 0.01);
+  // A hidden thing to find (src/content/props.ts): the curtain cord.
+  const cord = pieces.group(root, CORD_AT.x, CORD_AT.y, CORD_AT.z);
+  pieces.part(cordGeometry(), cord);
   pieces.build(stage);
 
   const bank = new LightBank(2, [{ at: 0 }, { at: 0 }, { style: 'bulb' }, { style: 'bulb' }, { style: 'bulb' }]);
@@ -508,7 +528,7 @@ function* buildCinema(stage: Stage, root: THREE.Group): SceneBuild {
     bank.update(u, dt, instant, calm);
     lamps[7]!.intensity = 0.85 * house;
     lamps[8]!.intensity = 0.85 * house;
-    projector.uStrength!.value = lerp(lerp(0.018, 0.034, toMid), 0.052, toLate);
+    projector.uStrength!.value = lerp(lerp(0.018, 0.034, toMid), 0.052, toLate) * beamFlicker;
     // The projectionist changes reels with a quick flash; reduced motion just cuts.
     const reel = u >= REELS[1]! ? 2 : u >= REELS[0]! ? 1 : 0;
     show = instant || calm ? reel : show + Math.sign(reel - show) * Math.min(Math.abs(reel - show), dt * 1.6);
@@ -527,7 +547,63 @@ function* buildCinema(stage: Stage, root: THREE.Group): SceneBuild {
   let strain = 0;
   let blasted = false;
 
+  // Hidden things to find: the projector's beam, a fan in the front row, the curtain cord.
+  const cues = new Cues();
+  const rewind = new Pulse(0.9);
+  const fanStand = new Pulse(2.4);
+  const cordTug = new Spring(0, 90, 7);
+  let beamFlicker = 1;
+  const beamSpot = new THREE.Vector3(0, 28.4, 32.7);
+  const fanSpot = new THREE.Vector3(fanSeat.x, GROUND + 1.6, fanSeat.z);
+  const cordSpot = new THREE.Vector3(CORD_AT.x, CORD_AT.y - CORD_LENGTH - 1, CORD_AT.z + 0.5);
+  const eggs: EggSpot[] = [
+    {
+      id: 'egg-projector',
+      position: beamSpot,
+      radius: 3.5,
+      active: () => !blasted && !rewind.busy,
+      play(ctx) {
+        // The film stutters into rewind, and popcorn flies off the screen back into the bucket.
+        rewind.start();
+        cues.after(0.5, () => {
+          for (let i = 0; i < 12; i += 1) {
+            cues.after(i * 0.05, () => ctx.director.launch(ctx.rng.range(-18, 18), ctx.rng.range(8, 24), -40, { flight: ctx.rng.range(1.1, 1.5), scale: 0.5, quiet: i > 2 }));
+          }
+        });
+      },
+    },
+    {
+      id: 'egg-audience',
+      position: fanSpot,
+      radius: 2.6,
+      active: () => !blasted && !fanStand.busy,
+      play(ctx) {
+        // Up on his feet, clapping, and the bucket in his hands goes everywhere.
+        fanStand.start();
+        cues.after(0.35, () => {
+          for (let i = 0; i < 6; i += 1) ctx.director.launch(fanSpot.x + ctx.rng.range(-0.6, 0.6), fanSpot.y + 2.6, fanSpot.z, { flight: ctx.rng.range(0.5, 0.8), scale: 0.45, quiet: i > 1 });
+        });
+      },
+    },
+    {
+      id: 'egg-curtain',
+      position: cordSpot,
+      radius: 2.6,
+      active: () => !blasted,
+      play(ctx) {
+        // One tug, and it turns out the stage is full of popcorn behind the curtain too.
+        cordTug.kick(-14);
+        cues.after(0.25, () => {
+          for (let i = 0; i < 16; i += 1) {
+            cues.after(i * 0.03, () => ctx.director.launch(ctx.rng.range(-22, 22), ctx.rng.range(2, 22), -37, { flight: ctx.rng.range(0.9, 1.4), scale: ctx.rng.range(0.45, 0.6), quiet: i > 3 }));
+          }
+        });
+      },
+    },
+  ];
+
   return {
+    eggs,
     lamps,
     progress: tell,
     kick(strength) {
@@ -597,6 +673,12 @@ function* buildCinema(stage: Stage, root: THREE.Group): SceneBuild {
       }
       const kick = bucketKick.update(dt);
       bucket.scale.set(1 - kick * 0.018, 1 + kick * 0.03 + strain * strain * 0.03 * Math.sin(time * 50), 1 - kick * 0.018);
+      cues.update(dt);
+      const stand = fanStand.update(dt);
+      const flicker = rewind.update(dt);
+      beamFlicker = flicker > 0 ? 0.25 + 1.6 * Math.abs(Math.sin(time * 61)) * flicker : 1;
+      cord.position.y = CORD_AT.y + cordTug.update(dt);
+      cord.rotation.z = Math.sin(time * 0.8) * 0.01 + cordTug.velocity * 0.004;
       audience.forEach((person, index) => {
         const chew = Math.max(0, Math.sin(time * 2.4 + person.phase)) * 0.14;
         // Everyone leans toward the snacks, not the film, until the feature has them on their
@@ -613,7 +695,13 @@ function* buildCinema(stage: Stage, root: THREE.Group): SceneBuild {
           p.y += person.vy * t - 18 * t * t;
           spin = t * 6;
         }
-        e.set(-0.12 + chew * 0.5 + spin, person.ry, spin * 0.6);
+        let clap = 0;
+        if (index === FAN && stand > 0) {
+          // Standing up for the film: hops on the spot and sways, clapping.
+          p.y += stand * 2.4 + Math.abs(Math.sin(time * 12)) * 0.5 * stand;
+          clap = Math.sin(time * 18) * 0.12 * stand;
+        }
+        e.set(-0.12 + chew * 0.5 + spin, person.ry + clap, spin * 0.6 + clap);
         q.setFromEuler(e);
         m.compose(p, q, s);
         heads.setMatrixAt(index, m);

@@ -10,6 +10,7 @@ import { puffs } from '../machines/common.ts';
 import { blendSky, skyMaterial, skyUniforms, type SkyLook } from '../materials/sky.ts';
 import type { SceneContext, SceneBuild, SceneSpec, UnitSlot } from './types.ts';
 import { dressStove } from './dress.ts';
+import { Cues, gag, Pulse, Wobble, type EggSpot } from './eggs.ts';
 import { NEON_PINK, neonPop, SetPieces, toyFigure } from './pieces.ts';
 import { alongStory, LightBank } from './story.ts';
 import { vesselPile } from './vessel.ts';
@@ -205,6 +206,10 @@ const LIT = { shelf: 0, neon: 1 } as const;
 const SHELF_LIGHT = { x: 3.45, y: 3.6 };
 const NEON_AT = new THREE.Vector3(-0.45, 3.5, -3.42);
 const KETTLE_AT = new THREE.Vector3(-2.75, 1.18, -3.18);
+/** On the back guard, right of the clock: the shaker that sneezes. */
+const PEPPER_AT = new THREE.Vector3(1.55, 1.18, -3.12);
+const CLOCK_AT = new THREE.Vector3(-0.2, 0.58, -2.84);
+const pepperColor = new THREE.Color('#5a4d48');
 const CHEF_AT = new THREE.Vector3(-1.72, 0.01, 2.08);
 
 function addEveningProps(kit: Kit): void {
@@ -272,6 +277,27 @@ function plantGeometry(): THREE.BufferGeometry {
     const r = i === 0 ? 0 : 0.09;
     puffs(kit, Math.cos(a) * r, 0.42 + (i === 0 ? 0.08 : 0), Math.sin(a) * r, 0.01, 0.01, 1, 0.055, i + 3);
   }
+  return kit.build();
+}
+
+/** A ceramic shaker with a red band and a chrome cap; origin at its foot. */
+function pepperGeometry(): THREE.BufferGeometry {
+  const kit = new Kit();
+  kit.add(P.lathe([[0, 0], [0.085, 0], [0.096, 0.03], [0.09, 0.24], [0.076, 0.27], [0, 0.27]], 22, 0.02, 2), { color: '#f6f1e7', gloss: 0.7, coat: 0.4, pattern: Pattern.Enamel });
+  kit.add(P.puck(0.095, 0.095, 0.05, 22, 0.01), { color: C.red, gloss: 0.6, outline: 0, matrix: at(0, 0.11, 0) });
+  kit.add(P.lathe([[0, 0], [0.082, 0], [0.082, 0.05], [0.05, 0.1], [0, 0.11]], 22, 0.02, 2), { color: C.chrome, gloss: 0.9, metal: 1, pattern: Pattern.Brushed, matrix: at(0, 0.26, 0) });
+  for (let i = 0; i < 5; i += 1) {
+    const a = i * 1.26;
+    kit.add(P.sphere(0.01, 5, 4), { color: '#2a2024', outline: 0, detail: 1, matrix: at(Math.cos(a) * 0.03, 0.366, Math.sin(a) * 0.03) });
+  }
+  return kit.build();
+}
+
+/** A clock hand pointing up from its pivot at the origin. */
+function clockHandGeometry(length: number, width: number): THREE.BufferGeometry {
+  const kit = new Kit();
+  kit.add(P.box(width, length, 0.012, width * 0.45, 1), { color: C.navy, gloss: 0.4, outline: 0, matrix: at(0, length * 0.38, 0) });
+  kit.add(P.sphere(0.028, 10, 8), { color: C.navy, gloss: 0.6, outline: 0, matrix: at(0, 0, 0.01) });
   return kit.build();
 }
 
@@ -484,6 +510,12 @@ function* buildStove(stage: Stage, root: THREE.Group): SceneBuild {
   const plant = pieces.group(root, -2.3, 2.24, -3.12);
   pieces.part(plantGeometry(), plant);
   pieces.decoration('decor-plant', plant, 0.45);
+  // Hidden things to find: the clock's hands, the shaker that sneezes (src/content/props.ts).
+  const clockHands = pieces.group(root, CLOCK_AT.x, CLOCK_AT.y, CLOCK_AT.z);
+  const hourHand = pieces.part(clockHandGeometry(0.17, 0.036), clockHands);
+  const minuteHand = pieces.part(clockHandGeometry(0.25, 0.026), clockHands);
+  const pepper = pieces.group(root, PEPPER_AT.x, PEPPER_AT.y, PEPPER_AT.z);
+  pieces.part(pepperGeometry(), pepper);
   pieces.build(stage);
   yield;
 
@@ -515,6 +547,55 @@ function* buildStove(stage: Stage, root: THREE.Group): SceneBuild {
   const chefVelocity = new THREE.Vector3();
   const spout = new THREE.Vector3();
 
+  const cues = new Cues();
+  const pepperWobble = new Wobble(pepper, { axis: 'z', squash: 0.22, turn: 0.32, stiffness: 240, damping: 6 });
+  const moonPeek = new Pulse(2.4);
+  let peek = 0;
+  /** Extra turns a second the clock's hands are making; it settles back to the steady pace. */
+  let clockRush = 0;
+  let clockAngle = 1.1;
+  const clockSpot = new THREE.Vector3(CLOCK_AT.x, CLOCK_AT.y, -2.9);
+  const windowSpot = new THREE.Vector3(WINDOW.x, WINDOW.y, -3.3);
+  const pepperSpot = new THREE.Vector3(PEPPER_AT.x, PEPPER_AT.y + 0.2, PEPPER_AT.z);
+  const sneezeAt = new THREE.Vector3(PEPPER_AT.x - 0.06, PEPPER_AT.y + 0.4, PEPPER_AT.z + 0.08);
+  const eggs: EggSpot[] = [
+    {
+      id: 'egg-clock',
+      position: clockSpot,
+      radius: 0.45,
+      play(ctx) {
+        gag.sparkle(ctx, clockSpot, 0.32);
+        clockRush = 9;
+      },
+    },
+    {
+      id: 'egg-window-moon',
+      position: windowSpot,
+      radius: 1.5,
+      active: () => !moonPeek.busy,
+      play(ctx) {
+        gag.sparkle(ctx, windowSpot, 0.6, 5);
+        moonPeek.start();
+      },
+    },
+    {
+      id: 'egg-pepper',
+      position: pepperSpot,
+      radius: 0.32,
+      play(ctx) {
+        // It rears back, holds it... and sneezes toward the pot, which pops three more.
+        pepperWobble.kick(0.55);
+        cues.after(0.34, () => {
+          pepperWobble.kick(-1.3);
+          gag.puff(ctx, sneezeAt, 0.22, pepperColor, 10);
+          for (let i = 0; i < 3; i += 1) {
+            cues.after(0.12 + i * 0.1, () => ctx.director.launch(ctx.rng.range(-0.5, 0.5), POT.rimY - 0.15, ctx.rng.range(-0.5, 0.5), { flight: 0.8, scale: 0.46 }));
+          }
+        });
+      },
+    },
+  ];
+
   const tell = (u: number, dt: number, instant: boolean, calm: boolean): void => {
     story = u;
     bank.update(u, dt, instant, calm);
@@ -531,11 +612,15 @@ function* buildStove(stage: Stage, root: THREE.Group): SceneBuild {
   // The moon climbs out from behind the sill as the evening goes on.
   const placeMoon = (u: number, shake: number): void => {
     const rise = smooth(0, 0.9, u);
-    sky.uDisc.value.set(lerp(-0.05, -0.62, rise) + Math.sin(time * 47) * shake, lerp(-1.25, 0.62, rise) + Math.cos(time * 41) * shake * 0.8, 0.56, lerp(1.25, 1.7, rise));
+    // Tapped, it comes right up to the glass for a look, whatever the hour, then backs off.
+    const x = lerp(lerp(-0.05, -0.62, rise), 0.12, peek);
+    const y = lerp(lerp(-1.25, 0.62, rise), -0.12, peek);
+    sky.uDisc.value.set(x + Math.sin(time * 47) * shake, y + Math.cos(time * 41) * shake * 0.8, 0.56 * (1 + 0.5 * peek), lerp(1.25, 1.7, Math.max(rise, peek)));
   };
 
   return {
     lamps,
+    eggs,
     kick(strength) {
       potKick.kick(-0.16 - 0.14 * strength);
       if (strength > 0) {
@@ -622,7 +707,15 @@ function* buildStove(stage: Stage, root: THREE.Group): SceneBuild {
       const period = lerp(11, 4.5, story);
       const cycle = time % period;
       const tremble = cycle > period - 1.2 ? Math.sin(((cycle - period + 1.2) * Math.PI) / 1.2) : 0;
+      peek = moonPeek.update(dt);
       placeMoon(story, (0.012 + 0.045 * story * story) * tremble + shake * 0.03);
+
+      cues.update(dt);
+      pepperWobble.update(dt);
+      clockRush *= Math.exp(-dt * 1.6);
+      clockAngle += dt * (Math.PI * 2) * (1 / 60 + clockRush);
+      minuteHand.rotation.z = -clockAngle;
+      hourHand.rotation.z = -clockAngle / 12 - 2.1;
 
       if (!chefFlying && chef.root.visible) updateChef(dt, ctx);
       updateKettle(dt, ctx);

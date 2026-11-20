@@ -14,11 +14,13 @@ import { toyMaterials } from '../materials/toy.ts';
 import type { SceneContext, SceneBuild, SceneSpec, UnitSlot } from './types.ts';
 import { M } from '../machines/common.ts';
 import { addRichTree, carDetails, clockTowerDetails, dressHouse, dressPlaza, fountainStatue, wheelGondolas, windowFrameAt, type HouseFrame } from './dress.ts';
+import { Cues, gag, type EggSpot } from './eggs.ts';
 import { figureGeometry, SetPieces } from './pieces.ts';
 import { alongStory, LightBank } from './story.ts';
 import { vesselPile } from './vessel.ts';
 
 const FOUNTAIN = { floorY: 0.5, rimY: 2.1, innerR: 5, outerR: 5.8 };
+const splashColor = new THREE.Color('#bfe6ff');
 const BOARD_R = 104;
 const RING_ROAD = 27;
 const STROLLERS = 18;
@@ -482,6 +484,48 @@ function* buildTown(stage: Stage, root: THREE.Group): SceneBuild {
   let jetTimer = 0;
   let strain = 0;
 
+  // Hidden things to find (src/content/props.ts): the clock tower and the fountain's golden kernel.
+  // The pigeons are the third; they belong to the flock, which the scene runtime keeps.
+  const cues = new Cues();
+  const clockSpot = new THREE.Vector3(20, 23, -36.2);
+  const belfry = new THREE.Vector3(20, 34, -40);
+  const statueSpot = new THREE.Vector3(0, FOUNTAIN.floorY + 4.8, 0);
+  const eggs: EggSpot[] = [
+    {
+      id: 'egg-clocktower',
+      position: clockSpot,
+      radius: 3,
+      play(ctx) {
+        // It strikes three, and every stroke is a burst of popcorn from the belfry.
+        for (let stroke = 0; stroke < 3; stroke += 1) {
+          cues.after(stroke * 0.5, () => {
+            gag.sparkle(ctx, clockSpot, 2.2, 6);
+            gag.burst(ctx, belfry, 6, { flight: 1.5, scale: 0.55 });
+          });
+        }
+      },
+    },
+    {
+      id: 'egg-fountain',
+      position: statueSpot,
+      radius: 1.3,
+      play(ctx) {
+        // A wish: in go a handful of kernels instead of coins, with a splash each.
+        gag.sparkle(ctx, statueSpot, 1.2, 6);
+        for (let i = 0; i < 5; i += 1) {
+          cues.after(i * 0.12, () => {
+            const r = ctx.rng;
+            ctx.director.launch(r.range(-3, 3), 9, 18, { flight: 0.9, scale: 0.42, quiet: i > 0 });
+            const a = r.range(0, 6.28);
+            for (let d = 0; d < 4; d += 1) {
+              ctx.sprites.spawn({ x: Math.cos(a) * 3, y: FOUNTAIN.floorY + 0.6, z: Math.sin(a) * 3, vx: r.range(-1, 1), vy: r.range(2.5, 4), vz: r.range(-1, 1), gravity: 9, sizeStart: 0.28, sizeEnd: 0.08, life: 0.6, color: splashColor, alpha: 0.8, kind: SpriteKind.Drop });
+            }
+          });
+        }
+      },
+    },
+  ];
+
   const tell = (u: number, dt: number, instant: boolean, calm: boolean): void => {
     bank.update(u, dt, instant, calm);
     alongStory(u, SKY, (from, to, t) => blendSky(skyLook, from, to, t));
@@ -491,6 +535,7 @@ function* buildTown(stage: Stage, root: THREE.Group): SceneBuild {
 
   return {
     lamps,
+    eggs,
     progress: tell,
     upgradesChanged(owned, animate) {
       pieces.sync(owned, animate);
@@ -528,6 +573,7 @@ function* buildTown(stage: Stage, root: THREE.Group): SceneBuild {
     },
     update(dt, ctx: SceneContext) {
       time += dt;
+      cues.update(dt);
       const k = kick.update(dt);
       fountain.scale.set(1 - k * 0.012, 1 + k * 0.02 + strain * strain * 0.03 * Math.sin(time * 48), 1 - k * 0.012);
       wheel.rotation.z = time * 0.16;

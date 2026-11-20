@@ -15,6 +15,8 @@ import { PieceBatches } from './popcorn/batches.ts';
 import { PopDirector } from './popcorn/director.ts';
 import { FlavorShow } from './popcorn/flavor.ts';
 import { Pile } from './popcorn/pile.ts';
+import { EGGS } from '../content/props.ts';
+import type { EggSpot } from './scenes/eggs.ts';
 import type { SceneContext, SceneParts, SceneSpec, UnitKindName } from './scenes/types.ts';
 import { UnitRig, type UnitHost } from './units.ts';
 
@@ -37,6 +39,10 @@ const comboColor = new THREE.Color(2, 1.5, 0.7);
 const flashColor = new THREE.Color(2.4, 1.8, 1);
 const smokeColor = new THREE.Color(0.55, 0.5, 0.5);
 const caramelColor = new THREE.Color('#d99a58');
+const PIGEON_EGG = 'egg-pigeons';
+/** Scratch for turning a world-space ray into a scene's own space. */
+const sceneRay = new THREE.Ray();
+const toScene = new THREE.Matrix4();
 const emberColor = new THREE.Color(2.8, 1.05, 0.25);
 
 export interface RuntimeHooks {
@@ -78,6 +84,8 @@ export class SceneRuntime {
   /** Set when a save is loaded: the next story step jumps straight to where the scene should be. */
   snapStory = true;
   private readonly rigs = new Map<UnitKindName, UnitRig>();
+  /** Hidden things that belong to the runtime rather than the scene, such as the pigeons. */
+  private readonly ownEggs: EggSpot[] = [];
   private readonly rng: Rng;
   private launchBudget = 0;
   private fountainBudget = 0;
@@ -146,6 +154,7 @@ export class SceneRuntime {
     tagNew('flavor');
     yield;
     if (spec.perches.length > 0) this.flock = new Flock(stage, this.root, spec.perches, 0.62 * k, rng);
+    if (this.flock && EGGS.some((egg) => egg.id === PIGEON_EGG && egg.stage === spec.id)) this.ownEggs.push(this.pigeonEgg(this.flock));
     tagNew('flock');
     this.stirrer = new Stirrer(stage, this.root, spec.steamY, spec.homeRadius / 0.72, k);
     tagNew('stirrer');
@@ -244,6 +253,76 @@ export class SceneRuntime {
 
   private rigFor(unit: number): UnitRig | undefined {
     return this.rigs.get(UNIT_ORDER[unit]!);
+  }
+
+  /** The ray in this scene's own space. */
+  private toScene(ray: THREE.Ray): THREE.Ray {
+    return sceneRay.copy(ray).applyMatrix4(toScene.copy(this.root.matrixWorld).invert());
+  }
+
+  /** The machine copy a ray (world space) meets first, if any. */
+  pickMachine(ray: THREE.Ray): { unit: number; copy: number; distance: number } | null {
+    const local = this.toScene(ray);
+    let best: { unit: number; copy: number; distance: number } | null = null;
+    for (const [kind, rig] of this.rigs) {
+      const hit = rig.pick(local);
+      if (hit && (!best || hit.distance < best.distance)) best = { unit: UNIT_ORDER.indexOf(kind), ...hit };
+    }
+    return best;
+  }
+
+  /** The hidden thing a ray (world space) passes over, if any is there to be found right now. */
+  pickEgg(ray: THREE.Ray): EggSpot | null {
+    const local = this.toScene(ray);
+    let best: EggSpot | null = null;
+    let nearest = Number.POSITIVE_INFINITY;
+    for (const spot of this.eggs) {
+      if (!this.canFind(spot)) continue;
+      if (local.distanceSqToPoint(spot.position) > spot.radius * spot.radius) continue;
+      const distance = local.origin.distanceTo(spot.position);
+      if (distance < nearest) {
+        nearest = distance;
+        best = spot;
+      }
+    }
+    return best;
+  }
+
+  get eggs(): readonly EggSpot[] {
+    return this.ownEggs.length ? [...(this.parts.eggs ?? []), ...this.ownEggs] : (this.parts.eggs ?? []);
+  }
+
+  /** The pigeons: tapped, they all take off, and drop the popcorn they were holding. */
+  private pigeonEgg(flock: Flock): EggSpot {
+    const roost = flock.perches.slice(1);
+    const centre = roost.reduce((sum, perch) => sum.add(perch), new THREE.Vector3()).divideScalar(Math.max(1, roost.length));
+    return {
+      id: PIGEON_EGG,
+      position: centre,
+      radius: 8,
+      active: () => flock.settled,
+      play(ctx) {
+        flock.scare();
+        for (const perch of flock.perches) ctx.director.launch(perch.x, perch.y, perch.z, { flight: ctx.rng.range(0.9, 1.3), scale: 0.45, quiet: true });
+      },
+    };
+  }
+
+  /** There to be found: not busy, not gone, and not under the heap. */
+  canFind(spot: EggSpot): boolean {
+    if (spot.active && !spot.active()) return false;
+    const { x, y, z } = spot.position;
+    return !this.pile.covers(x, z) || this.pile.heightAt(x, z) < y + spot.radius * 0.3;
+  }
+
+  pokeMachine(unit: number, copy: number): void {
+    this.rigFor(unit)?.poke(copy);
+  }
+
+  /** Lifts the copy under the pointer; -1 for none. */
+  hoverMachine(unit: number, copy: number): void {
+    const kind = unit >= 0 ? UNIT_ORDER[unit] : undefined;
+    for (const [other, rig] of this.rigs) rig.setHover(other === kind ? copy : -1);
   }
 
   /** The first copy of a machine, if this scene has a place for it. */

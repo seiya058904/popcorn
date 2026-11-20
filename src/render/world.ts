@@ -20,6 +20,7 @@ import { earthSpec } from './scenes/earth.ts';
 import { kitchenSpec } from './scenes/kitchen.ts';
 import { setPotSkin, stoveSpec } from './scenes/stove.ts';
 import { townSpec } from './scenes/town.ts';
+import { gag, type EggSpot } from './scenes/eggs.ts';
 import type { FinaleBeat, Grade, SceneSpec, UnitKindName } from './scenes/types.ts';
 
 export type BreakBeat = 'strain' | 'silence' | 'blast' | 'arrive';
@@ -36,7 +37,15 @@ export interface WorldHooks {
   onFinaleDone(): void;
   /** Where the music is within its beat, 0 to 1, so the frenzy lights can pulse in time. */
   beatPhase(): number;
+  /** A hidden thing was tapped; `first` the first time it was ever found. */
+  onEgg(id: string, first: boolean, screenX: number, screenY: number): void;
+  /** A working machine was poked. */
+  onPoke(unit: number): void;
+  /** What the pointer rests on changed: a machine, a hidden thing, or nothing. */
+  onHover(target: HoverTarget): void;
 }
+
+export type HoverTarget = { kind: 'machine'; unit: number } | { kind: 'egg' } | null;
 
 /** Scenes in play order; later milestones extend this list. */
 export const SCENES: SceneSpec[] = [stoveSpec, kitchenSpec, cinemaSpec, townSpec, earthSpec];
@@ -49,6 +58,10 @@ const TRANSITION_END = 3.25;
 const PRESSURE_FROM = 0.955;
 const PRESSURE_SHARE = 0.5;
 const COMBO_STEP = 12;
+/** A found egg can be tapped again for its gag, but not faster than this. */
+const EGG_COOLDOWN = 4;
+/** Now and then an egg not yet found twinkles, somewhere between these many seconds apart. */
+const WINK_EVERY: [number, number] = [22, 40];
 /** The close look at a machine bought for the first time. */
 const SPOTLIGHT_IN = 0.45;
 const SPOTLIGHT_HOLD = 1.55;
@@ -156,6 +169,12 @@ export class World {
   private readonly impact: ImpactDirector;
   private readonly rng = new Rng(77);
   private readonly raycaster = new THREE.Raycaster();
+  /** When each egg can play its gag again. */
+  private readonly eggReady = new Map<string, number>();
+  private winkTimer = 30;
+  /** Where the pointer last moved over the canvas, waiting for the next frame to be looked at. */
+  private hoverAt: { x: number; y: number } | null = null;
+  private hovered: HoverTarget = null;
   private readonly runtimes: SceneRuntime[] = [];
   private readonly runtimeHooks: RuntimeHooks;
   private currentIndex = -1;
@@ -457,8 +476,91 @@ export class World {
 
   // Input ------------------------------------------------------------------------
 
-  /** Called directly from the input handler, so the response is in the very next frame. */
-  click(clientX: number, clientY: number): void {
+  /** A ray from the camera through a point on the canvas. */
+  private rayAt(clientX: number, clientY: number): THREE.Ray {
+    const canvas = this.stage.renderer.domElement;
+    ndc.set((clientX / canvas.clientWidth) * 2 - 1, 1 - (clientY / canvas.clientHeight) * 2);
+    this.raycaster.setFromCamera(ndc, this.stage.camera);
+    return this.raycaster.ray;
+  }
+
+  /** What a press would act on, besides popping: a hidden thing first, then a machine. */
+  private targetAt(clientX: number, clientY: number): { egg: EggSpot } | { unit: number; copy: number } | null {
+    const runtime = this.current;
+    if (!runtime || this.transition || this.finaleTime !== -1 || this.attract) return null;
+    const ray = this.rayAt(clientX, clientY);
+    const egg = runtime.pickEgg(ray);
+    if (egg) return { egg };
+    const machine = runtime.pickMachine(ray);
+    return machine ? { unit: machine.unit, copy: machine.copy } : null;
+  }
+
+  /** The pointer moved over the canvas; it is looked at once per frame. */
+  hover(clientX: number, clientY: number): void {
+    this.hoverAt = { x: clientX, y: clientY };
+  }
+
+  /** The pointer left the canvas. */
+  unhover(): void {
+    this.hoverAt = null;
+    this.setHovered(null, -1);
+  }
+
+  private setHovered(target: HoverTarget, copy: number): void {
+    this.current?.hoverMachine(target?.kind === 'machine' ? target.unit : -1, copy);
+    const same = target?.kind === this.hovered?.kind && (target?.kind !== 'machine' || (this.hovered?.kind === 'machine' && target.unit === this.hovered.unit));
+    this.hovered = target;
+    if (!same) this.hooks.onHover(target);
+  }
+
+  private updateHover(): void {
+    if (!this.hoverAt) return;
+    const target = this.targetAt(this.hoverAt.x, this.hoverAt.y);
+    if (!target) this.setHovered(null, -1);
+    else if ('egg' in target) this.setHovered({ kind: 'egg' }, -1);
+    else this.setHovered({ kind: 'machine', unit: target.unit }, target.copy);
+  }
+
+  /** A press on something in the scene: an egg plays its gag, a machine gets poked. */
+  private pressTarget(clientX: number, clientY: number): void {
+    const runtime = this.current;
+    const target = this.targetAt(clientX, clientY);
+    if (!runtime || !target) return;
+    if ('egg' in target) {
+      const { egg } = target;
+      if ((this.eggReady.get(egg.id) ?? 0) > this.time) return;
+      this.eggReady.set(egg.id, this.time + EGG_COOLDOWN);
+      const ctx = runtime.context(this.time, this.level, this.intensity);
+      if (ctx) egg.play(ctx);
+      const first = this.sim.findEgg(egg.id);
+      this.hooks.onEgg(egg.id, first, clientX, clientY);
+      return;
+    }
+    if (this.sim.poke(target.unit)) {
+      runtime.pokeMachine(target.unit, target.copy);
+      this.hooks.onPoke(target.unit);
+    }
+  }
+
+  /** Now and then one egg not yet found in this scene catches the light. */
+  private updateWink(dt: number): void {
+    const runtime = this.current;
+    if (!runtime || this.transition || this.attract || this.finaleTime !== -1) return;
+    this.winkTimer -= dt;
+    if (this.winkTimer > 0) return;
+    this.winkTimer = WINK_EVERY[0] + Math.random() * (WINK_EVERY[1] - WINK_EVERY[0]);
+    const found = this.sim.state.legacy.found;
+    const hidden = runtime.eggs.filter((spot) => !found.includes(spot.id) && runtime.canFind(spot));
+    const spot = hidden[Math.floor(Math.random() * hidden.length)];
+    const ctx = spot ? runtime.context(this.time, this.level, this.intensity) : null;
+    if (spot && ctx) gag.wink(ctx, spot.position, runtime.spec.pile.k);
+  }
+
+  /**
+   * Called directly from the input handler, so the response is in the very next frame. `press`
+   * is a real press; holding the button repeats the pop without poking anything again.
+   */
+  click(clientX: number, clientY: number, press = true): void {
     const runtime = this.current;
     const director = runtime?.director;
     if (!runtime || !director) return;
@@ -475,10 +577,9 @@ export class World {
         return;
       }
     }
+    if (press) this.pressTarget(clientX, clientY);
     const { count, gainEach, golden } = this.sim.click();
-    const canvas = this.stage.renderer.domElement;
-    ndc.set((clientX / canvas.clientWidth) * 2 - 1, 1 - (clientY / canvas.clientHeight) * 2);
-    this.raycaster.setFromCamera(ndc, this.stage.camera);
+    this.rayAt(clientX, clientY);
     this.pendingGain += count * gainEach;
     if (golden) {
       // The other kernels pay what a plain click would; the golden one carries the rest.
@@ -769,6 +870,8 @@ export class World {
     const active = this.transition;
     // Shows get the whole frame; the next scene is built in the quiet in between.
     if (!active && this.finaleTime < 0) this.advanceJob(BUILD_BUDGET_MS);
+    this.updateHover();
+    this.updateWink(dt);
 
     // During the silent beat the old scene hangs in slow motion.
     let sceneDt = dt;

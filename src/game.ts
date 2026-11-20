@@ -30,6 +30,25 @@ export interface GameOptions {
 /** Longest the start waits for the driver's parallel shader compiles before drawing anyway. */
 const COMPILE_WAIT_MS = 15_000;
 
+/** What each hidden thing sounds like when it is tapped. */
+const EGG_SOUNDS: Record<string, string> = {
+  'egg-clock': 'ding',
+  'egg-window-moon': 'chime',
+  'egg-pepper': 'shake',
+  'egg-fridge': 'boing',
+  'egg-lamp': 'ding',
+  'egg-radio': 'combo',
+  'egg-projector': 'unveil',
+  'egg-audience': 'combo',
+  'egg-curtain': 'shake',
+  'egg-pigeons': 'pigeons',
+  'egg-clocktower': 'ding',
+  'egg-fountain': 'catch',
+  'egg-satellite': 'orbital-zap',
+  'egg-cloud': 'shake',
+  'egg-moon': 'boing',
+};
+
 /** From the cinema onward the music takes on a grander color. */
 const WORLD_MUSIC_STAGE = 2;
 
@@ -139,6 +158,19 @@ export class Game {
         this.hud.setSkipVisible(false);
         this.hud.showCredits(() => void this.restartRun());
       },
+      onEgg: (id, first, x, y) => {
+        this.audio.effect(EGG_SOUNDS[id] ?? 'boing', 'small');
+        if (first) {
+          this.audio.effect('unveil', 'small');
+          feedback.milestone();
+        } else feedback.bought();
+        this.hud.eggFound(id, first, x, y);
+      },
+      onPoke: () => {
+        this.audio.effect('boing', 'tap', 0.9 + Math.random() * 0.3);
+        feedback.bought();
+      },
+      onHover: (target) => this.hud.setHover(target),
     });
     this.world.backgroundBuilds = !options.capture;
     feedback.connect({ sound: (name, rate) => this.audio.ui(name, rate) });
@@ -168,6 +200,13 @@ export class Game {
       this.world.click(event.clientX, event.clientY);
       this.hold = { x: event.clientX, y: event.clientY, wait: HOLD_POP.firstDelay };
     });
+    // Machines and hidden things answer to the pointer resting on them.
+    options.canvas.addEventListener('pointermove', (event) => {
+      if (event.pointerType === 'touch') return;
+      this.world.hover(event.clientX, event.clientY);
+      this.hud.moveHover(event.clientX, event.clientY);
+    });
+    options.canvas.addEventListener('pointerleave', () => this.world.unhover());
     window.addEventListener('pointermove', (event) => {
       if (!this.hold) return;
       if (event.target !== options.canvas) {
@@ -425,7 +464,7 @@ export class Game {
     hold.wait -= delta;
     while (hold.wait <= 0) {
       hold.wait += 1 / this.sim.derived.holdRate;
-      this.world.click(hold.x, hold.y);
+      this.world.click(hold.x, hold.y, false);
     }
   }
 

@@ -77,6 +77,16 @@ export class Flock {
     if (hidden) this.rig.commit(0);
   }
 
+  /** True while every bird sits on its perch. */
+  get settled(): boolean {
+    return this.birds.every((bird) => bird.state === 'perched');
+  }
+
+  /** Where the birds sit, in their scene's space. */
+  get perches(): THREE.Vector3[] {
+    return this.birds.map((bird) => bird.home);
+  }
+
   scare(): void {
     for (const bird of this.birds) {
       if (bird.state === 'fleeing') continue;

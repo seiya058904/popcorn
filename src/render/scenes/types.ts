@@ -1,4 +1,5 @@
 import type * as THREE from 'three';
+import type { EggSpot } from './eggs.ts';
 import type { Rng } from '../../motion/rng.ts';
 import type { Lamp, LightRig } from '../core/globals.ts';
 import type { Stage } from '../core/stage.ts';
@@ -113,6 +114,8 @@ export interface SceneParts {
   finale?: FinalePlan;
   /** Tells the set how many units of a kind are on show, e.g. to light burners. */
   unitsChanged?(kind: UnitKindName, count: number): void;
+  /** The hidden things to find in this scene (src/content/props.ts). */
+  eggs?: EggSpot[];
 }
 
 export interface SceneSpec {

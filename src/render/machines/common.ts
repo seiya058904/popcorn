@@ -54,6 +54,10 @@ export interface UnitState {
   morph: number;
   /** How far a machine on a path has rolled, in its own units, for turning its wheels. */
   travel: number;
+  /** Squash and stretch after the player pokes it: dips below 0, overshoots, settles. */
+  poke: Spring;
+  /** 0 to 1 while the pointer rests on it. */
+  hover: number;
 }
 
 export type PutPart = (part: number, matrix: THREE.Matrix4) => void;

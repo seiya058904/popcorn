@@ -13,6 +13,7 @@ import { toyMaterials } from '../materials/toy.ts';
 import { PieceBatches } from '../popcorn/batches.ts';
 import type { PileShape } from '../popcorn/pile.ts';
 import { planetRingPath, planetUp } from './paths.ts';
+import { Cues, gag, Pulse, Wobble, type EggSpot } from './eggs.ts';
 import { NEON_PINK, neonPop, SetPieces, toyFigure } from './pieces.ts';
 import { LightBank, storyWeights } from './story.ts';
 import type { FinalePlan, SceneContext, SceneBuild, SceneSpec, UnitSlot } from './types.ts';
@@ -21,6 +22,12 @@ const R = 34;
 const K = 3.5;
 const CRATER = { floorY: 2.4, rimY: 5.2, innerR: 4.6, outerR: 5.5, skirtR: 13 };
 const MOON_R = 12.5;
+/** Clear of the machines and the interface: a satellite off the planet's lower right limb, a cloud above. */
+const SATELLITE_AT = new THREE.Vector3(25, -11, 38);
+const CLOUD_AT = new THREE.Vector3(14, 9, 20);
+const shutterColor = new THREE.Color(3, 3, 3);
+const heatColor = new THREE.Color(2.6, 1.1, 0.35);
+const rainColor = new THREE.Color('#fff1cf');
 const MOON_HOME = new THREE.Vector3(-64, 40, -56);
 
 const ORBITAL_SLOTS: UnitSlot[] = [
@@ -513,6 +520,29 @@ const HAND_REST = new THREE.Vector3(104, 26, 6);
 const LEAVE_X = 330;
 const LEAVE_Y = 60;
 
+/** A little camera satellite in gold foil with two solar wings; centered, lens toward +Z. */
+function satelliteGeometry(): THREE.BufferGeometry {
+  const kit = new Kit();
+  kit.add(P.box(2.4, 2, 2, 0.2, 2), { color: '#e8b44a', gloss: 0.8, metal: 0.9, pattern: Pattern.Brushed });
+  for (const side of [-1, 1]) {
+    kit.add(P.box(0.6, 0.18, 0.18, 0.05, 1), { color: '#c8ced6', gloss: 0.8, metal: 1, outline: 0, matrix: at(side * 1.5, 0, 0) });
+    kit.add(P.box(4.6, 0.1, 1.9, 0.05, 1), { color: '#2c4f9e', gloss: 0.9, coat: 0.6, matrix: at(side * 4.1, 0, 0) });
+    for (let i = 1; i < 4; i += 1) kit.add(P.box(0.06, 0.12, 1.9, 0.01, 1), { color: '#c8ced6', outline: 0, detail: 1, matrix: at(side * (1.8 + i * 1.15), 0, 0) });
+  }
+  kit.add(P.puck(0.55, 0.5, 0.4, 20, 0.05), { color: '#1c1e28', gloss: 0.95, coat: 0.9, matrix: at(0, 0.1, 1.1, [Math.PI / 2, 0, 0]) });
+  kit.add(P.puck(0.32, 0.32, 0.05, 20, 0.02), { color: '#7cc4ff', gloss: 1, emissive: 0.3, outline: 0, matrix: at(0, 0.1, 1.33, [Math.PI / 2, 0, 0]) });
+  kit.add(P.lathe([[0, 0], [0.9, 0.35], [0.95, 0.42], [0, 0.12]], 18, 0.02, 1), { color: '#f4f6fa', gloss: 0.5, matrix: at(0, 1, -0.4, [-0.5, 0, 0]) });
+  return kit.build();
+}
+
+/** A fat toy cloud; origin at its middle. */
+function cloudGeometry(): THREE.BufferGeometry {
+  const kit = new Kit();
+  const puffsAt: Array<[number, number, number, number]> = [[0, 0.3, 0, 2.2], [-2.1, -0.2, 0.2, 1.6], [2.2, -0.1, -0.1, 1.7], [-1, 1.2, -0.3, 1.5], [1.1, 1.1, 0.3, 1.4], [0.2, -0.7, 0.8, 1.5]];
+  for (const [x, y, z, r] of puffsAt) kit.add(P.sphere(r, 16, 12), { color: '#ffffff', gloss: 0.15, matrix: at(x, y, z, [0, 0, 0], [1, 0.82, 0.9]) });
+  return kit.build();
+}
+
 function* buildEarth(stage: Stage, root: THREE.Group): SceneBuild {
   const sky = new THREE.Group();
   root.add(sky);
@@ -638,6 +668,12 @@ function* buildEarth(stage: Stage, root: THREE.Group): SceneBuild {
   const ring = pieces.group(ringTilt);
   pieces.part(adRingGeometry(), ring, { shadow: false });
   pieces.decoration('decor-ring', ringTilt, 14);
+  // Hidden things to find (src/content/props.ts): a satellite with a camera, a cloud. The moon is the third.
+  const satellite = pieces.group(root, SATELLITE_AT.x, SATELLITE_AT.y, SATELLITE_AT.z);
+  satellite.rotation.set(0.25, 0.9, 0.15);
+  pieces.part(satelliteGeometry(), satellite);
+  const cloud = pieces.group(root, CLOUD_AT.x, CLOUD_AT.y, CLOUD_AT.z);
+  pieces.part(cloudGeometry(), cloud);
   pieces.build(stage);
   const aurora = auroraMesh();
   aurora.visible = false;
@@ -654,6 +690,58 @@ function* buildEarth(stage: Stage, root: THREE.Group): SceneBuild {
   let spin = 0;
   let finaleTime = -1;
   let popped = false;
+
+  const cues = new Cues();
+  const selfie = new Pulse(1.6);
+  const cloudWobble = new Wobble(cloud, { axis: 'z', squash: 0.3, turn: 0.08, stiffness: 160, damping: 5 });
+  const moonSquish = new Spring(0, 140, 6);
+  let rain = 0;
+  const lens = new THREE.Vector3();
+  const satelliteSpot = SATELLITE_AT.clone();
+  const cloudSpot = CLOUD_AT.clone();
+  const moonSpot = new THREE.Vector3();
+  const eggs: EggSpot[] = [
+    {
+      id: 'egg-satellite',
+      position: satelliteSpot,
+      radius: 4.5,
+      active: () => finaleTime < 0 && !selfie.busy,
+      play(ctx) {
+        // It turns round to face the camera and takes a picture of itself, popcorn planet behind.
+        selfie.start();
+        cues.after(0.75, () => {
+          satellite.updateMatrixWorld();
+          root.worldToLocal(satellite.localToWorld(lens.set(0, 0.1, 1.5)));
+          ctx.sprites.spawn({ x: lens.x, y: lens.y, z: lens.z, sizeStart: 2, sizeEnd: 16, life: 0.32, color: shutterColor, alpha: 1, additive: 1, kind: SpriteKind.Puff });
+          gag.sparkle(ctx, lens, 2.5, 6);
+        });
+      },
+    },
+    {
+      id: 'egg-cloud',
+      position: cloudSpot,
+      radius: 4,
+      active: () => finaleTime < 0,
+      play() {
+        // A squeeze, and down comes popcorn rain.
+        cloudWobble.kick(1);
+        rain = 1.6;
+      },
+    },
+    {
+      id: 'egg-moon',
+      position: moonSpot,
+      radius: MOON_R,
+      active: () => finaleTime < 0 && !popped,
+      play(ctx) {
+        // It wobbles like a poked jelly and gives off heat; the astronaut jumps.
+        moonSquish.kick(-9);
+        astronautHop.kick(5);
+        for (let i = 0; i < 3; i += 1) cues.after(i * 0.18, () => ctx.sprites.spawn({ x: moon.position.x, y: moon.position.y, z: moon.position.z, sizeStart: MOON_R * moon.scale.x * 1.8, sizeEnd: MOON_R * moon.scale.x * 3.4, life: 0.6, color: heatColor, alpha: 0.45, additive: 1, kind: SpriteKind.Ring }));
+        gag.puff(ctx, v.copy(moon.position).addScaledVector(UP, MOON_R * moon.scale.x), 4, steam, 8);
+      },
+    },
+  ];
   let lavaTimer = 0;
   let grabbed = false;
   let story = 0;
@@ -812,6 +900,7 @@ function* buildEarth(stage: Stage, root: THREE.Group): SceneBuild {
 
   return {
     finale,
+    eggs,
     progress: tell,
     upgradesChanged(owned, animate) {
       pieces.sync(owned, animate);
@@ -841,6 +930,21 @@ function* buildEarth(stage: Stage, root: THREE.Group): SceneBuild {
         moon.position.x += Math.sin(time * 49) * 0.13 * tremble;
         moon.position.y += Math.cos(time * 43) * 0.11 * tremble;
         moon.scale.setScalar(lerp(0.55, 1, approach));
+        const squish = moonSquish.update(dt) * 0.08;
+        moon.scale.multiply(v.set(1 - squish * 0.5, 1 + squish, 1 - squish * 0.5));
+        moonSpot.copy(moon.position);
+      }
+      cues.update(dt);
+      cloudWobble.update(dt);
+      cloud.position.y = CLOUD_AT.y + Math.sin(time * 0.5) * 0.5;
+      const look = selfie.update(dt);
+      satellite.rotation.set(0.25 + Math.sin(time * 0.3) * 0.05, lerp(0.9 + time * 0.05, 0.25, look), 0.15);
+      if (rain > 0) {
+        rain -= dt;
+        const r = ctx.rng;
+        for (let i = 0; i < 3; i += 1) {
+          ctx.sprites.spawn({ x: cloud.position.x + r.range(-2.6, 2.6), y: cloud.position.y - 1.2, z: cloud.position.z + r.range(-1.2, 1.2), vy: -r.range(2, 4), gravity: 14, sizeStart: 0.45, sizeEnd: 0.35, life: 0.9, color: rainColor, alpha: 1, kind: SpriteKind.Fleck, spin: r.range(-6, 6) });
+        }
       }
       moon.rotation.y = time * 0.02;
       ring.rotation.y = time * 0.035;

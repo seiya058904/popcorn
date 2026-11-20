@@ -1,4 +1,4 @@
-import type { Object3D } from 'three';
+import type { Object3D, Vector3 } from 'three';
 import type { UnitKindName } from '../render/scenes/types.ts';
 import type { Game } from '../game.ts';
 import { BOT_PROFILES, BotPlayer } from '../sim/bots.ts';
@@ -14,6 +14,10 @@ export interface QaApi {
   advance(seconds: number): void;
   info(): { drawCalls: number; triangles: number; gpu: string; simSteps: number; visualTime: number };
   click(x: number, y: number): void;
+  /** Where a hidden thing of the current scene is on screen, in CSS pixels; null if it is not here. */
+  eggPoint(id: string): { x: number; y: number } | null;
+  /** Where the first copy of a machine stands on screen, in CSS pixels; null if it is not shown. */
+  machinePoint(unit: number): { x: number; y: number } | null;
   earn(amount: number): void;
   set(values: Partial<GameState>): void;
   buy(producer: number, times?: number): void;
@@ -74,6 +78,11 @@ export function installDebug(game: Game): void {
   let maxDrawCalls = 0;
   let maxTriangles = 0;
   let syncGpu = false;
+  const toScreen = (world: Vector3): { x: number; y: number } => {
+    const canvas = game.stage.renderer.domElement;
+    world.project(game.stage.camera);
+    return { x: (world.x * 0.5 + 0.5) * canvas.clientWidth, y: (0.5 - world.y * 0.5) * canvas.clientHeight };
+  };
   const probe = new Uint8Array(4);
   game.onFrame((delta) => {
     perf.update(delta);
@@ -130,6 +139,16 @@ export function installDebug(game: Game): void {
     },
     click(x, y) {
       game.world.click(x, y);
+    },
+    eggPoint(id) {
+      const runtime = game.world.current;
+      const spot = runtime?.eggs.find((egg) => egg.id === id);
+      return runtime && spot ? toScreen(runtime.root.localToWorld(spot.position.clone())) : null;
+    },
+    machinePoint(unit) {
+      const runtime = game.world.current;
+      const copy = runtime?.machineFocus(unit);
+      return runtime && copy ? toScreen(runtime.root.localToWorld(copy.center.clone())) : null;
     },
     earn(amount) {
       game.sim.state.popcorn += amount;

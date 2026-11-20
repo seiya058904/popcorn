@@ -1,6 +1,7 @@
 import { ACHIEVEMENTS } from '../content/achievements.ts';
 import { formatAmount } from '../content/format.ts';
 import { CREDITS, NEWS_LINES } from '../content/news.ts';
+import { EGGS } from '../content/props.ts';
 import { PRODUCERS } from '../content/producers.ts';
 import { STAGES } from '../content/stages.ts';
 import type { EventBus } from '../events/bus.ts';
@@ -18,6 +19,8 @@ import { pressable } from './press.ts';
 import { closeSheet, openSheet } from './sheet.ts';
 import { Shop } from './shop.ts';
 
+/** How long a found thing's line stays up. */
+const EGG_BUBBLE_MS = 3200;
 const FLOAT_POOL = 24;
 const SHOP_REFRESH_SECONDS = 0.1;
 const TOAST_MS = 4200;
@@ -54,6 +57,10 @@ export class Hud {
   private newsIndex = 0;
   private newsTimer = 2;
   private readonly slate: HTMLElement;
+  /** Beside the pointer when it rests on something that can be tapped. */
+  private readonly hoverTag: HTMLElement;
+  /** What a found thing has to say, over where it was tapped. */
+  private readonly bubble: HTMLElement;
   private readonly skip: HTMLElement;
   /** Set by the game: jumps past the current breakout show. */
   onSkip: (() => void) | null = null;
@@ -110,6 +117,8 @@ export class Hud {
     el('i', 'news-knob', this.news);
     el('i', 'news-knob is-low', this.news);
     this.slate = el('div', 'slate', root);
+    this.hoverTag = el('div', 'hover-tag', root);
+    this.bubble = el('div', 'egg-bubble', root);
     this.skip = el('button', 'skip', root, '跳过 ▶');
     this.skip.addEventListener('pointerdown', (event) => event.stopPropagation());
     pressable(this.skip, { action: () => this.onSkip?.() });
@@ -257,6 +266,44 @@ export class Hud {
     });
   }
 
+  /** The pointer rests on a machine (its name and an invitation), a hidden thing (a hint), or nothing. */
+  setHover(target: { kind: 'machine'; unit: number } | { kind: 'egg' } | null): void {
+    if (target) this.hoverTag.textContent = target.kind === 'egg' ? '？' : `戳一下 · ${PRODUCERS[target.unit]!.name}`;
+    setClass(this.hoverTag, 'is-on', target !== null);
+    setClass(this.hoverTag, 'is-egg', target?.kind === 'egg');
+  }
+
+  moveHover(x: number, y: number): void {
+    this.hoverTag.style.transform = `translate(${x}px, ${y}px)`;
+  }
+
+  /** A hidden thing was tapped: it says its line, and the first time it joins the album. */
+  eggFound(id: string, first: boolean, x: number, y: number): void {
+    const def = EGGS.find((egg) => egg.id === id);
+    if (!def) return;
+    this.bubble.textContent = def.blurb;
+    this.bubble.getAnimations().forEach((animation) => animation.cancel());
+    const at = `translate(${x}px, ${y}px) translate(-50%, -100%)`;
+    // It pops up from the spot and floats a little; with reduced motion it only fades.
+    const full: Keyframe[] = [
+      { transform: `${at} translateY(0.6rem) scale(0.86)`, opacity: 0 },
+      { transform: `${at} translateY(-1.6rem) scale(1.04)`, opacity: 1, offset: 0.08 },
+      { transform: `${at} translateY(-1.4rem) scale(1)`, opacity: 1, offset: 0.14 },
+      { transform: `${at} translateY(-1.8rem) scale(1)`, opacity: 1, offset: 0.86 },
+      { transform: `${at} translateY(-2.4rem) scale(0.98)`, opacity: 0 },
+    ];
+    const still = `${at} translateY(-1.6rem)`;
+    const calm: Keyframe[] = [
+      { transform: still, opacity: 0 },
+      { transform: still, opacity: 1, offset: 0.08 },
+      { transform: still, opacity: 1, offset: 0.86 },
+      { transform: still, opacity: 0 },
+    ];
+    const reduced = document.documentElement.dataset.motion === 'reduced';
+    this.bubble.animate(reduced ? calm : full, { duration: EGG_BUBBLE_MS, easing: 'cubic-bezier(.2,.7,.3,1)' });
+    if (first) this.toast(ICONS.find, `发现彩蛋：${def.name}`, `彩蛋图鉴 ${this.sim.state.legacy.found.length} / ${EGGS.length}`);
+  }
+
   /** Keeps the interface off the title screen. */
   setHidden(hidden: boolean): void {
     setClass(this.root, 'is-title', hidden);
@@ -342,6 +389,20 @@ export class Hud {
       const text = el('div', '', card);
       el('b', '', text, got ? def.name : '？？？');
       el('small', '', text, got ? def.blurb : '还没发生。');
+    }
+    // The album of hidden things: what was found, and for the rest only where to look.
+    const found = new Set(this.sim.state.legacy.found);
+    const albumHead = el('div', 'dialog-head album-head', dialog);
+    el('h2', '', albumHead, '彩蛋图鉴');
+    el('span', 'count-chip num', albumHead, `${found.size} / ${EGGS.length}`);
+    const album = el('div', 'achievement-grid', dialog);
+    for (const egg of EGGS) {
+      const got = found.has(egg.id);
+      const card = el('div', `achievement${got ? '' : ' is-locked'}`, album);
+      el('span', 'achievement-icon', card).innerHTML = got ? ICONS.find : ICONS.lock;
+      const text = el('div', '', card);
+      el('b', '', text, got ? egg.name : '？？？');
+      el('small', '', text, got ? egg.blurb : `藏在${STAGES[egg.stage]!.name}，点点看。`);
     }
     const actions = el('div', 'dialog-actions', dialog);
     this.button(actions, 'btn is-quiet', '关闭', () => this.closeDialog());

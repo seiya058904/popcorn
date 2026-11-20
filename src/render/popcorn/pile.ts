@@ -237,6 +237,12 @@ export class Pile {
     return this.level;
   }
 
+  /** True where the height field reaches; outside it heightAt only repeats the edge. */
+  covers(x: number, z: number): boolean {
+    const size = this.shape.size;
+    return x >= this.minX && x <= this.minX + size && z >= this.minZ && z <= this.minZ + size;
+  }
+
   /** Bilinear popcorn surface height, including the floor underneath. */
   heightAt(x: number, z: number): number {
     const fx = THREE.MathUtils.clamp((x - this.minX) / this.cell, 0, this.res - 1.001);

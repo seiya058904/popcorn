@@ -38,5 +38,6 @@ export const ICONS = {
   allIn: svg('<path fill="#fff1d0" d="M9 14h30v26a4 4 0 0 1-4 4H13a4 4 0 0 1-4-4z"/><path fill="none" d="M17 26l5 5 10-10"/><path fill="#ffd257" d="M6 8h36v6H6z"/>'),
   trophy: svg('<path fill="#ffd257" d="M14 7h20v13a10 10 0 0 1-20 0z"/><path fill="none" d="M14 11H7c0 7 3 10 8 11M34 11h7c0 7-3 10-8 11M24 30v8"/><path fill="#e4343c" d="M15 38h18v4H15z"/>'),
   menu: svg('<path fill="none" d="M9 14h30M9 24h30M9 34h30"/>'),
+  find: svg('<circle cx="21" cy="21" r="11" fill="#e8f6ff"/><path fill="none" d="M29 29l10 10"/><path fill="#ffd257" d="M21 14l2 5 5 2-5 2-2 5-2-5-5-2 5-2z"/>'),
   lock: svg('<path fill="none" d="M16 21v-6a8 8 0 0 1 16 0v6"/><rect x="11" y="21" width="26" height="20" rx="4" fill="#8d7f78"/>'),
 } as const;

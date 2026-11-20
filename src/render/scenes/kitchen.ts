@@ -9,6 +9,7 @@ import { blendSky, skyMaterial, skyUniforms, type SkyLook } from '../materials/s
 import { toyMaterials } from '../materials/toy.ts';
 import type { SceneContext, SceneBuild, SceneSpec, UnitSlot } from './types.ts';
 import { dressKitchen, fridgeBadge } from './dress.ts';
+import { Cues, gag, Pulse, Wobble, type EggSpot } from './eggs.ts';
 import { SetPieces, toyFigure } from './pieces.ts';
 import { alongStory, LightBank, storyWeights } from './story.ts';
 import { vesselPile } from './vessel.ts';
@@ -16,6 +17,9 @@ import { vesselPile } from './vessel.ts';
 const GROUND = -5.6;
 const BOWL = { floorY: 1.15, rimY: 2.3, innerR: 2.0, outerR: 2.25 };
 const COUNTER_TOP = -1.5;
+/** On the floor beside the cook, who works to the radio. */
+const RADIO_AT = new THREE.Vector3(-10.4, GROUND, 9.2);
+const noteColor = new THREE.Color(2, 1.6, 0.9);
 
 const C = {
   wall: '#e39aa2',
@@ -121,6 +125,29 @@ function addFridge(kit: Kit): void {
   const z = -13.9;
   kit.add(P.box(6.2, 12.8, 4.8, 1.05, 6), { color: C.mint, gloss: 0.85, coat: 0.5, pattern: Pattern.Enamel, wear: 0.2, matrix: at(x, GROUND + 6.7, z) });
   for (const dx of [-2.3, 2.3]) kit.add(P.box(0.5, 0.4, 3.4, 0.08, 1), { color: C.chrome, gloss: 0.9, metal: 1, pattern: Pattern.Brushed, matrix: at(x + dx, GROUND + 0.2, z) });
+}
+
+/** A wooden tabletop radio with a carrying handle and an aerial; origin at its foot, facing +Z. */
+function radioGeometry(): THREE.BufferGeometry {
+  const kit = new Kit();
+  kit.add(P.box(2.2, 1.4, 1, 0.24, 3), { color: '#b0693c', gloss: 0.6, coat: 0.4, pattern: Pattern.Wood, matrix: at(0, 0.78, 0) });
+  kit.add(P.box(1.92, 1.08, 0.06, 0.12, 2), { color: '#f3e2c0', gloss: 0.45, outline: 0, matrix: at(0, 0.8, 0.5) });
+  kit.add(P.puck(0.38, 0.37, 0.05, 24, 0.02), { color: '#4a3426', gloss: 0.2, pattern: Pattern.Fabric, outline: 0, matrix: at(-0.45, 0.8, 0.52, [Math.PI / 2, 0, 0]) });
+  for (let i = -2; i <= 2; i += 1) kit.add(P.box(0.62, 0.035, 0.03, 0.01, 1), { color: '#c9a46a', gloss: 0.7, metal: 0.6, outline: 0, detail: 1, matrix: at(-0.45, 0.8 + i * 0.13, 0.56) });
+  kit.add(P.box(0.72, 0.36, 0.04, 0.04, 1), { color: '#ffe9a6', emissive: 0.35, outline: 0, matrix: at(0.45, 0.96, 0.53) });
+  for (const x of [0.25, 0.65]) kit.add(P.puck(0.1, 0.09, 0.12, 16, 0.02), { color: '#e4b252', gloss: 0.84, metal: 1, matrix: at(x, 0.56, 0.56, [Math.PI / 2, 0, 0]) });
+  kit.add(P.torus(0.5, 0.055, 8, 18, Math.PI), { color: '#5a3422', gloss: 0.5, matrix: at(0, 1.47, 0) });
+  kit.add(P.capsule(0.03, 1.5, 3, 6), { color: '#c8ced6', gloss: 0.9, metal: 1, outline: 0.4, matrix: at(0.78, 2.15, -0.25, [0, 0, -0.42]) });
+  kit.add(P.sphere(0.06, 8, 6), { color: '#c8ced6', gloss: 0.9, metal: 1, outline: 0, matrix: at(1.12, 2.86, -0.25) });
+  for (const x of [-0.8, 0.8]) kit.add(P.box(0.24, 0.1, 0.7, 0.03, 1), { color: '#5a3422', outline: 0, matrix: at(x, 0.05, 0) });
+  return kit.build();
+}
+
+/** The tuning needle, pivoting at the origin. */
+function radioNeedle(): THREE.BufferGeometry {
+  const kit = new Kit();
+  kit.add(P.box(0.03, 0.26, 0.02, 0.01, 1), { color: '#d8473f', outline: 0, matrix: at(0, 0.1, 0) });
+  return kit.build();
 }
 
 function fridgeDoor(): THREE.BufferGeometry {
@@ -467,6 +494,11 @@ function* buildKitchen(stage: Stage, root: THREE.Group): SceneBuild {
   rug.rotation.y = -0.3;
   pieces.part(rugGeometry(), rug);
   pieces.decoration('decor-rug', rug, 3);
+  // A hidden thing to find (src/content/props.ts): the radio the cook keeps on.
+  const radio = pieces.group(root, RADIO_AT.x, RADIO_AT.y, RADIO_AT.z);
+  radio.rotation.y = 0.55;
+  pieces.part(radioGeometry(), radio);
+  const needle = pieces.part(radioNeedle(), pieces.group(radio, 0.45, 0.9, 0.56));
   pieces.build(stage);
   yield;
 
@@ -496,6 +528,59 @@ function* buildKitchen(stage: Stage, root: THREE.Group): SceneBuild {
   let time = 0;
   let steamTimer = 0;
   let doorOpening = false;
+
+  // Hidden things to find: the fridge, the lamp, the radio.
+  const cues = new Cues();
+  const fridgeGag = new Pulse(1.9);
+  const radioWobble = new Wobble(radio, { axis: 'z', squash: 0.16, turn: 0.12, stiffness: 300, damping: 8 });
+  let needleSpin = 0;
+  const fridgeSpot = new THREE.Vector3(-21, GROUND + 6.9, -11);
+  const lampSpot = new THREE.Vector3(0, 10.6, 0);
+  const radioSpot = new THREE.Vector3(RADIO_AT.x, RADIO_AT.y + 1.2, RADIO_AT.z);
+  const eggs: EggSpot[] = [
+    {
+      id: 'egg-fridge',
+      position: fridgeSpot,
+      radius: 3.6,
+      active: () => !doorOpening && !fridgeGag.busy,
+      play(ctx) {
+        // The door swings wide, and the fridge turns out to be packed with popcorn too.
+        fridgeGag.start();
+        cues.after(0.32, () => {
+          for (let i = 0; i < 14; i += 1) {
+            ctx.director.launch(-21 + ctx.rng.range(-2.2, 2.2), GROUND + ctx.rng.range(2.5, 10.5), -10.6, { flight: ctx.rng.range(0.6, 1), scale: ctx.rng.range(0.4, 0.55), quiet: i > 3 });
+          }
+        });
+      },
+    },
+    {
+      id: 'egg-lamp',
+      position: lampSpot,
+      radius: 1.6,
+      play(ctx) {
+        gag.sparkle(ctx, lampSpot, 0.8, 5);
+        lampSwing.kick(0.36);
+        cues.after(0.8, () => ctx.director.launch(0, 9.6, 0, { flight: 0.45, scale: 0.5 }));
+      },
+    },
+    {
+      id: 'egg-radio',
+      position: radioSpot,
+      radius: 1.7,
+      play(ctx) {
+        // It bounces to the beat while the needle hunts the stations, every one playing popcorn.
+        needleSpin = 1;
+        for (let beat = 0; beat < 4; beat += 1) {
+          cues.after(beat * 0.34, () => {
+            radioWobble.kick(0.7);
+            const r = ctx.rng;
+            ctx.sprites.spawn({ x: radioSpot.x + r.range(-0.6, 0.2), y: radioSpot.y + 0.5, z: radioSpot.z + 0.4, vx: r.range(-0.4, 0.4), vy: r.range(1.4, 2.2), vz: 0.3, drag: 0.8, sizeStart: 0.32, sizeEnd: 0.12, life: 1, color: noteColor, alpha: 1, additive: 1, kind: SpriteKind.Star, spin: r.range(-2, 2) });
+            if (beat % 2 === 1) ctx.director.launch(radioSpot.x, radioSpot.y + 0.4, radioSpot.z, { flight: 0.8, scale: 0.45 });
+          });
+        }
+      },
+    },
+  ];
   let story = 0;
   let strain = 0;
 
@@ -533,6 +618,7 @@ function* buildKitchen(stage: Stage, root: THREE.Group): SceneBuild {
   };
 
   return {
+    eggs,
     lamps,
     progress: tell,
     upgradesChanged(owned, animate) {
@@ -584,7 +670,11 @@ function* buildKitchen(stage: Stage, root: THREE.Group): SceneBuild {
       minuteHand.rotation.z = -time * 0.5;
       hourHand.rotation.z = -time * 0.5 / 12 - 1;
       // Left ajar once evening comes, so the fridge light shows round the door.
-      if (!doorOpening) door.rotation.y = -0.035 * bank.level(LIT.fridge) - strain * strain * 0.06 * Math.abs(Math.sin(time * 40));
+      if (!doorOpening) door.rotation.y = -0.035 * bank.level(LIT.fridge) - strain * strain * 0.06 * Math.abs(Math.sin(time * 40)) - 1.25 * fridgeGag.update(dt);
+      cues.update(dt);
+      radioWobble.update(dt);
+      needleSpin = Math.max(0, needleSpin - dt * 0.7);
+      needle.rotation.z = Math.sin(time * 9) * 0.9 * needleSpin;
 
       const period = lerp(9, 5, story);
       const cycle = time % period;

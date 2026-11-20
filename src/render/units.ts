@@ -32,6 +32,13 @@ const ARRIVAL_STAGGER = 0.05;
 /** The change of look at a milestone: a hop, a full turn and a pop, one copy after another. */
 const MORPH_SECONDS = 1.05;
 const MORPH_STAGGER = 0.07;
+/** A poke squashes the machine, springs it up past its height and lets it settle. */
+const POKE_STIFFNESS = 300;
+/** The work cycle a poke sets off starts this long after, once the squash has wound it up. */
+const POKE_FIRE_DELAY = 0.12;
+const ray = new THREE.Ray();
+const hit = new THREE.Vector3();
+
 /** The track goes down piece by piece in this long. */
 const TRACK_SECONDS = 1.7;
 /** A train waits at its stop this long after arriving, then pulls away. */
@@ -115,6 +122,8 @@ export class UnitRig {
   private readonly track: Track | null;
   private travel = 0;
   private tier = 0;
+  /** The copy under the pointer, or -1. */
+  private hovered = -1;
 
   /** Builds the machine one part per step, so it can be made in the background. */
   static *create(stage: Stage, parent: THREE.Object3D, kind: UnitKindName, slots: UnitSlot[], host: UnitHost, path: UnitPath | null = null): Generator<void, UnitRig, void> {
@@ -264,6 +273,8 @@ export class UnitRig {
         sunk: -1,
         morph: 1,
         travel: 0,
+        poke: new Spring(0, POKE_STIFFNESS, 9),
+        hover: 0,
       });
       queued += 1;
     }
@@ -293,6 +304,38 @@ export class UnitRig {
       // The machine's own +X runs along the loop.
       slot.rotation = Math.atan2(-tangent.z, tangent.x);
     });
+  }
+
+  /**
+   * The copy a ray (in the scene's own space) passes through first, judged by a ball round each
+   * standing copy, and how far along the ray it is.
+   */
+  pick(sceneRay: THREE.Ray): { copy: number; distance: number } | null {
+    let best: { copy: number; distance: number } | null = null;
+    this.states.forEach((st, copy) => {
+      if (st.age < 0 || st.sunk >= 1) return;
+      const slot = this.slots[copy]!;
+      const s = slot.scale ?? 1;
+      const center = hit.set(slot.x, slot.y + ((this.height + this.lowest) / 2) * s, slot.z);
+      const radius = Math.max(this.height * 0.5, this.radius) * s * 0.85;
+      ray.copy(sceneRay);
+      if (ray.distanceSqToPoint(center) > radius * radius) return;
+      const distance = ray.origin.distanceTo(center);
+      if (!best || distance < best.distance) best = { copy, distance };
+    });
+    return best;
+  }
+
+  /** The player poked this copy: it squashes, springs back and does one more work cycle. */
+  poke(copy: number): void {
+    const st = this.states[copy];
+    if (!st) return;
+    st.poke.kick(-Math.sqrt(POKE_STIFFNESS));
+    if (st.enter >= 1) st.timer = Math.min(st.timer, POKE_FIRE_DELAY);
+  }
+
+  setHover(copy: number): void {
+    this.hovered = copy;
   }
 
   update(dt: number, time: number, tempo: number): void {
@@ -387,6 +430,14 @@ export class UnitRig {
           frame.sz *= pop;
         }
       }
+      // A poke: squashed down first, stretched up past its height, then a few settling wobbles.
+      // The pointer resting on a machine lifts it a touch, ready to be poked.
+      const poke = st.poke.update(dt) * (calm ? 0.5 : 1);
+      st.hover += ((index === this.hovered ? 1 : 0) - st.hover) * (1 - Math.exp(-dt * 14));
+      frame.y += st.hover * 0.06;
+      frame.sy *= 1 + poke * 0.16 + st.hover * 0.035;
+      frame.sx *= 1 - poke * 0.08 + st.hover * 0.02;
+      frame.sz *= 1 - poke * 0.08 + st.hover * 0.02;
       const jitter = st.shake * 0.018 * s;
       pos.set(
         slot.x + (frame.x * c + frame.z * sn) * s + Math.sin(time * 61 + index) * jitter,
