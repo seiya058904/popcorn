@@ -22,9 +22,12 @@ const R = 34;
 const K = 3.5;
 const CRATER = { floorY: 2.4, rimY: 5.2, innerR: 4.6, outerR: 5.5, skirtR: 13 };
 const MOON_R = 12.5;
-/** Clear of the machines and the interface: a satellite off the planet's lower right limb, a cloud above. */
+/**
+ * Clear of the machines, the interface and the camera's climb out of the town: a satellite off the
+ * planet's lower right limb, a cloud above its left side.
+ */
 const SATELLITE_AT = new THREE.Vector3(25, -11, 38);
-const CLOUD_AT = new THREE.Vector3(14, 9, 20);
+const CLOUD_AT = new THREE.Vector3(-16, 9, 16);
 const shutterColor = new THREE.Color(3, 3, 3);
 const heatColor = new THREE.Color(2.6, 1.1, 0.35);
 const rainColor = new THREE.Color('#fff1cf');

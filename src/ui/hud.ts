@@ -57,6 +57,8 @@ export class Hud {
   private newsIndex = 0;
   private newsTimer = 2;
   private readonly slate: HTMLElement;
+  /** A band of gold that sweeps across the counter after a golden kernel. */
+  private readonly counterGleam: HTMLElement;
   /** Beside the pointer when it rests on something that can be tapped. */
   private readonly hoverTag: HTMLElement;
   /** What a found thing has to say, over where it was tapped. */
@@ -81,6 +83,7 @@ export class Hud {
     this.countNode.dataset.counter = 'popcorn';
     this.count = new Odometer(this.countNode);
     const rateRow = el('div', 'marquee-rate', marquee);
+    this.counterGleam = el('span', 'marquee-gleam', marquee);
     el('span', '', rateRow, '爆米花 · 每秒');
     this.rate = new Text(el('span', 'num', rateRow));
 
@@ -186,6 +189,11 @@ export class Hud {
     this.floatCursor = (this.floatCursor + 1) % FLOAT_POOL;
     float.textContent = `+${formatAmount(gain)}`;
     setClass(float, 'is-golden', golden);
+    if (golden) {
+      this.counterGleam.classList.remove('is-on');
+      void this.counterGleam.offsetWidth;
+      this.counterGleam.classList.add('is-on');
+    }
     float.getAnimations().forEach((animation) => animation.cancel());
     const at = `translate(${x}px, ${y}px) translate(-50%, -50%)`;
     const size = golden ? 1.5 : 1;

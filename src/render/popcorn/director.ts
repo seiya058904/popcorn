@@ -61,6 +61,8 @@ const MACHINE_FLIGHT_SCALE = 0.3;
 const LANDED_SCALE = 0.23;
 const GRAVITY = 30;
 const HOPPER_SCALE = 0.42;
+/** The least time a golden kernel swells before it bursts. */
+const GOLD_SWELL = 0.08;
 
 const HOME_COUNT = 12;
 const SWELL_MS = 70;
@@ -201,8 +203,8 @@ export class PopDirector {
       const piece = this.takeKernel(pointer) ?? this.spawnEmergencyKernel();
       if (!piece) continue;
       const golden = goldenGain > 0 && i === 0;
-      this.charge(piece, golden ? goldenGain : gainEach, i * 0.016);
       piece.golden = golden;
+      this.charge(piece, golden ? goldenGain : gainEach, i * 0.016);
     }
     this.hooks.onSquash();
   }
@@ -244,6 +246,12 @@ export class PopDirector {
     piece.squashTime = lerp(tuning.squashMs, SQUASH_RAPID_MS, rapid) / 1000;
     piece.swellTime = lerp(SWELL_MS, SWELL_RAPID_MS, rapid) / 1000;
     piece.holdTime = lerp(tuning.hitstopMs, tuning.hitstopRapidMs, rapid) / 1000;
+    if (piece.golden) {
+      // A golden kernel takes a beat longer to swell, glowing gold, so the eye finds it first.
+      piece.swellTime = Math.max(piece.swellTime, GOLD_SWELL);
+      const k = this.k;
+      this.sprites.spawn({ x: piece.pos.x, y: piece.pos.y, z: piece.pos.z, sizeStart: 0.2 * k, sizeEnd: 1.1 * k, life: 0.22, color: gold, alpha: 0.9, additive: 1, kind: SpriteKind.Ring });
+    }
     // The first kernel registers on this very frame; extra ones ripple right after it.
     piece.t = delay === 0 ? 1e-4 : -delay;
     if (piece.home >= 0) {
@@ -308,7 +316,7 @@ export class PopDirector {
     this.hooks.onBurst(piece.pos, this.combo, piece.gain, manual, piece.golden);
   }
 
-  /** A ring of gold and a spray of sparks; the full golden show is part of the scene work later. */
+  /** A ring of gold and a spray of sparks as it bursts. */
   private goldenEffects(piece: Piece): void {
     const rng = this.rng;
     const k = this.k;
@@ -318,6 +326,19 @@ export class PopDirector {
       const a = (i / 10) * 6.28 + rng.range(-0.2, 0.2);
       const speed = rng.range(2.4, 4.4) * k;
       this.sprites.spawn({ x, y, z, vx: Math.cos(a) * speed, vy: rng.range(2.6, 5.2) * k, vz: Math.sin(a) * speed, gravity: 14 * k, drag: 0.8, sizeStart: 0.2 * k, sizeEnd: 0.03 * k, life: rng.range(0.5, 0.8), color: gold, alpha: 1, additive: 1, kind: SpriteKind.Star, spin: rng.range(-5, 5) });
+    }
+  }
+
+  /** Where gold lands, the heap rings like a struck gong and throws up sparks. */
+  private goldenLanding(piece: Piece): void {
+    const rng = this.rng;
+    const k = this.k;
+    const { x, y, z } = piece.pos;
+    this.pile.impact(x, z, 1.6, 0.5 * tuning.landRadius * k);
+    this.sprites.spawn({ x, y: y + 0.05 * k, z, sizeStart: 0.4 * k, sizeEnd: 3.4 * k, life: 0.6, color: gold, alpha: 0.75, additive: 1, kind: SpriteKind.Ring });
+    for (let i = 0; i < 8; i += 1) {
+      const a = (i / 8) * 6.28 + rng.range(-0.3, 0.3);
+      this.sprites.spawn({ x, y, z, vx: Math.cos(a) * 1.8 * k, vy: rng.range(1.6, 3) * k, vz: Math.sin(a) * 1.8 * k, gravity: 12 * k, sizeStart: 0.16 * k, sizeEnd: 0.03 * k, life: rng.range(0.4, 0.7), color: gold, alpha: 1, additive: 1, kind: SpriteKind.Star, spin: rng.range(-5, 5) });
     }
   }
 
@@ -549,6 +570,12 @@ export class PopDirector {
   private updateFlight(p: Piece, dt: number): void {
     const t = p.t;
     const g = GRAVITY * this.k;
+    // Gold leaves a trail of glitter all the way down.
+    if (p.golden && Math.floor(t * 40) !== Math.floor((t - dt) * 40)) {
+      const r = this.rng;
+      const k = this.k;
+      this.sprites.spawn({ x: p.pos.x, y: p.pos.y, z: p.pos.z, vx: r.range(-0.3, 0.3) * k, vy: r.range(-0.2, 0.4) * k, vz: r.range(-0.3, 0.3) * k, gravity: 3 * k, sizeStart: 0.16 * k, sizeEnd: 0.02 * k, life: r.range(0.35, 0.6), color: gold, alpha: 1, additive: 1, kind: SpriteKind.Star, spin: r.range(-6, 6) });
+    }
     p.pos.x += p.vel.x * dt;
     p.pos.z += p.vel.z * dt;
     p.pos.y += p.vel.y * dt - 0.5 * g * dt * dt;
@@ -578,6 +605,7 @@ export class PopDirector {
       p.phase = 'land';
       p.t = 0;
       this.landEffects(p);
+      if (p.golden) this.goldenLanding(p);
       this.hooks.onLand(p.pos, p.gain);
     }
   }
@@ -670,6 +698,6 @@ export class PopDirector {
     rotation.makeRotationFromQuaternion(p.quat);
     m.multiply(scaling).multiply(rotation);
     m.scale(v.setScalar(scale));
-    this.batches.push(p.shape, m, pop, glow);
+    this.batches.push(p.shape, m, pop, glow, p.golden ? 1 : 0);
   }
 }

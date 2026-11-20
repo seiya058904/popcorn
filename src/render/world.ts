@@ -54,6 +54,11 @@ const STRAIN_END = 0.85;
 const ZOOM_START = 1.21;
 const ZOOM_END = 3.1;
 const TRANSITION_END = 3.25;
+/** The breakout camera overshoots its new framing by this share, over the last part of the climb. */
+const SETTLE_OVERSHOOT = 0.03;
+const SETTLE_FROM = 0.72;
+/** Share of a frame's camera travel smeared into motion blur at the climb's fastest. */
+const BREAKOUT_BLUR = 0.75;
 /** The vessel starts to tremble and crack when the scene is this close to bursting. */
 const PRESSURE_FROM = 0.955;
 const PRESSURE_SHARE = 0.5;
@@ -970,6 +975,7 @@ export class World {
     const tr = this.transition;
     const rest = this.restPose(this.current!.spec, this.level, this.frameOpen, this.scratchPose);
     let pose = rest;
+    let motion = 0;
     const plan = this.current!.parts.finale;
     if (plan && this.finaleTime !== -1) {
       const shot = plan.camera(this.finaleTime === -2 ? plan.duration : this.finaleTime);
@@ -980,8 +986,12 @@ export class World {
         const push = easeInOutCubic(clamp01(tr.t / (STRAIN_END + 0.3)));
         pose = { ...rest, position: rest.position.clone().lerp(rest.target, push * 0.08) };
       } else {
-        const u = easeInOutCubic(clamp01((tr.t - ZOOM_START) / (ZOOM_END - ZOOM_START)));
-        pose = this.blendPose(tr.startPose!, rest, u, tr.from.spec.nest?.rise ?? 0.1);
+        const x = clamp01((tr.t - ZOOM_START) / (ZOOM_END - ZOOM_START));
+        // It pulls back a few per cent past the new framing and eases home before the zoom ends.
+        const settle = this.reduceMotion ? 0 : SETTLE_OVERSHOOT * Math.sin(Math.PI * smoothstep(x, SETTLE_FROM, 1));
+        pose = this.blendPose(tr.startPose!, rest, easeInOutCubic(x) + settle, tr.from.spec.nest?.rise ?? 0.1);
+        // Blur follows the camera's speed, which peaks halfway through the climb.
+        motion = this.reduceMotion ? 0 : BREAKOUT_BLUR * Math.sin(Math.PI * x);
       }
     }
     if (this.spotlight && !tr && this.finaleTime === -1) pose = this.spotlightPose(rest);
@@ -994,6 +1004,7 @@ export class World {
     this.applyPose(pose);
 
     const post = this.stage.post.params;
+    post.motion = motion;
     post.flash = this.impact.flash;
     post.chroma = this.impact.chroma;
     if (this.shockT >= 0) {
@@ -1017,20 +1028,22 @@ export class World {
     const w = (Math.pow(toCamB.length() / toCamA.length(), t) - 1) / (toCamB.length() / toCamA.length() - 1);
     const target = a.target.clone().lerp(b.target, w);
     const position = target.clone().addScaledVector(dir, distance);
+    // Past 1 only the camera's distance and aim overshoot; the look of the scene stays put.
+    const c = Math.min(1, t);
     // The camera climbs up and out, so it clears the walls of the room it is leaving.
-    position.y += Math.sin(t * Math.PI) * distance * rise;
+    position.y += Math.sin(c * Math.PI) * distance * rise;
     return {
       position,
       target,
-      fov: lerp(a.fov, b.fov, t),
-      focusDistance: logLerp(a.focusDistance, b.focusDistance, t),
-      focusRange: logLerp(a.focusRange, b.focusRange, t),
-      aoRadius: logLerp(a.aoRadius, b.aoRadius, t),
-      shadowCenter: a.shadowCenter.clone().lerp(b.shadowCenter, w),
-      shadowRadius: logLerp(a.shadowRadius, b.shadowRadius, t),
-      rig: mixRig(a.rig, b.rig, t),
-      grade: mixGrade(a.grade, b.grade, t),
-      tilt: lerp(a.tilt, b.tilt, t),
+      fov: lerp(a.fov, b.fov, c),
+      focusDistance: logLerp(a.focusDistance, b.focusDistance, c),
+      focusRange: logLerp(a.focusRange, b.focusRange, c),
+      aoRadius: logLerp(a.aoRadius, b.aoRadius, c),
+      shadowCenter: a.shadowCenter.clone().lerp(b.shadowCenter, Math.min(1, w)),
+      shadowRadius: logLerp(a.shadowRadius, b.shadowRadius, c),
+      rig: mixRig(a.rig, b.rig, c),
+      grade: mixGrade(a.grade, b.grade, c),
+      tilt: lerp(a.tilt, b.tilt, c),
     };
   }
 

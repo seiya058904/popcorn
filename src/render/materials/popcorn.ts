@@ -178,9 +178,11 @@ ${flakeAtlas}
 attribute vec4 iState;
 varying vec3 vWorld, vNormal, vShade, vObject;
 varying vec2 vPop;
+varying float vGold;
 varying mat3 vRotation;
 void main() {
   int shape = int(iState.z + 0.5);
+  vGold = iState.w;
   vec3 flakePos = flakeRow(shape, 0);
   float pop = iState.x;
   vec3 p = mix(flakeRow(shape, 2), flakePos, pop);
@@ -201,6 +203,7 @@ void main() {
 const pieceFragment = /* glsl */ `
 varying vec3 vWorld, vNormal, vShade, vObject;
 varying vec2 vPop;
+varying float vGold;
 varying mat3 vRotation;
 void main() {
   vec3 N = normalize(vNormal);
@@ -212,6 +215,12 @@ void main() {
   vec3 V = toCam / dist;
   float shadow = sunShadow(vWorld, N);
   vec3 col = popcornShade(N, V, vWorld, vShade.x, vShade.y, vPop.x, vPop.y, shadow, 1.0 - vShade.x * 0.3);
+  if (vGold > 0.5) {
+    // Gold leaf: the piece's own light and shade, recolored, with a hard bright sheen.
+    float light = dot(col, vec3(0.3, 0.55, 0.15));
+    float sheen = pow(sat(dot(N, normalize(uSunDir + V))), 30.0);
+    col = vec3(1.0, 0.72, 0.2) * (0.3 + 1.3 * light) + vec3(1.0, 0.92, 0.6) * smoothstep(0.2, 0.6, sheen) * 1.4 * mix(0.4, 1.0, shadow);
+  }
   gl_FragColor = vec4(applyFog(col, dist), 1.0);
 }
 `;

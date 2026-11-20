@@ -28,6 +28,11 @@ export interface PostParams {
    * 1 top) and its half width. Above and below it, anything off the focus distance goes soft.
    */
   tilt: THREE.Vector3;
+  /**
+   * Camera motion blur, 0 to 1 of a frame's travel. Only the fastest camera moves use it, such as
+   * the climb out of a breakout; at 0 it costs nothing.
+   */
+  motion: number;
 }
 
 export function defaultPostParams(): PostParams {
@@ -52,6 +57,7 @@ export function defaultPostParams(): PostParams {
     chroma: 0,
     shock: new THREE.Vector4(0.5, 0.5, 0, 0),
     tilt: new THREE.Vector3(0, 0.45, 0.2),
+    motion: 0,
   };
 }
 
@@ -309,7 +315,8 @@ ${depthHelpers}
 ${focusHelpers}
 uniform sampler2D tColor, tBloom, tAo, tBlur, tReflect;
 uniform float uExposure, uContrast, uSaturation, uVignette, uGrain, uBloom, uTime, uFlash, uChroma, uAoStrength, uAspect;
-uniform float uHasBlur, uHasAo, uHasReflect;
+uniform float uHasBlur, uHasAo, uHasReflect, uMotion;
+uniform mat4 uReproject;
 uniform vec2 uMirrorPixel, uAoSize;
 uniform vec3 uShadowTint, uHighlightTint, uFlashColor, uAoTint;
 uniform vec4 uShock;
@@ -378,7 +385,17 @@ void main() {
     uv -= normalize(d + 1e-5) / vec2(uAspect, 1.0) * ring * uShock.w;
   }
   vec3 col;
-  if (uChroma > 0.0) {
+  if (uMotion > 0.0) {
+    // Where this point was on screen last frame, from its depth: the camera's own motion, smeared
+    // over a share of the frame and capped so a jump never tears the picture apart.
+    vec4 before = uReproject * vec4(viewPosition(uv), 1.0);
+    vec2 velocity = (uv - (before.xy / before.w * 0.5 + 0.5)) * uMotion;
+    float speed = length(velocity);
+    velocity *= min(1.0, 0.045 / max(speed, 1e-5));
+    col = vec3(0.0);
+    for (int i = 0; i < 8; i++) col += sampleScene(uv + velocity * (float(i) / 7.0 - 0.5));
+    col *= 0.125;
+  } else if (uChroma > 0.0) {
     vec2 off = (uv - 0.5) * uChroma;
     col = vec3(sampleScene(uv + off).r, sampleScene(uv).g, sampleScene(uv - off).b);
   } else {
@@ -479,6 +496,8 @@ export class PostPipeline {
       uHasBlur: { value: 0 },
       uHasAo: { value: 0 },
       uHasReflect: { value: 0 },
+      uMotion: { value: 0 },
+      uReproject: { value: new THREE.Matrix4() },
       uMirrorPixel: { value: new THREE.Vector2() },
       uAoSize: { value: new THREE.Vector2(1, 1) },
       uTilt: { value: new THREE.Vector3() },
@@ -521,6 +540,9 @@ export class PostPipeline {
   get sceneTarget(): THREE.WebGLRenderTarget {
     return this.hdr;
   }
+
+  private readonly lastViewProjection = new THREE.Matrix4();
+  private hasLastFrame = false;
 
   /** Extra resolution scale chosen at run time by the automatic quality, on top of the tier's own. */
   dynamicScale = 1;
@@ -639,6 +661,11 @@ export class PostPipeline {
     c.uFlashColor!.value.copy(p.flashColor);
     c.uAoTint!.value.copy(p.aoTint);
     c.uShock!.value.copy(p.shock);
+    // Last frame's view and projection, applied to this frame's view space.
+    (c.uReproject!.value as THREE.Matrix4).multiplyMatrices(this.lastViewProjection, camera.matrixWorld);
+    c.uMotion!.value = this.quality.depthOfField && this.hasLastFrame ? p.motion : 0;
+    this.lastViewProjection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    this.hasLastFrame = true;
     this.draw(this.compositeMat, null);
   }
 

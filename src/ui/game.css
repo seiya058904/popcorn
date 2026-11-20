@@ -76,6 +76,51 @@
   50%, 100% { opacity: 0.18; }
 }
 
+/* After a golden kernel, a band of gold sweeps the counter once; reduced motion just glows. */
+.marquee-gleam {
+  position: absolute;
+  inset: 0.45rem;
+  border-radius: calc(var(--r-l) - 0.45rem);
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.marquee-gleam::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 40%;
+  background: linear-gradient(100deg, transparent 20%, rgb(255 214 90 / 65%) 50%, transparent 80%);
+  opacity: 0;
+  transform: translateX(-100%);
+}
+
+.marquee-gleam.is-on::before {
+  animation: counter-gleam 0.7s cubic-bezier(0.3, 0, 0.2, 1) 1;
+}
+
+@keyframes counter-gleam {
+  0% { opacity: 1; transform: translateX(-100%); }
+  100% { opacity: 1; transform: translateX(250%); }
+}
+
+:root[data-motion='reduced'] .marquee-gleam::before {
+  width: 100%;
+  transform: none;
+  background: rgb(255 214 90 / 35%);
+}
+
+:root[data-motion='reduced'] .marquee-gleam.is-on::before {
+  animation: counter-glow 0.7s ease-out 1;
+}
+
+@keyframes counter-glow {
+  0%, 100% { opacity: 0; }
+  30% { opacity: 1; }
+}
+
 .marquee-count {
   display: block;
   font-size: 6.2rem;

@@ -848,7 +848,8 @@ export const stoveSpec: SceneSpec = {
   homeRadius: POT.innerR * 0.72,
   steamY: POT.rimY,
   spreadRadius: 7.5,
-  nest: { position: new THREE.Vector3(-8.2, -3.3, -15.2), scale: 0.42 },
+  // The climb out arcs well up, clearing the chairs at the kitchen table.
+  nest: { position: new THREE.Vector3(-8.2, -3.3, -15.2), scale: 0.42, rise: 0.4 },
 
   slots: { pan: PAN_SLOTS, microwave: MICROWAVE_SLOTS, toaster: TOASTER_SLOTS },
   cannon: null,

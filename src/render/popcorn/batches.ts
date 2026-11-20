@@ -99,10 +99,11 @@ export class PieceBatches {
     this.count = 0;
   }
 
-  push(shape: number, matrix: THREE.Matrix4, pop: number, glow: number): void {
+  /** `gold` 1 draws the piece in gold leaf: the kernel of a golden click and its flake. */
+  push(shape: number, matrix: THREE.Matrix4, pop: number, glow: number, gold = 0): void {
     if (this.count >= this.capacity) return;
     this.mesh.setMatrixAt(this.count, matrix);
-    this.state.setXYZW(this.count, pop, glow, shape, 0);
+    this.state.setXYZW(this.count, pop, glow, shape, gold);
     this.count += 1;
   }
 

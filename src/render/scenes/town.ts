@@ -237,6 +237,9 @@ function addHouse(kit: Kit, rng: Rng, look: Rng, x: number, z: number, rotation:
  * Pauses every few houses and trees, so the town can be built in the background. The houses go
  * into a kit of their own: one huge mesh would take too long to hand to the GPU in a single frame.
  */
+/** The ground the nested cinema stands on, kept clear of houses and trees. */
+const isCinemaPlot = (x: number, z: number): boolean => x > -48 && x < -4 && z > -46 && z < -4;
+
 function* addTown(kit: Kit, houseKits: [Kit, Kit]): Generator<void, void, void> {
   kit.add(P.puck(BOARD_R + 2, BOARD_R, 6, 96, 0.8), { color: C.grassDeep, gloss: 0.2, matrix: at(0, -6, 0) });
   kit.add(P.puck(BOARD_R, BOARD_R - 0.2, 0.2, 96, 0.08), {
@@ -277,7 +280,7 @@ function* addTown(kit: Kit, houseKits: [Kit, Kit]): Generator<void, void, void> 
     // Keep the avenues, the cinema plot and the view of the plaza clear.
     const offSpoke = Math.abs(((a - Math.PI / 4 + Math.PI * 4) % (Math.PI / 2)) - Math.PI / 4);
     if (offSpoke > Math.PI / 4 - 6 / r) continue;
-    if (x > -48 && x < -4 && z > -46 && z < -4) continue;
+    if (isCinemaPlot(x, z)) continue;
     if (z > 42 && Math.abs(x) < 46) continue;
     addHouse(houseKits[houses % 2]!, rng, look, x, z, -a + Math.PI / 2);
     houses += 1;
@@ -287,7 +290,12 @@ function* addTown(kit: Kit, houseKits: [Kit, Kit]): Generator<void, void, void> 
     const a = rng.range(0, Math.PI * 2);
     const r = rng.range(19, BOARD_R - 5);
     if (r > RING_ROAD - 5 && r < RING_ROAD + 5) continue;
-    addRichTree(houseKits[i % 2]!, look, Math.cos(a) * r, Math.sin(a) * r);
+    const x = Math.cos(a) * r;
+    const z = Math.sin(a) * r;
+    // Trees keep off the cinema plot like the houses do: one grew inside the shrunken cinema and
+    // filled the screen as the camera climbed out of it.
+    if (isCinemaPlot(x, z)) continue;
+    addRichTree(houseKits[i % 2]!, look, x, z);
     if (i % 6 === 5) yield;
   }
 }
