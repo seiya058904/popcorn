@@ -46,7 +46,7 @@ Buy machines, flavors and upgrades from the panel on the right. Filling each sta
 
 ## Settings
 
-Master, music and effects volume, graphics quality (automatic or four fixed tiers), show speed, reduced camera motion and screen shake. The system's reduced-motion preference is honored on first launch.
+Master, music, effects and interface volume, haptic feedback (on devices that vibrate), graphics quality (automatic or four fixed tiers), show speed, reduced camera motion and screen shake. The system's reduced-motion preference is honored on first launch.
 
 ## Development
 
@@ -80,10 +80,11 @@ docs                               Design, plan, balance report and credits
 - Edge has not been tested, because it was not installed on the development machine. Chromium and Chrome pass, and Edge shares their engine.
 - Performance was measured on one desktop with a Radeon RX 7900 XT. Integrated graphics and laptops have not been tested on real hardware.
 - The game is designed for desktop screens with a mouse. Phones and tablets are not a supported target.
-- A breakout can take one long frame, up to about 420 ms on the development machine, while a later scene is prepared. It is placed inside the blast's white flash and hit-stop.
+- Later scenes are built in the background a few milliseconds per frame. During a breakout the longest frame measured 24–36 ms at 4K on the highest setting on the development machine.
+- At 4K on the highest setting, the kitchen and Earth scenes occasionally take about 30 ms for a frame (99th percentile 25–31 ms on the development machine). At 1080p they do not.
 - Glass bends what is behind it only at the high and ultra quality settings. Lower settings use a simpler reflective glass.
 - Game feel, sound quality and art direction have been checked with frame captures and loudness analysis, not yet by human players.
-- Pacing was tuned with simulated players: about 2.5 hours for an active player and about 3.1 hours for one who never clicks. Time for human players has not been measured.
+- Pacing was tuned with simulated players: about 2.5 hours for an active player and about 3.3 hours for one who never clicks. Time for human players has not been measured.
 - Simplified Chinese is the only language. The settings menu has a language option, but interface text still lives in `src/ui` and has to be extracted before another language can be added.
 
 ## Credits
