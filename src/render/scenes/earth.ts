@@ -8,7 +8,7 @@ import { addLightBeam } from '../fx/beam.ts';
 import { addToy, at, Kit, P, Pattern } from '../geometry/kit.ts';
 import { globals, lightGroup } from '../core/globals.ts';
 import { GLSL_LIGHT_PARS, GLSL_UTIL } from '../materials/glsl.ts';
-import { popcornUniforms } from '../materials/popcorn.ts';
+import { POPCORN_SHADING, popcornUniforms } from '../materials/popcorn.ts';
 import { toyMaterials } from '../materials/toy.ts';
 import { PieceBatches } from '../popcorn/batches.ts';
 import type { PileShape } from '../popcorn/pile.ts';
@@ -45,7 +45,22 @@ function groundAt(r: number): number {
 const peakAt = (level: number): number => lerp(CRATER.floorY + 0.35, 11.5, level ** 0.85);
 const slopeAt = (level: number): number => lerp(1.15, 0.5, level);
 const craterMound = (r: number, level: number): number => peakAt(level) - K * slopeAt(level) * (r / K) ** 1.35;
-const capRadius = (level: number): number => lerp(CRATER.outerR, 31, level ** 1.15);
+/**
+ * How far the heap spreads over the planet. It stops where the globe still slopes gently: farther
+ * out the grid can only bridge the steep curve, and the heap broke into square steps there.
+ * Beyond it the popcorn is painted on the globe as drifts.
+ */
+const capRadius = (level: number): number => lerp(CRATER.outerR, 26, level ** 1.15);
+
+/**
+ * The drifts cover the globe above this height (on a unit globe). The line keeps a little ahead
+ * of the heap, so the continents stay in sight for most of the stage, then rushes south in the
+ * last stretch to bury the whole planet before the moon goes off.
+ */
+const snowLine = (level: number): number => {
+  const cap = capRadius(level);
+  return Math.sqrt(R * R - cap * cap) / R - 0.12 - 1.4 * smooth(0.72, 1, level);
+};
 
 export const earthPile: PileShape = {
   centerX: 0,
@@ -99,8 +114,7 @@ void main() {
 `;
 
 const globeFragment = /* glsl */ `
-uniform float uSnow, uSpin, uCities;
-uniform vec3 uPopCream, uPopShade;
+uniform float uSnowLine, uSpin, uCities;
 varying vec3 vWorld, vNormal, vDir;
 
 float gnoise(vec3 p) {
@@ -129,32 +143,43 @@ void main() {
   vec3 albedo = mix(mix(ocean, ground, land), vec3(0.92, 0.96, 1.0), ice);
   float gloss = mix(0.75, 0.1, land);
 
-  // Popcorn snow advances from the pole, breaking into drifts at its edge.
-  float line = 1.0 - uSnow * 1.55;
-  float edge = fbm(vDir * 5.0) * 0.26;
-  float snow = smoothstep(line - 0.02, line + 0.05, vDir.y + edge - 0.13);
-  // Seen from above the planet this projection stays even, so the drifts never smear into lines.
-  vec2 flat_ = vDir.xz / (1.0 + abs(vDir.y));
-  vec2 cell = worley(flat_ * 34.0);
-  vec2 fine = worley(flat_ * 92.0 + 3.0);
-  float puff = smoothstep(0.05, 0.72, 1.0 - cell.x) * 0.7 + smoothstep(0.1, 0.75, 1.0 - fine.x) * 0.3;
-  vec3 drift = mix(uPopShade, uPopCream, smoothstep(0.0, 0.7, puff));
-  drift = mix(drift, vec3(1.0, 0.96, 0.86), 0.28);
-
   vec3 cloudP = d * 3.4 + vec3(uTime * 0.03, 0.0, uTime * 0.018);
   float cloud = smoothstep(0.54, 0.66, fbm(cloudP) + gnoise(cloudP * 3.1) * 0.05);
   // Clouds throw a soft shadow onto the ground beneath them.
   float cloudShade = smoothstep(0.54, 0.66, fbm(cloudP + uSunDir * 0.12));
   albedo *= 1.0 - cloudShade * 0.32;
   albedo = mix(albedo, vec3(0.98), cloud * 0.85);
-  albedo = mix(albedo, drift, snow);
-  gloss = mix(gloss, 0.08, max(snow, cloud));
+  gloss = mix(gloss, 0.08, cloud);
 
   vec3 N = normalize(vNormal);
   vec3 toCam = cameraPosition - vWorld;
   float dist = length(toCam);
   vec3 V = toCam / dist;
-  vec3 col = toyLight(albedo, N, V, vWorld, gloss, 1.0, sunShadow(vWorld, N));
+  float shadow = sunShadow(vWorld, N);
+  vec3 col = toyLight(albedo, N, V, vWorld, gloss, 1.0, shadow);
+
+  // Popcorn drifts advance from the pole, breaking up at their edge. They are lit exactly like
+  // the heap, puffs and creases included, so heap and drift read as one material.
+  float edge = fbm(vDir * 5.0) * 0.26;
+  float snow = smoothstep(uSnowLine - 0.02, uSnowLine + 0.05, vDir.y + edge - 0.13);
+  if (snow > 0.0) {
+    // Seen from above the planet this projection stays even, so the drifts never smear into lines.
+    vec2 flat_ = vDir.xz / (1.0 + abs(vDir.y));
+    vec2 cell = worley(flat_ * 30.0);
+    float puff = sat(1.0 - cell.x * 1.1);
+    float gap = smoothstep(0.0, 0.34, cell.y - cell.x);
+    float bump = (puff * 0.8 + sat(1.0 - worley(flat_ * 84.0 + 3.0).x) * 0.2) * 0.7;
+    // Screen-space bump: the puffs catch the sun and drop into their creases.
+    vec3 dpx = dFdx(vWorld), dpy = dFdy(vWorld);
+    vec3 r1 = cross(dpy, N), r2 = cross(N, dpx);
+    float det = dot(dpx, r1);
+    vec3 grad = sign(det) * (dFdx(bump) * r1 + dFdy(bump) * r2);
+    vec3 Nd = normalize(abs(det) * N - grad);
+    float crease = 0.55 + (1.0 - gap) * 0.25 + (1.0 - puff) * 0.25;
+    vec3 drift = popcornShade(Nd, V, vWorld, sat(crease), 0.0, 1.0, 0.0, shadow, mix(0.08, 0.5, puff));
+    // Thin cloud over the drifts: full white cloud read as holes torn in the popcorn.
+    col = mix(col, drift, snow * (1.0 - cloud * 0.3));
+  }
   // City lights come out on the night side as the planet turns: clusters on land, with a scatter
   // of smaller towns between them, all gone under the ice and the popcorn.
   if (uCities > 0.0) {
@@ -496,9 +521,8 @@ function* buildEarth(stage: Stage, root: THREE.Group): SceneBuild {
 
   const globeUniforms = {
     ...globals,
-    uPopCream: popcornUniforms.uPopCream,
-    uPopShade: popcornUniforms.uPopShade,
-    uSnow: { value: 0 },
+    ...popcornUniforms,
+    uSnowLine: { value: 2 },
     uSpin: { value: 0 },
     uCities: { value: 0 },
   };
@@ -512,7 +536,7 @@ function* buildEarth(stage: Stage, root: THREE.Group): SceneBuild {
     new THREE.ShaderMaterial({
       name: 'globe',
       vertexShader: globeVertex,
-      fragmentShader: `${GLSL_UTIL}\n${hash31}${GLSL_LIGHT_PARS}\n${globeFragment}`,
+      fragmentShader: `${GLSL_UTIL}\n${hash31}${GLSL_LIGHT_PARS}\n${POPCORN_SHADING}\n${globeFragment}`,
       uniforms: globeUniforms,
     }),
   );
@@ -736,7 +760,7 @@ function* buildEarth(stage: Stage, root: THREE.Group): SceneBuild {
     },
     update(t, dt, ctx) {
       finaleTime = t;
-      globeUniforms.uSnow.value = 1;
+      globeUniforms.uSnowLine.value = -2;
       snow.setAmount(1);
       const heat = smooth(HEAT_START, POP_AT - 0.75, t);
       setBeams(popped ? 0 : heat * 0.5);
@@ -775,7 +799,7 @@ function* buildEarth(stage: Stage, root: THREE.Group): SceneBuild {
     },
     showFinal() {
       finaleTime = FINALE_END;
-      globeUniforms.uSnow.value = 1;
+      globeUniforms.uSnowLine.value = -2;
       snow.setAmount(1);
       popped = true;
       moon.visible = false;
@@ -808,7 +832,7 @@ function* buildEarth(stage: Stage, root: THREE.Group): SceneBuild {
       const k = craterKick.update(dt);
       crater.scale.set(1 - k * 0.008, 1 + k * 0.016, 1 - k * 0.008);
       if (finaleTime < 0) {
-        globeUniforms.uSnow.value = 0.1 + ctx.level * 0.86;
+        globeUniforms.uSnowLine.value = snowLine(ctx.level);
         snow.setAmount(0.25 + ctx.level * 0.75);
         // The moon draws in as the planet fills up, until it hangs where the ending needs it.
         const approach = smooth(0, 1, story);

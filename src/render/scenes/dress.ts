@@ -211,14 +211,27 @@ export function dressHouse(kit: Kit, rng: Rng, house: HouseFrame, wall: string, 
   }
 }
 
-/** light is the light group that switches the window on at night; 0 leaves it dark glass for good. */
-export function windowFrameAt(kit: Kit, house: HouseFrame, lx: number, ly: number, light: number): void {
-  const z = house.d / 2 + 0.03;
-  kit.add(P.box(1.3, 1.6, 0.08, 0.03, 1), { color: '#fff8ea', gloss: 0.4, outline: 0, fixedColor: true, matrix: house.place(lx, ly, z - 0.02) });
-  kit.add(P.box(1.06, 1.34, 0.08, 0.02, 1), { ...(light ? { color: '#ffe9a6', emissive: 0.72, outline: 0, fixedColor: true, light } : M.windowPane), matrix: house.place(lx, ly, z + 0.02) });
-  kit.add(P.box(0.05, 1.34, 0.05, 0.01, 1), { color: '#fff8ea', outline: 0, fixedColor: true, detail: 1, matrix: house.place(lx, ly, z + 0.07) });
-  kit.add(P.box(1.06, 0.05, 0.05, 0.01, 1), { color: '#fff8ea', outline: 0, fixedColor: true, detail: 1, matrix: house.place(lx, ly + 0.1, z + 0.07) });
-  kit.add(P.box(1.46, 0.09, 0.2, 0.02, 1), { color: '#fff8ea', gloss: 0.3, outline: 0.3, fixedColor: true, matrix: house.place(lx, ly - 0.84, z + 0.05) });
+/** A wall of a house. Its front faces away from the square and its back faces the square. */
+export type Face = 'front' | 'back' | 'right' | 'left';
+
+/**
+ * A framed window with a sill, `lx` along the wall and `ly` up it. light is the light group that
+ * switches it on at night; 0 leaves it dark glass for good. Plain boxes: a window is a few pixels
+ * across in the wide shot, where rounded edges cost nine times the triangles and never show.
+ */
+export function windowFrameAt(kit: Kit, house: HouseFrame, lx: number, ly: number, light: number, face: Face = 'front', detail = 0): void {
+  // The wall's outward normal and the direction along it, in the house's own frame.
+  const [nx, nz, tx, tz] = face === 'front' ? [0, 1, 1, 0] : face === 'back' ? [0, -1, -1, 0] : face === 'right' ? [1, 0, 0, -1] : [-1, 0, 0, 1];
+  const half = nz !== 0 ? house.d / 2 : house.w / 2;
+  const on = (along: number, y: number, out: number): THREE.Matrix4 => house.place(tx * along + nx * (half + out), y, tz * along + nz * (half + out));
+  const slab = (wide: number, high: number, deep: number): THREE.BufferGeometry => (nz !== 0 ? P.slab(wide, high, deep) : P.slab(deep, high, wide));
+  const frame = { color: '#fff8ea', outline: 0, fixedColor: true };
+  const glass = light ? { color: '#ffe9a6', emissive: 0.72, outline: 0, fixedColor: true, light } : M.windowPane;
+  kit.add(slab(1.3, 1.6, 0.08), { ...frame, gloss: 0.4, detail, matrix: on(lx, ly, 0.01) });
+  kit.add(slab(1.06, 1.34, 0.08), { ...glass, detail, matrix: on(lx, ly, 0.05) });
+  kit.add(slab(0.05, 1.34, 0.05), { ...frame, detail: Math.max(1, detail), matrix: on(lx, ly, 0.1) });
+  kit.add(slab(1.06, 0.05, 0.05), { ...frame, detail: Math.max(1, detail), matrix: on(lx, ly + 0.1, 0.1) });
+  kit.add(slab(1.46, 0.09, 0.2), { ...frame, gloss: 0.3, detail, matrix: on(lx, ly - 0.84, 0.08) });
 }
 
 export function addRichTree(kit: Kit, rng: Rng, x: number, z: number): void {

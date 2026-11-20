@@ -391,6 +391,12 @@ void main() {
 const sharedUniforms = { ...globals, ...popcornUniforms };
 const hash31 = 'float hash31(vec3 p) { p = fract(p * 0.1031); p += dot(p, p.zyx + 31.32); return fract((p.x + p.y) * p.z); }\n';
 const fragmentHead = `${GLSL_UTIL}\n${hash31}${GLSL_LIGHT_PARS}\n${shading}\n`;
+
+/**
+ * The popcorn lighting model, for other surfaces that must read as the same popcorn (the drifts
+ * on the planet). Needs GLSL_UTIL, hash31 and GLSL_LIGHT_PARS before it, and popcornUniforms.
+ */
+export const POPCORN_SHADING = shading;
 const depthFragment = SHADOW_DEPTH_FRAGMENT;
 const satDefine = '#define sat(x) clamp(x, 0.0, 1.0)\n';
 

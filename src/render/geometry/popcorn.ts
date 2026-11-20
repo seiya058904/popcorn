@@ -70,6 +70,9 @@ export function createFlakeGeometry(shape: number, detail: number): THREE.Buffer
   sphere.dispose();
 
   const hull = randomUnit(rng);
+  // The kernel's flat sides face along `face`; it is widest along `side`.
+  const side = new THREE.Vector3().crossVectors(hull, Math.abs(hull.y) < 0.9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0)).normalize();
+  const face = new THREE.Vector3().crossVectors(hull, side);
   const lobes: Lobe[] = [];
   const mushroom = isMushroom(shape);
   // Mushrooms are many even bumps around a ball; butterflies a few big wings and some small ones.
@@ -141,13 +144,18 @@ export function createFlakeGeometry(shape: number, detail: number): THREE.Buffer
     shade[i * 3 + 1] = core;
     shade[i * 3 + 2] = field;
 
-    // Kernel: a plump teardrop whose tip is the hull.
+    // Kernel: a flat teardrop, like a real kernel. Broad and round at the crown, narrowing to a
+    // short point at the hull end, and thinner front to back than side to side.
     const axial = hullDot;
-    const lateral = Math.sqrt(Math.max(0, 1 - axial * axial));
-    const ellipse = 1 / Math.sqrt((axial * axial) / (0.6 * 0.6) + (lateral * lateral) / (0.46 * 0.46));
-    const tip = 0.13 * Math.pow(Math.max(0, axial), 7);
-    const dent = 0.02 * Math.sin(dir.x * 7 + seed) * Math.sin(dir.z * 6);
-    const kernelRadius = ellipse + tip + dent;
+    const across = dot(dir, side);
+    const through = dot(dir, face);
+    const width = 0.5 * (1 - 0.46 * smooth(-0.35, 1, axial));
+    const ellipse = 1 / Math.sqrt((axial * axial) / (0.62 * 0.62) + (across * across) / (width * width) + (through * through) / (width * width * 0.5));
+    const tip = 0.1 * Math.pow(Math.max(0, axial), 9);
+    // The crown is a little flattened, with the faint dent of a dried kernel.
+    const crown = 1 - 0.07 * smooth(-0.82, -1, axial);
+    const dent = 0.015 * Math.sin(dir.x * 7 + seed) * Math.sin(dir.z * 6);
+    const kernelRadius = ellipse * crown + tip + dent;
     kernel[i * 3] = dir.x * kernelRadius;
     kernel[i * 3 + 1] = dir.y * kernelRadius;
     kernel[i * 3 + 2] = dir.z * kernelRadius;

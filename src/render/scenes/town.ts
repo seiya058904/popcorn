@@ -12,6 +12,7 @@ import { addSign } from '../materials/sign.ts';
 import { blendSky, skyMaterial, skyUniforms, type SkyLook } from '../materials/sky.ts';
 import { toyMaterials } from '../materials/toy.ts';
 import type { SceneContext, SceneBuild, SceneSpec, UnitSlot } from './types.ts';
+import { M } from '../machines/common.ts';
 import { addRichTree, carDetails, clockTowerDetails, dressHouse, dressPlaza, fountainStatue, wheelGondolas, windowFrameAt, type HouseFrame } from './dress.ts';
 import { figureGeometry, SetPieces } from './pieces.ts';
 import { alongStory, LightBank } from './story.ts';
@@ -155,6 +156,48 @@ function fountainShowGeometry(): THREE.BufferGeometry {
   return kit.build();
 }
 
+/** Roof shapes, gables twice as likely: the town reads as a town by its roofline. */
+const ROOF_KINDS = ['hip', 'gable', 'gable', 'flat', 'mansard'] as const;
+
+function addRoof(kit: Kit, look: Rng, house: HouseFrame, wall: string, roof: string): void {
+  const { w, d, h, place } = house;
+  const tiles = { color: roof, gloss: 0.3, pattern: 4.72 };
+  const trim = { color: new THREE.Color(roof).multiplyScalar(0.78).getStyle(), gloss: 0.35, outline: 0.4, fixedColor: true };
+  const kind = ROOF_KINDS[look.int(0, ROOF_KINDS.length)]!;
+  if (kind === 'hip') {
+    // Hipped, its eaves standing well clear of the walls.
+    kit.add(P.lathe([[0, 0], [1, 0], [0, 1]], 4, 0.01, 1), { ...tiles, matrix: place(0, h, 0, [0, Math.PI / 4, 0], [w * 0.8, 3.2, d * 0.8]) });
+  } else if (kind === 'gable') {
+    // Ridge along the street, gable ends in the wall color, a capped ridge.
+    const rise = Math.min(4.2, d * 0.6);
+    kit.add(P.prism(w - 0.02, rise - 0.12, d - 0.02), { color: wall, gloss: 0.18, pattern: Pattern.Plaster, outline: 0.5, matrix: place(0, h - 0.02, 0) });
+    kit.add(P.prism(w + 0.7, rise, d + 1), { ...tiles, matrix: place(0, h - 0.12, 0) });
+    kit.add(P.slab(w + 0.8, 0.22, 0.36), { ...trim, matrix: place(0, h + rise - 0.2, 0) });
+  } else if (kind === 'flat') {
+    // A flat roof behind a parapet, with a water tank or a stair hut on top.
+    const coping = { color: new THREE.Color(wall).multiplyScalar(0.92).getStyle(), gloss: 0.25, outline: 0.4, fixedColor: true };
+    kit.add(P.slab(w, 0.12, d), { ...M.concrete, outline: 0, matrix: place(0, h + 0.06, 0) });
+    for (const side of [-1, 1]) {
+      kit.add(P.slab(w + 0.3, 0.7, 0.3), { ...coping, matrix: place(0, h + 0.35, side * (d / 2)) });
+      kit.add(P.slab(0.3, 0.7, d), { ...coping, matrix: place(side * (w / 2), h + 0.35, 0) });
+    }
+    if (look.next() < 0.5) {
+      kit.add(P.puck(0.85, 0.85, 1.5, 12, 0.08), { ...M.darkWood, outline: 0.5, matrix: place(w * 0.18, h + 1.1, -d * 0.12) });
+      kit.add(P.lathe([[0, 0], [0.95, 0], [0, 0.5]], 12, 0.02, 1), { ...trim, matrix: place(w * 0.18, h + 2.6, -d * 0.12) });
+      for (const [lx, lz] of [[-0.5, -0.5], [0.5, -0.5], [-0.5, 0.5], [0.5, 0.5]] as const) {
+        kit.add(P.slab(0.12, 1, 0.12), { ...M.darkWood, outline: 0, detail: 1, matrix: place(w * 0.18 + lx, h + 0.6, -d * 0.12 + lz) });
+      }
+    } else {
+      kit.add(P.box(1.8, 1.7, 1.8, 0.06, 1), { color: wall, gloss: 0.18, pattern: Pattern.Plaster, outline: 0.5, matrix: place(-w * 0.2, h + 0.95, -d * 0.15) });
+      kit.add(P.slab(2.1, 0.16, 2.1), { ...trim, matrix: place(-w * 0.2, h + 1.86, -d * 0.15) });
+    }
+  } else {
+    // Mansard: a steep slate skirt up to a shallow top, with a band where they meet.
+    kit.add(P.lathe([[0, 0], [1, 0], [0.74, 0.68], [0, 0.86]], 4, 0.01, 1), { ...tiles, matrix: place(0, h, 0, [0, Math.PI / 4, 0], [w * 0.78, 4, d * 0.78]) });
+    kit.add(P.lathe([[0, 0], [1, 0], [1, 1], [0, 1]], 4, 0.01, 1), { ...trim, matrix: place(0, h + 2.66, 0, [0, Math.PI / 4, 0], [w * 0.58, 0.16, d * 0.58]) });
+  }
+}
+
 function addHouse(kit: Kit, rng: Rng, look: Rng, x: number, z: number, rotation: number): void {
   const w = rng.range(5, 8.5);
   const d = rng.range(5, 7.5);
@@ -167,13 +210,22 @@ function addHouse(kit: Kit, rng: Rng, look: Rng, x: number, z: number, rotation:
     at(x + lx * c + lz * s, ly, z - lx * s + lz * c, [extra[0], rotation + extra[1], extra[2]], scale);
   const house: HouseFrame = { x, z, w, d, h, rotation, place };
   kit.add(P.box(w, h, d, 0.12, 1), { color: wall, gloss: 0.18, pattern: Pattern.Plaster, matrix: place(0, h / 2, 0), ao: (p) => 0.62 + 0.38 * Math.min(1, p.y / 3) });
-  // Hipped roof in courses of tile.
-  kit.add(P.lathe([[0, 0], [1, 0], [0, 1]], 4, 0.01, 1), { color: roof, gloss: 0.3, pattern: 4.72, matrix: place(0, h, 0, [0, Math.PI / 4, 0], [w * 0.76, 3.2, d * 0.76]) });
+  addRoof(kit, look, house, wall, roof);
+  // A quarter of the windows stay dark all night; the rest light up in four waves.
+  const light = (): number => {
+    const r = look.next();
+    return r < 0.25 ? 0 : lightGroup(3, LIT.windows + Math.min(3, Math.floor(((r - 0.25) / 0.75) * 4)));
+  };
+  // The front has the door below; the back faces the square and the camera, so it has windows
+  // on every floor, and the sides get one per floor where the house is deep enough.
   for (let y = 4; y + 1 < h; y += 2.9) {
-    for (const lx of [-w * 0.24, w * 0.24]) {
-      // A quarter of the windows stay dark all night; the rest light up in four waves.
-      const r = look.next();
-      windowFrameAt(kit, house, lx, y, r < 0.25 ? 0 : lightGroup(3, LIT.windows + Math.min(3, Math.floor(((r - 0.25) / 0.75) * 4))));
+    for (const lx of [-w * 0.24, w * 0.24]) windowFrameAt(kit, house, lx, y, light());
+  }
+  for (let y = 1.7; y + 1 < h; y += 2.9) {
+    for (const lx of [-w * 0.24, w * 0.24]) windowFrameAt(kit, house, lx, y, light(), 'back');
+    if (d > 5.6) {
+      windowFrameAt(kit, house, 0, y, light(), 'right', 1);
+      windowFrameAt(kit, house, 0, y, light(), 'left', 1);
     }
   }
   dressHouse(kit, look, house, wall, lightGroup(3, LIT.shops));

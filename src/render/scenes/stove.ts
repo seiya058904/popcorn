@@ -335,9 +335,23 @@ function potGeometry(): THREE.BufferGeometry {
     ),
     { color: C.cream, gloss: 0.9, outline: 0 },
   );
+  // Loop handles riveted to the wall. The wall leans in below the rim, so each loop is set by the
+  // wall's radius at its own height: placed by the rim's, it floated clear of the pot.
+  const earY = r - 0.3;
+  const wall = lerp(1.2, o, (earY - 0.42) / (r - 0.12 - 0.42));
+  const loop = 0.19;
+  const up = new THREE.Vector3(0, 1, 0);
   for (const side of [-1, 1]) {
-    const ear = at(side * (o + 0.1), r - 0.3, 0, [Math.PI / 2, 0, side > 0 ? -Math.PI / 2 : Math.PI / 2]);
-    kit.add(P.torus(0.19, 0.05, 12, 28, Math.PI), { color: C.cream, gloss: 0.8, matrix: ear });
+    const ear = at(side * (wall - 0.03), earY, 0, [Math.PI / 2, 0, side > 0 ? -Math.PI / 2 : Math.PI / 2]);
+    kit.add(P.torus(loop, 0.05, 12, 28, Math.PI), { color: C.cream, gloss: 0.8, matrix: ear });
+    for (const end of [-1, 1]) {
+      const out = new THREE.Vector3(side * (wall - 0.03), 0, end * loop).normalize();
+      const turn = new THREE.Quaternion().setFromUnitVectors(up, out);
+      const seat = (lift: number): THREE.Matrix4 =>
+        new THREE.Matrix4().compose(out.clone().multiplyScalar(wall + lift).setY(earY), turn, new THREE.Vector3(1, 1, 1));
+      kit.add(P.puck(0.085, 0.072, 0.04, 18, 0.015), { color: C.cream, gloss: 0.8, outline: 0.5, matrix: seat(-0.012) });
+      kit.add(P.sphere(0.024, 10, 8), { color: '#e4b252', gloss: 0.84, metal: 1, outline: 0, detail: 1, matrix: seat(0.034) });
+    }
   }
   return kit.build();
 }

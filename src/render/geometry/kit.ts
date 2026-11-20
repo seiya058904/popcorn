@@ -402,6 +402,17 @@ export const P = {
       ),
       segments,
     ),
+  /** A plain box, 12 triangles against a rounded box's 108: for small flat details seen from afar. */
+  slab: (w: number, h: number, d: number): THREE.BufferGeometry => shared(`slab${w},${h},${d}`, () => new THREE.BoxGeometry(w, h, d)),
+  /** A gable roof: a triangular prism whose ridge runs `w` along X, eaves `d` apart along Z, `h` high, base at y = 0. */
+  prism: (w: number, h: number, d: number): THREE.BufferGeometry =>
+    shared(`prism${w},${h},${d}`, () => {
+      const shape = new THREE.Shape([new THREE.Vector2(-d / 2, 0), new THREE.Vector2(d / 2, 0), new THREE.Vector2(0, h)]);
+      const geometry = new THREE.ExtrudeGeometry(shape, { depth: w, bevelEnabled: false });
+      geometry.translate(0, 0, -w / 2);
+      geometry.rotateY(Math.PI / 2);
+      return geometry;
+    }),
   sphere: (radius: number, w = 24, h = 16): THREE.BufferGeometry => shared(`s${radius},${w},${h}`, () => new THREE.SphereGeometry(radius, w, h)),
   capsule: (radius: number, length: number, cap = 6, radial = 14): THREE.BufferGeometry =>
     new THREE.CapsuleGeometry(radius, length, cap, radial),
