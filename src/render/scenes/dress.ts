@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import { Rng } from '../../motion/rng.ts';
 import { at, Kit, M, P, paint, Pattern, rod, V } from '../machines/common.ts';
 
@@ -234,18 +235,85 @@ export function windowFrameAt(kit: Kit, house: HouseFrame, lx: number, ly: numbe
   kit.add(slab(1.46, 0.09, 0.2), { ...frame, gloss: 0.3, detail, matrix: on(lx, ly - 0.84, 0.08) });
 }
 
+const CLUMP_VARIANTS = 6;
+const clumpShapes: THREE.BufferGeometry[] = [];
+
+/**
+ * A leafy clump of unit size: a ball with its surface pushed in and out, so its outline breaks into
+ * tufts and its shading into lit leaves and shaded hollows. Smooth normals, unlike a faceted ball.
+ * A few variants are made once and shared by every tree.
+ */
+function clumpShape(variant: number): THREE.BufferGeometry {
+  const cached = clumpShapes[variant];
+  if (cached) return cached;
+  const ball = new THREE.IcosahedronGeometry(1, 2);
+  ball.deleteAttribute('uv');
+  ball.deleteAttribute('normal');
+  const shape = mergeVertices(ball, 1e-4);
+  ball.dispose();
+  const seed = variant * 1.7 + 0.4;
+  const position = shape.getAttribute('position') as THREE.BufferAttribute;
+  for (let i = 0; i < position.count; i += 1) {
+    const x = position.getX(i);
+    const y = position.getY(i);
+    const z = position.getZ(i);
+    const tuft = Math.sin(x * 4.1 + seed) * Math.sin(y * 3.7 - seed * 1.3) * Math.sin(z * 4.4 + seed * 0.7);
+    const push = 1 + tuft * 0.16;
+    // Flatter underneath, as a crown is.
+    position.setXYZ(i, x * push, y * push * (y < 0 ? 0.8 : 1), z * push);
+  }
+  shape.computeVertexNormals();
+  clumpShapes[variant] = shape;
+  return shape;
+}
+
+const BARK = { color: '#7a4e2e', gloss: 0.15, pattern: Pattern.Wood + 0.2, fixedColor: true };
+const firDark = new THREE.Color('#1f6b4a');
+const firLight = new THREE.Color('#3f9a62');
+
+/** A town tree: mostly round, leafy crowns; some tall and narrow; now and then a fir. */
 export function addRichTree(kit: Kit, rng: Rng, x: number, z: number): void {
+  const kind = rng.next();
   const h = rng.range(2.4, 3.8);
-  kit.add(P.puck(0.52, 0.28, h, 8, 0.04), { color: '#8a5a34', gloss: 0.15, pattern: Pattern.Wood + 0.2, fixedColor: true, matrix: at(x, 0, z) });
-  rod(kit, V(x, h * 0.7, z), V(x + 0.9, h + 0.5, z + 0.4), 0.13, paint(M.wood, { color: '#8a5a34' }), 5);
+  // A trunk that flares into roots where it meets the ground.
+  kit.add(P.lathe([[0, 0], [0.72, 0], [0.5, 0.12], [0.34, 0.45], [0.28, h * 0.9], [0, h * 0.9]], 10, 0.06, 2), { ...BARK, matrix: at(x, 0, z) });
+  if (kind < 0.18) {
+    // A fir: tiers of drooping cones, darker inside, lighter where the tips catch the sun.
+    for (let t = 0; t < 4; t += 1) {
+      const r = 2.1 - t * 0.42;
+      kit.add(P.lathe([[0, 0], [r, 0], [r * 0.9, 0.2], [0.08, 1.7], [0, 1.72]], 12, 0.08, 2), {
+        color: firDark,
+        gloss: 0.12,
+        sway: 0.25 + t * 0.15,
+        fixedColor: true,
+        colorFn: (_p, n, out) => out.lerp(firLight, Math.max(0, n.y) * 0.5),
+        matrix: at(x, h * 0.55 + t * 1.15, z, [0, t * 0.9, 0]),
+      });
+    }
+    return;
+  }
   const tones = rng.next() < 0.5 ? ['#2f8f5e', '#3fa56d', '#58bd7c'] : ['#3a9a5e', '#58bd7c', '#79cf88'];
-  // Clumps of foliage, dark underneath and catching the light on top.
-  for (let i = 0; i < 9; i += 1) {
+  const tall = kind > 0.8;
+  const branch = paint(M.wood, { color: '#7a4e2e' });
+  rod(kit, V(x, h * 0.7, z), V(x + 0.9, h + 0.5, z + 0.4), 0.13, branch, 5);
+  rod(kit, V(x, h * 0.6, z), V(x - 0.7, h + 0.3, z - 0.5), 0.11, branch, 5);
+  const clumps = tall ? 10 : 12;
+  for (let i = 0; i < clumps; i += 1) {
     const a = i * 2.4 + rng.range(0, 1);
-    const ring = i === 0 ? 0 : 1.3 + rng.range(-0.2, 0.3);
-    const y = h + 1.3 + (i === 0 ? 0.9 : rng.range(-0.8, 0.8));
-    const r = rng.range(1, 1.6) * (i === 0 ? 1.35 : 1);
-    kit.add(P.sphere(r, 9, 7).toNonIndexed(), { color: tones[Math.min(2, Math.floor(((y - h) / 2.4) * 3))]!, gloss: 0.12, outline: 0.35, fixedColor: true, matrix: at(x + Math.cos(a) * ring, y, z + Math.sin(a) * ring, [a, i, 0]) });
+    const ring = i === 0 ? 0 : (tall ? 0.8 : 1.35) + rng.range(-0.2, 0.3);
+    const y = h + 1.3 + (i === 0 ? 0.9 : rng.range(-0.8, 0.8)) * (tall ? 2.2 : 1);
+    const r = rng.range(0.85, 1.4) * (i === 0 ? 1.3 : 1);
+    const lift = Math.min(1, Math.max(0, (y - h) / (tall ? 5 : 2.6)));
+    kit.add(clumpShape(Math.floor(rng.next() * CLUMP_VARIANTS)), {
+      color: tones[Math.min(2, Math.floor(lift * 3))]!,
+      gloss: 0.14,
+      outline: 0.35,
+      sway: 0.4 + 0.6 * lift,
+      fixedColor: true,
+      // Lit on top; the hollows under each clump fall into shade.
+      colorFn: (_p, n, out) => out.multiplyScalar(0.8 + 0.3 * Math.max(0, n.y)),
+      matrix: at(x + Math.cos(a) * ring, y, z + Math.sin(a) * ring, [a, i, 0], tall ? [r * 0.85, r * 1.25, r * 0.85] : r),
+    });
   }
 }
 

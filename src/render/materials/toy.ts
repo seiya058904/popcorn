@@ -47,7 +47,7 @@ vec2 alongSurface(vec3 q, float level) {
 }
 
 // Surface relief painted per pixel. Returns height; tone scales the paint.
-float surfacePattern(float id, vec3 q, float level, inout float tone, inout float finest) {
+float surfacePattern(float id, vec3 q, float level, inout float tone, inout float finest, inout float fleck) {
   float h = 0.0;
   if (id < 1.5) { // brushed metal
     finest = 70.0;
@@ -120,10 +120,15 @@ float surfacePattern(float id, vec3 q, float level, inout float tone, inout floa
     float grain = 1.0 - abs(noise3d(q * 44.0) * 2.0 - 1.0);
     tone = 0.9 + noise3d(q * 5.0) * 0.12 + grain * 0.05;
     h = grain * 0.7 + noise3d(q * 9.0) * 0.3;
-  } else { // paper: fibers and a slightly uneven press
+  } else if (id < 13.5) { // paper: fibers and a slightly uneven press
     finest = 56.0;
     tone = 0.95 + noise3d(q * vec3(56.0, 9.0, 56.0)) * 0.06 + noise3d(q * 3.0) * 0.04;
     h = noise3d(q * 56.0) * 0.5;
+  } else { // speckled enamel: pale flecks of all sizes floating in the glaze
+    finest = 30.0;
+    fleck = smoothstep(0.72, 0.75, noise3d(q * 24.0)) * 0.85 + smoothstep(0.71, 0.75, noise3d(q * 60.0 + 7.0)) * 0.7;
+    tone = 0.96 + noise3d(q * 3.0) * 0.08;
+    h = noise3d(q * 30.0) * 0.2;
   }
   return h;
 }
@@ -165,12 +170,13 @@ void main() {
     float id = floor(code);
     float scale = pow(2.0, fract(code) * 6.0 - 3.0);
     vec3 q = vLocal * scale;
-    float tone = 1.0, finest = 40.0;
-    float h = surfacePattern(id, q, step(0.7, abs(N.y)), tone, finest);
+    float tone = 1.0, finest = 40.0, fleck = 0.0;
+    float h = surfacePattern(id, q, step(0.7, abs(N.y)), tone, finest, fleck);
     // Relief finer than a pixel would only shimmer, so it fades out with distance. It is gone well
     // before half a cycle per pixel, or glossy paint in strong sun glitters with it.
     float visible = smoothstep(0.42, 0.1, length(fwidth(q)) * finest);
     albedo *= mix(1.0, tone, max(visible, 0.45));
+    albedo = mix(albedo, vec3(0.86, 0.9, 0.95), sat(fleck) * visible);
     float relief = id < 1.5 ? 0.0012
       : id > 3.5 && id < 4.5 ? 0.012
       : id > 9.5 && id < 10.5 ? 0.007

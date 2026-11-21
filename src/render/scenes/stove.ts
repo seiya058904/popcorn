@@ -345,7 +345,8 @@ function potGeometry(): THREE.BufferGeometry {
       84,
       0.14,
     ),
-    { color: C.navy, gloss: 0.4, outline: 0, ao: (p) => lerp(0.4, 1, smooth(f, r, p.y)) },
+    // Inside, speckled graniteware enamel with a wet shine.
+    { color: C.navy, gloss: 0.6, coat: 0.15, pattern: Pattern.Speckle, smudge: 0.15, outline: 0, ao: (p) => lerp(0.4, 1, smooth(f, r, p.y)) },
   );
   kit.add(
     P.lathe(
@@ -417,6 +418,11 @@ function lidGeometry(): THREE.BufferGeometry {
   );
   kit.add(P.puck(0.14, 0.1, 0.1, 20, 0.03), { color: C.chrome, gloss: 0.9, metal: 1, pattern: Pattern.Brushed, matrix: at(0, 0.41, 0) });
   kit.add(P.sphere(0.21, 24, 16), { color: C.cream, gloss: 0.9, matrix: at(0, 0.6, 0, [0, 0, 0], [1, 0.8, 1]) });
+  // The pot's cream band, carried round the lid, so the two read as a set.
+  kit.add(P.lathe([[1.04, 0.214], [0.92, 0.28]], 72, 0, 1), { color: C.cream, gloss: 0.85, coat: 0.4, outline: 0 });
+  // A steam vent: a chromed eyelet and a dark hole.
+  kit.add(P.torus(0.07, 0.02, 8, 18), { color: C.chrome, gloss: 0.92, metal: 1, smudge: 0.4, outline: 0, matrix: at(0.55, 0.385, 0, [Math.PI / 2 - 0.19, 0, 0.19]) });
+  kit.add(P.puck(0.055, 0.055, 0.02, 14, 0.005), { color: '#1a1012', gloss: 0.2, outline: 0, fixedColor: true, matrix: at(0.55, 0.38, 0, [0, 0, 0.19]) });
   return kit.build();
 }
 

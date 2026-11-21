@@ -25,6 +25,8 @@ export const Pattern = {
   Leather: 12.5,
   /** Paper fibers, for labels, cards and boxes. */
   Paper: 13.5,
+  /** Speckled enamel, as on graniteware pots: pale flecks of every size in the glaze. */
+  Speckle: 14.5,
 } as const;
 
 /** 0 keeps only the main shapes, 1 adds medium parts, 2 adds the finest. */
@@ -364,6 +366,25 @@ export function at(
 }
 
 type Point = [number, number];
+
+/**
+ * After a lathe has been pushed about and its normals worked out again, the first and last columns
+ * of its grid lie on top of each other but shade apart. This joins them back into one smooth seam,
+ * far cheaper than merging every vertex.
+ */
+export function smoothLatheSeam(lathe: THREE.BufferGeometry, segments: number): void {
+  const normal = lathe.getAttribute('normal') as THREE.BufferAttribute;
+  const rows = normal.count / (segments + 1);
+  const last = segments * rows;
+  for (let j = 0; j < rows; j += 1) {
+    const x = normal.getX(j) + normal.getX(last + j);
+    const y = normal.getY(j) + normal.getY(last + j);
+    const z = normal.getZ(j) + normal.getZ(last + j);
+    const length = Math.hypot(x, y, z) || 1;
+    normal.setXYZ(j, x / length, y / length, z / length);
+    normal.setXYZ(last + j, x / length, y / length, z / length);
+  }
+}
 
 /** Replaces each interior corner of a polyline with a small arc. */
 export function roundProfile(points: Point[], radius: number, steps = 4): THREE.Vector2[] {

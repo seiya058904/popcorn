@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { SIGN_TEXT } from '../../content/signs.ts';
 import { at, Kit, M, P, Pattern, puffs, putIf, putLocal, rod, smooth, V, windUp, type UnitDef } from './common.ts';
+import { smoothLatheSeam } from '../geometry/kit.ts';
 import { ORBITAL_UNFOLD } from './entrances.ts';
 
 const noise = (x: number, y: number, z: number): number =>
@@ -88,8 +89,14 @@ function airshipTrim(): THREE.BufferGeometry {
 
 function volcanoBody(): THREE.BufferGeometry {
   const kit = new Kit();
-  // Cut into separate facets, so the displaced surface reads as broken rock instead of cloth.
-  const cone = P.lathe([[0, 0], [2.75, 0], [2.42, 0.42], [1.74, 1.2], [1.06, 2.3], [0.86, 2.86], [0.72, 2.98], [0.54, 2.82], [0.34, 2.32], [0, 2.3]], 54, 0.14, 3).toNonIndexed();
+  // Rock laid down in terraces by older eruptions: smooth enough to take the light in broad planes,
+  // with gullies cut where the lava runs and a ragged lip round the crater.
+  const profile: Array<[number, number]> = [
+    [0, 0], [2.78, 0], [2.66, 0.16], [2.46, 0.38], [2.4, 0.46], [2.14, 0.72], [2.06, 0.84], [1.82, 1.1], [1.72, 1.24],
+    [1.48, 1.56], [1.38, 1.7], [1.16, 2.04], [1.06, 2.3], [0.94, 2.6], [0.86, 2.86], [0.74, 2.98], [0.6, 2.93], [0.52, 2.8], [0.34, 2.32], [0, 2.3],
+  ];
+  const cone = P.lathe(profile, 84, 0.05, 2);
+  const gully = (a: number, y: number): number => Math.pow(Math.max(0, Math.cos(a * 3 + 0.6 + Math.sin(y * 2.4 + a) * 0.5)), 14);
   const position = cone.getAttribute('position') as THREE.BufferAttribute;
   for (let i = 0; i < position.count; i += 1) {
     const x = position.getX(i);
@@ -98,32 +105,51 @@ function volcanoBody(): THREE.BufferGeometry {
     const r = Math.hypot(x, z);
     if (r < 0.01 || y < 0.03) continue;
     const a = Math.atan2(z, x);
-    // Sample around the circle so the seam closes.
-    const amount = 1 + noise(Math.cos(a) * 3.2, y * 2.2, Math.sin(a) * 3.2) * 0.2 * smooth(0, 0.4, y) * (1 - smooth(2.3, 2.9, y) * 0.8);
-    position.setXYZ(i, x * amount, y + noise(Math.cos(a) * 4.6, y * 1.7, Math.sin(a) * 4.6) * 0.09 * smooth(0, 0.3, y), z * amount);
+    // Sample round the circle so the seam closes.
+    const lump = noise(Math.cos(a) * 2.6, y * 1.4, Math.sin(a) * 2.6) * 0.55;
+    const crag = noise(Math.cos(a) * 7, y * 3.4, Math.sin(a) * 7) * 0.55;
+    const slope = smooth(0, 0.4, y) * (1 - smooth(2.4, 2.9, y) * 0.7);
+    const cut = gully(a, y) * smooth(0.2, 0.6, y) * (1 - smooth(2.6, 2.9, y));
+    const amount = 1 + (lump * 0.16 + crag * 0.06) * slope - cut * 0.08;
+    position.setXYZ(i, x * amount, y + lump * 0.06 * smooth(0, 0.3, y), z * amount);
   }
   cone.computeVertexNormals();
-  // Lava runs down the gullies in three winding rivers.
+  smoothLatheSeam(cone, 84);
+  // Lava down the three gullies, and brimming at the lip.
   const lava = (p: THREE.Vector3): number => {
     const a = Math.atan2(p.z, p.x);
-    const wander = a * 3 + 0.6 + Math.sin(p.y * 2.4 + a) * 0.5;
-    return Math.max(p.y > 2.74 ? 1 : 0, Math.pow(Math.max(0, Math.cos(wander)), 30) * Math.min(1, p.y / 0.7));
+    return Math.max(p.y > 2.76 ? 1 : 0, gully(a, p.y) * 1.6 * Math.min(1, p.y / 0.7) * (1 - smooth(2.6, 2.8, p.y)));
   };
-  const rock = new THREE.Color('#5b4351');
+  const rock = new THREE.Color('#4e3a48');
+  const layer = new THREE.Color('#6e5560');
   const ash = new THREE.Color('#8a7078');
   const hot = new THREE.Color('#ff7a2a');
   kit.add(cone, {
     color: rock,
-    gloss: 0.1,
-    pattern: Pattern.Rubber,
+    gloss: 0.14,
     fixedColor: true,
     colorFn: (p, n, out) => {
-      out.lerp(ash, smooth(0.35, 0.9, n.y) * 0.5);
-      out.lerp(hot, lava(p));
+      // Strata: pale and dark bands that wander a little with the rock.
+      const band = 0.5 + 0.5 * Math.sin(p.y * 8.5 + noise(p.x * 1.3, p.y, p.z * 1.3) * 2.4);
+      out.lerp(layer, smooth(0.55, 0.85, band) * 0.6);
+      out.lerp(ash, smooth(0.45, 0.95, n.y) * smooth(1.6, 2.7, p.y) * 0.55);
+      out.lerp(hot, Math.min(1, lava(p)));
     },
-    emissiveFn: (p) => lava(p) * 0.9,
+    emissiveFn: (p) => Math.min(1, lava(p)) * 0.9,
   });
-  // A riveted furnace ring and feed pipes: someone has industrialized this volcano.
+  // A ragged lip of loose rock round the crater, and boulders that rolled to the foot.
+  for (let i = 0; i < 14; i += 1) {
+    const a = (i / 14) * Math.PI * 2 + noise(i, 0.3, 1.7) * 0.4;
+    const size = 0.1 + Math.abs(noise(i * 1.7, 2.1, 0.4)) * 0.1;
+    kit.add(P.sphere(size, 7, 5), { color: i % 3 ? '#5b4351' : '#6e5560', gloss: 0.12, fixedColor: true, matrix: at(Math.cos(a) * 0.8, 2.94, Math.sin(a) * 0.8, [a, i, 0], [1.3, 0.7, 1]) });
+  }
+  for (let i = 0; i < 9; i += 1) {
+    const a = (i / 9) * Math.PI * 2 + 0.3 + noise(i, 4.1, 0.8);
+    const size = 0.14 + Math.abs(noise(i * 2.3, 0.6, 3.1)) * 0.18;
+    kit.add(P.sphere(size, 7, 5), { color: '#4e3a48', gloss: 0.1, fixedColor: true, matrix: at(Math.cos(a) * 2.92, size * 0.5, Math.sin(a) * 2.92, [i, a, 0], [1.2, 0.75, 1]) });
+  }
+  // The furnace that has industrialized this volcano: a riveted ring, feed pipes, and a firebox
+  // door on the front with the fire showing through its grille.
   kit.add(P.torus(2.84, 0.09, 8, 64), { ...M.iron, matrix: at(0, 0.08, 0, [Math.PI / 2, 0, 0]) });
   for (let i = 0; i < 16; i += 1) {
     const a = (i / 16) * Math.PI * 2;
@@ -133,6 +159,16 @@ function volcanoBody(): THREE.BufferGeometry {
   for (const a of [0.8, 2.9, 5]) {
     kit.add(P.tube([V(Math.cos(a) * 2.84, 0.16, Math.sin(a) * 2.84), V(Math.cos(a) * 2.34, 1.02, Math.sin(a) * 2.34), V(Math.cos(a) * 1.5, 2.16, Math.sin(a) * 1.5), V(Math.cos(a) * 1, 2.72, Math.sin(a) * 1)], 0.05, 18, 7), M.copper);
   }
+  const door = (m: THREE.Matrix4): THREE.Matrix4 => at(0, 0.36, 2.42, [-0.7, 0, 0]).multiply(m);
+  kit.add(P.box(0.86, 0.6, 0.12, 0.05, 2), { ...M.darkIron, matrix: door(at(0, 0, 0)) });
+  kit.add(P.box(0.7, 0.44, 0.06, 0.03, 1), { color: '#1a1416', gloss: 0.3, outline: 0, fixedColor: true, matrix: door(at(0, 0, 0.05)) });
+  for (let i = 0; i < 4; i += 1) {
+    kit.add(P.box(0.54, 0.045, 0.04, 0.015, 1), { ...M.coal, matrix: door(at(0, -0.15 + i * 0.1, 0.08)) });
+  }
+  for (const x of [-0.36, 0.36]) {
+    for (const y of [-0.24, 0.24]) kit.add(P.sphere(0.03, 6, 4), { ...M.steel, outline: 0, matrix: door(at(x, y, 0.07)) });
+  }
+  kit.add(P.torus(0.07, 0.016, 6, 14), { ...M.brass, matrix: door(at(0.3, 0, 0.1)) });
   return kit.build();
 }
 

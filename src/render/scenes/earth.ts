@@ -4,7 +4,7 @@ import type { Stage } from '../core/stage.ts';
 import { PopcornSnow } from '../fx/snow.ts';
 import { SpriteKind } from '../fx/sprites.ts';
 import { addLightBeam } from '../fx/beam.ts';
-import { addToy, at, Kit, P, Pattern } from '../geometry/kit.ts';
+import { addToy, at, Kit, P, Pattern, smoothLatheSeam } from '../geometry/kit.ts';
 import { globals, lightGroup } from '../core/globals.ts';
 import { GLSL_LIGHT_PARS, GLSL_UTIL } from '../materials/glsl.ts';
 import { POPCORN_SHADING, popcornUniforms } from '../materials/popcorn.ts';
@@ -266,8 +266,9 @@ function* craterGeometry(): Generator<void, THREE.BufferGeometry, void> {
   const ridge = new THREE.Color('#84606e');
   const glow = new THREE.Color('#ff7a2f');
   const inner = new THREE.Color('#2a1820');
-  // Faceted and pushed about, so the great cone reads as broken rock.
-  const cone = P.lathe(profile, 96, 0.12, 2).toNonIndexed();
+  // Smooth rock pushed about into ridges and gullies: broad planes that take the light, rather
+  // than a scatter of facets that only glitter.
+  const cone = P.lathe(profile, 128, 0.12, 2);
   const position = cone.getAttribute('position') as THREE.BufferAttribute;
   for (let n = 0; n < position.count; n += 1) {
     const x = position.getX(n);
@@ -280,6 +281,7 @@ function* craterGeometry(): Generator<void, THREE.BufferGeometry, void> {
     position.setXYZ(n, x, y + lump * 0.42 * smooth(o, o + 2, rr) * (1 - smooth(s - 2, s, rr)), z);
   }
   cone.computeVertexNormals();
+  smoothLatheSeam(cone, 128);
   const lavaAt = (p: THREE.Vector3): number => {
     const rr = Math.hypot(p.x, p.z);
     const a = Math.atan2(p.z, p.x);
@@ -297,6 +299,8 @@ function* craterGeometry(): Generator<void, THREE.BufferGeometry, void> {
       const a = Math.atan2(p.z, p.x);
       lava = lavaAt(p);
       out.lerpColors(rock, ridge, 0.5 + 0.5 * Math.sin(a * 11 + rr * 1.3));
+      // Strata: the cone was built up in layers, each a slightly different rock.
+      out.lerp(ridge, smooth(0.6, 0.9, 0.5 + 0.5 * Math.sin(p.y * 2.6 + Math.sin(a * 5 + rr) * 0.8)) * 0.35);
       if (rr < i + 0.08) out.copy(inner);
       else out.lerp(glow, lava);
     },
@@ -713,12 +717,14 @@ function* buildEarth(stage: Stage, root: THREE.Group): SceneBuild {
   const moonFlake = new PieceBatches(stage, sky, 1);
   const flakeQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.5, 1.3, 0.2));
   const snow = new PopcornSnow(root, { count: 560, size: 0.4, height: 86, radius: 50, center: [0, -14, -4] });
+  yield;
 
   // The hand: a palm with four two-jointed fingers and a thumb.
   const hand = new THREE.Group();
   hand.visible = false;
   sky.add(hand);
   addToy(stage, hand, palmGeometry());
+  yield;
   const segment = (parent: THREE.Object3D, length: number, radius: number, x: number, y: number, z: number, tip = false): THREE.Group => {
     const joint = new THREE.Group();
     joint.position.set(x, y, z);
@@ -737,6 +743,7 @@ function* buildEarth(stage: Stage, root: THREE.Group): SceneBuild {
     const tip = segment(middle, length * 0.6, radius * 0.84, 0, length * 0.78, 0, true);
     return { base, middle, tip };
   });
+  yield;
   const thumbBase = segment(hand, 22, 6.2, -8, 2, 0);
   const thumbTip = segment(thumbBase, 17, 5.4, 0, 22, 0, true);
 

@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { applyLamps, globals, LIGHT_GROUPS, lightGroup, type Lamp } from '../../src/render/core/globals.ts';
 import { bindEnvironment, PROBE_LOOKS } from '../../src/render/core/probe.ts';
 import { QUALITY } from '../../src/render/core/quality.ts';
-import { Kit, P } from '../../src/render/geometry/kit.ts';
+import { Kit, P, smoothLatheSeam } from '../../src/render/geometry/kit.ts';
 import { createFlakeGeometry } from '../../src/render/geometry/popcorn.ts';
 import { SetPieces } from '../../src/render/scenes/pieces.ts';
 import { alongStory, LightBank, mixRig, moodScratch, storyMood, storyWeights, type Story } from '../../src/render/scenes/story.ts';
@@ -241,5 +241,28 @@ describe('surface channels', () => {
     expect(low).toBeGreaterThanOrEqual(0);
     expect(high).toBeLessThanOrEqual(1);
     expect(high - low).toBeGreaterThan(0.9);
+  });
+});
+
+describe('lathe seams', () => {
+  it('shade as one smooth surface after the lathe has been pushed about', () => {
+    const segments = 24;
+    const lathe = P.lathe([[0, 0], [1, 0], [0.6, 1], [0, 1.2]], segments, 0.05, 2);
+    const position = lathe.getAttribute('position') as THREE.BufferAttribute;
+    for (let i = 0; i < position.count; i += 1) {
+      const a = Math.atan2(position.getZ(i), position.getX(i));
+      const push = 1 + Math.sin(a * 3) * 0.1;
+      position.setXYZ(i, position.getX(i) * push, position.getY(i), position.getZ(i) * push);
+    }
+    lathe.computeVertexNormals();
+    smoothLatheSeam(lathe, segments);
+    const normal = lathe.getAttribute('normal') as THREE.BufferAttribute;
+    const rows = normal.count / (segments + 1);
+    for (let j = 1; j < rows - 1; j += 1) {
+      const first = new THREE.Vector3().fromBufferAttribute(normal, j);
+      const last = new THREE.Vector3().fromBufferAttribute(normal, segments * rows + j);
+      expect(first.distanceTo(last)).toBeLessThan(1e-6);
+      expect(first.length()).toBeCloseTo(1, 5);
+    }
   });
 });

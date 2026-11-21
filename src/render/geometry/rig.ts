@@ -48,9 +48,11 @@ function mergeParts(parts: Array<{ geometry: THREE.BufferGeometry; part: number;
       tags[(vertex + i) * 3 + 1] = ink ? 1 : 0;
       tags[(vertex + i) * 3 + 2] = shadow ? 1 : 0;
     }
-    const source = geometry.getIndex()!;
-    for (let i = 0; i < source.count; i += 1) index[cursor + i] = source.getX(i) + vertex;
-    cursor += source.count;
+    // Straight from the typed array: getX per index is several times slower, and big rigs merge
+    // hundreds of thousands of them while a scene builds in the background.
+    const source = geometry.getIndex()!.array;
+    for (let i = 0; i < source.length; i += 1) index[cursor + i] = source[i]! + vertex;
+    cursor += source.length;
     vertex += count;
   }
   merged.setAttribute('aPart', new THREE.BufferAttribute(tags, 3));
