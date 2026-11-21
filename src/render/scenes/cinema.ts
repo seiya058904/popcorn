@@ -816,6 +816,8 @@ export const cinemaSpec: SceneSpec = {
   focusPoint: new THREE.Vector3(0, 2, 3),
   focusRange: 30,
   aoRadius: 2,
+  // The picture throws its light back through the dusty air of the hall.
+  shafts: { at: new THREE.Vector3(0, 16, -44.6), strength: 0.35, length: 0.55, threshold: 1.0 },
   shadow: { center: new THREE.Vector3(-3, 3, 4), radius: 58 },
   pile: vesselPile({
     k: 3,

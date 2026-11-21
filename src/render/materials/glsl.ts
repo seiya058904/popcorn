@@ -42,6 +42,11 @@ uniform vec4 uLampPos[MAX_LAMPS];
 uniform vec3 uLampColor[MAX_LAMPS];
 uniform int uLampCount;
 uniform vec3 uEnvTop, uEnvHorizon, uEnvBottom;
+uniform samplerCube uEnvA, uEnvB;
+uniform float uEnvMix, uEnvOn, uEnvGain, uEnvDiffuse;
+uniform vec3 uAmbientCube[6];
+uniform vec4 uBounce;
+uniform vec3 uBounceColor;
 uniform float uLit[40];
 
 // The key light falls off like a stage spot, which keeps the eye on the popcorn.
@@ -134,6 +139,55 @@ vec3 envColor(vec3 R) {
   return mix(above, uEnvBottom, smoothstep(0.0, -0.55, R.y));
 }
 
+// The captured room in direction R, blurred for a roughness. The mip follows three's PMREM:
+// the inverse of PMREMGenerator.lodToRoughness over its five levels.
+vec3 probeRadiance(vec3 R, float rough) {
+  float r = sat(rough);
+  float lod = 5.0 * r * (2.0 - r);
+  vec3 a = textureLod(uEnvA, R, lod).rgb;
+  // Away from a change of look, one capture is all there is to read.
+  vec3 b = uEnvMix > 0.002 ? textureLod(uEnvB, R, lod).rgb : a;
+  return min(mix(a, b, uEnvMix), vec3(12.0)) * uEnvGain;
+}
+
+// What a shiny surface sees: the room itself once its probe is ready, the painted gradient before.
+vec3 envRadiance(vec3 R, float rough) {
+  vec3 painted = envColor(R);
+  if (uEnvOn <= 0.0) return painted;
+  return mix(painted, probeRadiance(R, rough), uEnvOn);
+}
+
+// The room's soft light from each of six sides, read once from the roughest level of the capture.
+vec3 roomAmbient(vec3 N) {
+  vec3 n2 = N * N;
+  return n2.x * (N.x > 0.0 ? uAmbientCube[0] : uAmbientCube[1])
+    + n2.y * (N.y > 0.0 ? uAmbientCube[2] : uAmbientCube[3])
+    + n2.z * (N.z > 0.0 ? uAmbientCube[4] : uAmbientCube[5]);
+}
+
+// Soft fill from all around: part painted, part the light the room really bounces about.
+vec3 ambientLight(vec3 N) {
+  vec3 hemi = mix(uGroundColor, uSkyColor, N.y * 0.5 + 0.5);
+  if (uEnvOn <= 0.0) return hemi;
+  return mix(hemi, roomAmbient(N) * (0.55 * uEnvGain), uEnvOn * uEnvDiffuse);
+}
+
+// The heap is the brightest thing in the picture: it fills the faces turned toward it.
+vec3 heapBounce(vec3 P, vec3 N) {
+  if (uBounce.w <= 0.0) return vec3(0.0);
+  vec3 L = uBounce.xyz - P;
+  float d = length(L);
+  float fall = sat(1.0 - d / uBounce.w);
+  return uBounceColor * fall * fall * sat(dot(N, L / max(d, 1e-4)) * 0.75 + 0.25);
+}
+
+// Geometric specular antialiasing (after Kaplanyan 2016): where the normal turns within a pixel,
+// the highlight widens instead of sparkling.
+float filteredRough(vec3 N, float rough) {
+  vec3 dn = fwidth(N);
+  return sqrt(sat(rough * rough + min(dot(dn, dn) * 2.0, 0.18)));
+}
+
 float ggx(float ndh, float a) {
   float a2 = a * a;
   float d = ndh * ndh * (a2 - 1.0) + 1.0;
@@ -204,11 +258,11 @@ vec3 surfaceLight(vec3 albedo, vec3 N, vec3 V, vec3 P, float gloss, float ao, fl
   vec3 light = paint * sun;
   vec3 col = band < 0.5 ? mix(shade, mid, band * 2.0) : mix(mid, light, band * 2.0 - 1.0);
 
-  float rough = mix(0.6, 0.07, gloss);
+  float rough = filteredRough(N, mix(0.6, 0.07, gloss));
   vec3 lampSpill, lampGloss;
   lampLight(P, N, V, rough, lampSpill, lampGloss);
-  vec3 hemi = mix(uGroundColor, uSkyColor, N.y * 0.5 + 0.5);
-  col += paint * (hemi + lampSpill) * ao;
+  vec3 hemi = ambientLight(N);
+  col += paint * (hemi + lampSpill + heapBounce(P, N)) * ao;
   col *= mix(0.55, 1.0, ao);
 
   float ndv = sat(dot(N, V));
@@ -218,12 +272,14 @@ vec3 surfaceLight(vec3 albedo, vec3 N, vec3 V, vec3 P, float gloss, float ao, fl
   vec3 R = reflect(-V, N);
   float occlusion = mix(0.35, 1.0, ao);
   float boxes = studioSoft(R, mix(0.05, 0.42, rough)) * mix(0.3, 1.0, shadow);
-  col += (envColor(R) * mix(0.55, 1.0, gloss) + sun * boxes * 1.25) * F * occlusion;
+  // Rough surfaces gather their reflection from nearer the normal, as three's PMREM sampling does.
+  vec3 Rr = normalize(mix(R, N, rough * rough * rough * rough));
+  col += (envRadiance(Rr, rough) * mix(0.55, 1.0, gloss) + sun * boxes * 1.25) * F * occlusion;
   // Bare metal never falls to pure black: a room always has something for it to reflect.
   col += albedo * metal * (hemi * 0.9 + sun * 0.09) * occlusion;
   if (coat > 0.0) {
     float coatF = 0.04 + 0.96 * fresnel;
-    col += (envColor(R) + sun * studioSoft(R, 0.05) * mix(0.3, 1.0, shadow)) * coatF * coat * occlusion;
+    col += (envRadiance(R, filteredRough(N, 0.05)) + sun * studioSoft(R, 0.05) * mix(0.3, 1.0, shadow)) * coatF * coat * occlusion;
   }
 
   vec3 H = normalize(uSunDir + V);

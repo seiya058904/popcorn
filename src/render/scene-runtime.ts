@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import type { CannonResult } from '../events/game-events.ts';
 import type { Rng } from '../motion/rng.ts';
-import type { Lamp } from './core/globals.ts';
+import { applyLamps, applyLightRig, type Lamp } from './core/globals.ts';
+import { PROBE_LOOKS, SceneProbe } from './core/probe.ts';
 import type { Stage } from './core/stage.ts';
 import { UPGRADE_BY_ID } from '../content/upgrades.ts';
 import { Cracks, Debris, Parcel } from './fx/breakout.ts';
@@ -17,6 +18,7 @@ import { FlavorShow } from './popcorn/flavor.ts';
 import { Pile } from './popcorn/pile.ts';
 import { EGGS } from '../content/props.ts';
 import type { EggSpot } from './scenes/eggs.ts';
+import { moodScratch, storyMood } from './scenes/story.ts';
 import type { SceneContext, SceneParts, SceneSpec, UnitKindName } from './scenes/types.ts';
 import { UnitRig, type UnitHost } from './units.ts';
 
@@ -87,6 +89,8 @@ export class SceneRuntime {
   /** Hidden things that belong to the runtime rather than the scene, such as the pigeons. */
   private readonly ownEggs: EggSpot[] = [];
   private readonly rng: Rng;
+  /** The set seen from above the heap in each story look, for reflections (core/probe.ts). */
+  readonly probe = new SceneProbe();
   private launchBudget = 0;
   private fountainBudget = 0;
   private live: boolean;
@@ -230,6 +234,34 @@ export class SceneRuntime {
       tagNew(`machine:${kind}`);
       yield;
     }
+  }
+
+  /**
+   * Captures the probe a face per step. Runs once the scene's shaders and buffers are on the GPU,
+   * so nothing compiles or uploads in the middle of it. The scene is put into each story look in
+   * turn, then snaps back to where it belongs on its next update.
+   */
+  *captureProbe(immediate: boolean): Generator<void, void, void> {
+    const { spec, stage } = this;
+    const k = spec.pile.k;
+    const position = spec.probe?.clone() ?? new THREE.Vector3(spec.pile.centerX, spec.steamY + 0.9 * k, spec.pile.centerZ);
+    const scratch = moodScratch();
+    yield* this.probe.capture(stage.renderer, this.root, (child) => child.userData.budget === 'set', position, 0.05 * k, {
+      apply: (index) => {
+        const u = PROBE_LOOKS[index]!;
+        this.parts.progress?.(u, 0, true, true);
+        const mood = storyMood(spec.light, spec.grade, spec.story, u, scratch);
+        applyLightRig(mood.rig);
+        applyLamps(this.lamps, 0, stage.quality.lamps);
+      },
+      shadow: () => {
+        stage.shadow.setFrustum(spec.shadow.center, spec.shadow.radius);
+        stage.shadow.render(stage.renderer, this.root);
+      },
+      restore: () => {
+        this.snapStory = true;
+      },
+    }, immediate);
   }
 
   get isLive(): boolean {
@@ -522,5 +554,7 @@ export class SceneRuntime {
     this.shovel?.hide();
     this.flavor?.hide();
     this.parts.settleAsMiniature?.();
+    // Its reflections were for its own room, which the camera has left for good.
+    this.probe.dispose();
   }
 }

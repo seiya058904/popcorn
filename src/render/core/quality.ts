@@ -15,6 +15,10 @@ export interface QualitySettings {
   refraction: boolean;
   /** Refraction splits slightly by color at glass edges. */
   dispersion: boolean;
+  /** Shiny things reflect the captured room instead of a painted gradient. */
+  probes: boolean;
+  /** Rays of light in the air toward windows, projectors and the sun. */
+  shafts: boolean;
   /** How many local lights are evaluated per pixel. */
   lamps: number;
   /** Model detail: 0 main shapes, 1 medium parts, 2 everything. */
@@ -36,6 +40,8 @@ export const QUALITY: Record<QualityTier, QualitySettings> = {
     reflections: false,
     refraction: false,
     dispersion: false,
+    probes: false,
+    shafts: false,
     lamps: 3,
     detail: 0,
     bloomLevels: 3,
@@ -53,6 +59,8 @@ export const QUALITY: Record<QualityTier, QualitySettings> = {
     reflections: false,
     refraction: false,
     dispersion: false,
+    probes: true,
+    shafts: false,
     lamps: 6,
     detail: 1,
     bloomLevels: 4,
@@ -70,6 +78,8 @@ export const QUALITY: Record<QualityTier, QualitySettings> = {
     reflections: true,
     refraction: true,
     dispersion: false,
+    probes: true,
+    shafts: true,
     lamps: 12,
     detail: 2,
     bloomLevels: 5,
@@ -87,6 +97,8 @@ export const QUALITY: Record<QualityTier, QualitySettings> = {
     reflections: true,
     refraction: true,
     dispersion: true,
+    probes: true,
+    shafts: true,
     lamps: 12,
     detail: 2,
     bloomLevels: 5,

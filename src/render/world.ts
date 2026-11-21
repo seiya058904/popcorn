@@ -11,10 +11,11 @@ import type { Simulation } from '../sim/simulation.ts';
 import { applyLamps, applyLightRig, globals, type Lamp, type LightRig } from './core/globals.ts';
 import { releaseSharedShapes } from './geometry/kit.ts';
 import { QUALITY } from './core/quality.ts';
+import { bindEnvironment } from './core/probe.ts';
 import type { Stage } from './core/stage.ts';
 import { popcornUniforms } from './materials/popcorn.ts';
 import { SceneRuntime, type RuntimeHooks } from './scene-runtime.ts';
-import { mixGrade, mixRig, moodScratch, storyMood } from './scenes/story.ts';
+import { alongStory, mixGrade, mixRig, moodScratch, storyMood } from './scenes/story.ts';
 import { cinemaSpec } from './scenes/cinema.ts';
 import { earthSpec } from './scenes/earth.ts';
 import { kitchenSpec } from './scenes/kitchen.ts';
@@ -92,6 +93,9 @@ const FLASH_ATTACK = 0.035;
 const CALM_FLASH = 0.5;
 const frenzyWarm = new THREE.Color('#ffd9a8');
 const frenzyLampColor = new THREE.Color('#ffae4a');
+const bounceLight = new THREE.Color();
+/** The three story looks a room probe holds, by index. */
+const LOOKS = [0, 1, 2] as const;
 
 interface Flash {
   lamp: Lamp & { color: THREE.Color };
@@ -158,9 +162,12 @@ export class World {
     index: number;
     runtime: SceneRuntime;
     steps: Generator<void, void, void>;
-    phase: 'build' | 'compile' | 'upload';
+    phase: 'build' | 'compile' | 'upload' | 'probe';
     pending: THREE.Object3D[];
+    /** The reflection capture, once everything is on the GPU. */
+    probe: Generator<void, void, void> | null;
     longestStepMs: number;
+    longestProbeStepMs: number;
   } | null = null;
 
   /** True while the next scene is still being built, compiled or uploaded in the background. */
@@ -298,6 +305,11 @@ export class World {
     const steps = runtime.construct();
     while (steps.next().done !== true);
     releaseSharedShapes();
+    // Only a scene that is played in needs its room for reflections; a nested one is too small.
+    if (live) {
+      const probe = runtime.captureProbe(true);
+      while (probe.next().done !== true);
+    }
     this.runtimes[index] = runtime;
     return runtime;
   }
@@ -311,7 +323,7 @@ export class World {
     const next = this.currentIndex + 1;
     if (next >= SCENES.length || this.runtimes[next] || this.job?.index === next) return;
     const runtime = new SceneRuntime(this.stage, SCENES[next]!, this.rng, this.runtimeHooks, true);
-    this.job = { index: next, runtime, steps: runtime.construct(), phase: 'build', pending: [], longestStepMs: 0 };
+    this.job = { index: next, runtime, steps: runtime.construct(), phase: 'build', pending: [], probe: null, longestStepMs: 0, longestProbeStepMs: 0 };
     if (!this.backgroundBuilds) this.finishJob();
   }
 
@@ -336,14 +348,21 @@ export class World {
         if (!this.stage.programsReady()) return;
         job.pending = [...job.runtime.root.children];
         job.phase = 'upload';
-      } else {
+      } else if (job.phase === 'upload') {
         const piece = job.pending.shift();
         if (piece) this.stage.preload(piece);
         if (job.pending.length === 0) {
-          this.completeJob();
-          return;
+          job.probe = job.runtime.captureProbe(false);
+          job.phase = 'probe';
         }
         // Uploads are big and few: one per frame keeps each frame short.
+        return;
+      } else {
+        // One face of the reflection capture per frame: each is a full draw of the set.
+        const before = performance.now();
+        const done = job.probe!.next().done === true;
+        job.longestProbeStepMs = Math.max(job.longestProbeStepMs, performance.now() - before);
+        if (done) this.completeJob();
         return;
       }
     }
@@ -357,13 +376,18 @@ export class World {
       releaseSharedShapes();
     }
     this.stage.preload(job.runtime.root);
+    const probe = job.probe ?? job.runtime.captureProbe(true);
+    while (probe.next().done !== true);
     this.completeJob();
   }
 
   private completeJob(): void {
     const job = this.job!;
     this.runtimes[job.index] = job.runtime;
-    if (__QA__) job.runtime.root.userData.longestBuildStepMs = job.longestStepMs;
+    if (__QA__) {
+      job.runtime.root.userData.longestBuildStepMs = job.longestStepMs;
+      job.runtime.root.userData.longestProbeStepMs = job.longestProbeStepMs;
+    }
     this.job = null;
   }
 
@@ -976,6 +1000,8 @@ export class World {
     const rest = this.restPose(this.current!.spec, this.level, this.frameOpen, this.scratchPose);
     let pose = rest;
     let motion = 0;
+    /** During the climb out of a breakout, how far the light has moved from the old room to the new. */
+    let roomBlend = -1;
     const plan = this.current!.parts.finale;
     if (plan && this.finaleTime !== -1) {
       const shot = plan.camera(this.finaleTime === -2 ? plan.duration : this.finaleTime);
@@ -990,6 +1016,7 @@ export class World {
         // It pulls back a few per cent past the new framing and eases home before the zoom ends.
         const settle = this.reduceMotion ? 0 : SETTLE_OVERSHOOT * Math.sin(Math.PI * smoothstep(x, SETTLE_FROM, 1));
         pose = this.blendPose(tr.startPose!, rest, easeInOutCubic(x) + settle, tr.from.spec.nest?.rise ?? 0.1);
+        roomBlend = Math.min(1, easeInOutCubic(x));
         // Blur follows the camera's speed, which peaks halfway through the climb.
         motion = this.reduceMotion ? 0 : BREAKOUT_BLUR * Math.sin(Math.PI * x);
       }
@@ -1002,6 +1029,7 @@ export class World {
       pose = { ...pose, position: pose.target.clone().add(offset) };
     }
     this.applyPose(pose);
+    this.applyRoomLight(tr && tr.blasted ? tr : null, roomBlend, dt);
 
     const post = this.stage.post.params;
     post.motion = motion;
@@ -1099,6 +1127,68 @@ export class World {
       p.bloom += (0.16 + 0.14 * beat) * f;
       p.highlightTint.lerp(frenzyWarm, 0.4 * f);
     }
+  }
+
+  private shaftFade = 0;
+
+  /**
+   * Light that belongs to the room rather than to the camera: what shiny things reflect, the glow
+   * thrown back off the heap, and the shafts in the air. During a breakout's climb the reflections
+   * move from the late look of the old room to the new one.
+   */
+  private applyRoomLight(tr: Transition | null, blend: number, dt: number): void {
+    const runtime = this.current;
+    if (!runtime) return;
+    const quality = this.stage.quality;
+    const on = quality.probes ? 1 : 0;
+    const probe = runtime.probe;
+    if (tr && blend >= 0) {
+      const old = tr.from.probe;
+      bindEnvironment(old.maps[2], probe.maps[0], blend, on, old.ambient[2], probe.ambient[0]);
+    } else {
+      alongStory(this.level, LOOKS, (from, to, t) => bindEnvironment(probe.maps[from], probe.maps[to], t, on, probe.ambient[from], probe.ambient[to]));
+    }
+    globals.uEnvGain.value = runtime.spec.envGain ?? 1;
+    globals.uEnvDiffuse.value = runtime.spec.envDiffuse ?? 0.6;
+
+    // The heap fills what stands around it, more as it grows, and only as much as it is lit itself.
+    const { pile, spec } = runtime;
+    const shape = pile.shape;
+    const k = shape.k;
+    const reach = Math.max(shape.landingRadius(this.level) * 2.4, 1.6 * k);
+    v.set(shape.centerX, pile.heightAt(shape.centerX, shape.centerZ) * 0.6 + 0.2 * k, shape.centerZ);
+    runtime.root.localToWorld(v);
+    const scale = runtime.root.matrixWorld.getMaxScaleOnAxis();
+    globals.uBounce.value.set(v.x, v.y, v.z, reach * scale);
+    const strength = (spec.bounce ?? 0.3) * (0.3 + 0.7 * this.level);
+    const lit = globals.uSunColor.value;
+    const sky = globals.uSkyColor.value;
+    globals.uBounceColor.value
+      .copy(popcornUniforms.uPopCream.value)
+      .multiply(bounceLight.setRGB(lit.r * 0.5 + sky.r, lit.g * 0.5 + sky.g, lit.b * 0.5 + sky.b))
+      .multiplyScalar(strength);
+
+    // Shafts toward a window, a projector or the sun; gone while the camera is in flight.
+    const post = this.stage.post.params;
+    const shafts = spec.shafts;
+    this.shaftFade += ((tr || this.transition ? 0 : 1) - this.shaftFade) * (1 - Math.exp(-dt * 3));
+    post.shafts.z = 0;
+    if (!shafts || !quality.shafts || this.shaftFade < 0.01) return;
+    const camera = this.stage.camera;
+    if (shafts.sun) {
+      v.copy(globals.uSunDir.value).multiplyScalar(camera.far * 0.5).add(camera.position);
+    } else if (shafts.at) {
+      runtime.root.localToWorld(v.copy(shafts.at));
+    } else {
+      return;
+    }
+    // A source behind the camera throws nothing toward it.
+    const ahead = v2.copy(v).sub(camera.position).normalize().dot(camera.getWorldDirection(up));
+    v.project(camera);
+    const off = Math.max(Math.abs(v.x), Math.abs(v.y));
+    const seen = smoothstep(ahead, 0.05, 0.3) * (1 - smoothstep(off, 1.3, 2.6));
+    post.shafts.set(v.x * 0.5 + 0.5, v.y * 0.5 + 0.5, shafts.strength * seen * this.shaftFade, shafts.length ?? 0.6);
+    post.shaftThreshold = shafts.threshold ?? 0.9;
   }
 
   /** A brief light at a point in the world, for a moment the whole set should feel. */

@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import { applyLamps, globals, LIGHT_GROUPS, lightGroup, type Lamp } from '../../src/render/core/globals.ts';
+import { bindEnvironment, PROBE_LOOKS } from '../../src/render/core/probe.ts';
+import { QUALITY } from '../../src/render/core/quality.ts';
 import { Kit, P } from '../../src/render/geometry/kit.ts';
 import { SetPieces } from '../../src/render/scenes/pieces.ts';
 import { alongStory, LightBank, mixRig, moodScratch, storyMood, storyWeights, type Story } from '../../src/render/scenes/story.ts';
@@ -180,5 +182,33 @@ describe('set pieces', () => {
     expect(rug.visible).toBe(true);
     expect(rug.scale.x).toBe(1);
     expect(pieces.owns('decor-rug')).toBe(true);
+  });
+});
+
+describe('the room probe', () => {
+  it('captures each scene in its pure start, middle and late looks', () => {
+    expect(storyWeights(PROBE_LOOKS[0])).toEqual([0, 0]);
+    expect(storyWeights(PROBE_LOOKS[1])).toEqual([1, 0]);
+    expect(storyWeights(PROBE_LOOKS[2])).toEqual([1, 1]);
+  });
+
+  it('falls back to the painted gradient until both captures in play exist', () => {
+    const map = new THREE.WebGLCubeRenderTarget(4);
+    bindEnvironment(map, null, 0.3, 1);
+    expect(globals.uEnvOn.value).toBe(0);
+    bindEnvironment(map, map, 0.3, 1);
+    expect(globals.uEnvOn.value).toBe(1);
+    expect(globals.uEnvMix.value).toBe(0.3);
+    bindEnvironment(map, map, 0.3, 0);
+    expect(globals.uEnvOn.value).toBe(0);
+    map.dispose();
+  });
+
+  it('costs nothing on the lowest quality, and shafts only appear from high up', () => {
+    expect(QUALITY.low.probes).toBe(false);
+    expect(QUALITY.low.shafts).toBe(false);
+    expect(QUALITY.medium.probes).toBe(true);
+    expect(QUALITY.medium.shafts).toBe(false);
+    expect(QUALITY.high.shafts && QUALITY.ultra.shafts).toBe(true);
   });
 });

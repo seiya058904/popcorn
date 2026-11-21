@@ -188,7 +188,7 @@ void main() {
   vec3 col = surfaceLight(albedo, N, V, vWorld, gloss, ao, shadow, metal, coat);
   // A thin highlight along every bevel, which is what makes small parts look machined.
   vec3 R = reflect(-V, N);
-  col += (envColor(R) + uSunColor * 0.35) * edge * mix(0.03, 0.2, max(gloss, metal)) * mix(0.4, 1.0, ao);
+  if (edge > 0.002) col += (envRadiance(R, 0.3) + uSunColor * 0.35) * edge * mix(0.03, 0.2, max(gloss, metal)) * mix(0.4, 1.0, ao);
   col = mix(col, albedo * (1.0 + emissive * 1.6), sat(emissive));
   float ndv = sat(dot(N, V));
   float mirror = coat * smoothstep(0.75, 0.97, N.y) * (0.22 + 0.78 * pow(1.0 - ndv, 3.0));
@@ -288,7 +288,7 @@ void main() {
   float ndv = sat(dot(N, V));
   float fresnel = 0.05 + 0.95 * pow(1.0 - ndv, 5.0);
   vec3 R = reflect(-V, N);
-  vec3 reflected = envColor(R) + uSunColor * studioSoft(R, 0.05) * 1.4 + lampSheen(vWorld, N, V, 0.08);
+  vec3 reflected = envRadiance(R, 0.03) + uSunColor * studioSoft(R, 0.05) * 1.4 + lampSheen(vWorld, N, V, 0.08);
   float thick = pow(1.0 - ndv, 2.0);
   vec3 col = reflected * fresnel + vColor * (0.025 + thick * 0.16);
   float alpha = sat(0.1 + thick * 0.42 + fresnel * 0.7);
@@ -409,7 +409,7 @@ void main() {
   float ndv = sat(dot(N, V));
   float fresnel = 0.05 + 0.95 * pow(1.0 - ndv, 5.0);
   vec3 R = reflect(-V, N);
-  vec3 reflected = envColor(R) + uSunColor * studioSoft(R, 0.05) * 1.4 + lampSheen(vWorld, N, V, 0.08);
+  vec3 reflected = envRadiance(R, 0.03) + uSunColor * studioSoft(R, 0.05) * 1.4 + lampSheen(vWorld, N, V, 0.08);
   float thick = pow(1.0 - ndv, 2.0);
   float fog = sat((dist - uFogRange.x) / (uFogRange.y - uFogRange.x));
   gl_FragColor = vec4((reflected * fresnel + vColor * thick * 0.05) * (1.0 - fog * fog * (3.0 - 2.0 * fog)), 0.0);

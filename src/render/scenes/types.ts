@@ -129,6 +129,19 @@ export interface SceneSpec {
   debris?: string[];
   /** Practical lights that spill onto everything nearby. */
   lamps?: Lamp[];
+  /** Where the room is captured from for reflections; by default just above the vessel. */
+  probe?: THREE.Vector3;
+  /** Brightness of the captured room in reflections and fill light. */
+  envGain?: number;
+  /** Share of the soft fill light taken from the captured room; the rest is the painted gradient. */
+  envDiffuse?: number;
+  /** How strongly the heap lights up what stands around it. */
+  bounce?: number;
+  /**
+   * Light shafts in the air: rays drawn from bright parts of the picture toward a source, either a
+   * point in the scene (a window, a projector) or the sun itself.
+   */
+  shafts?: { at?: THREE.Vector3; sun?: boolean; strength: number; length?: number; threshold?: number };
   grade: Grade;
   camera: CameraPose;
   /** Opening framing, easing to `camera` as the heap needs room. */

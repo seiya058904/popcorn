@@ -55,6 +55,22 @@ export const globals = {
   uEnvTop: { value: new THREE.Color(0.5, 0.5, 0.6) },
   uEnvHorizon: { value: new THREE.Color(0.3, 0.3, 0.3) },
   uEnvBottom: { value: new THREE.Color(0.12, 0.1, 0.1) },
+  /**
+   * The room itself, captured from above the heap and prefiltered by roughness (core/probe.ts):
+   * two captures blended by uEnvMix, used as much as uEnvOn says, brightened by uEnvGain.
+   */
+  uEnvA: { value: null as THREE.Texture | null },
+  uEnvB: { value: null as THREE.Texture | null },
+  uEnvMix: { value: 0 },
+  uEnvOn: { value: 0 },
+  uEnvGain: { value: 1 },
+  /** How much of the soft fill light comes from the captured room instead of the painted gradient. */
+  uEnvDiffuse: { value: 0.6 },
+  /** The room's soft light from +x, -x, +y, -y, +z and -z, blended like the captures. */
+  uAmbientCube: { value: Array.from({ length: 6 }, () => new THREE.Color(0, 0, 0)) },
+  /** Light thrown back off the heap: xyz where it comes from, w how far it reaches. */
+  uBounce: { value: new THREE.Vector4(0, 0, 0, 0) },
+  uBounceColor: { value: new THREE.Color(0, 0, 0) },
   uResolution: { value: new THREE.Vector2(1280, 720) },
   uOutlinePx: { value: 2 },
   uOutlineRefDist: { value: 10 },

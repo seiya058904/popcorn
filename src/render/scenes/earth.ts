@@ -1029,6 +1029,8 @@ export const earthSpec: SceneSpec = {
   focusPoint: new THREE.Vector3(0, 0, 8),
   focusRange: 70,
   aoRadius: 2,
+  // One capture above the crater sees the bright planet below it, which is wrong for its far sides.
+  envDiffuse: 0.15,
   shadow: { center: new THREE.Vector3(0, -12, 0), radius: 60 },
   pile: earthPile,
   debris: ['#5b4150', '#ff7a2f', '#84606e'],

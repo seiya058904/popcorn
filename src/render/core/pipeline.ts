@@ -33,6 +33,13 @@ export interface PostParams {
    * the climb out of a breakout; at 0 it costs nothing.
    */
   motion: number;
+  /**
+   * Shafts of light in the air: where their source is on screen (uv), their strength, and how far
+   * toward the source each ray reaches. Strength 0 skips the pass.
+   */
+  shafts: THREE.Vector4;
+  /** How bright a pixel has to be to send out a shaft. */
+  shaftThreshold: number;
 }
 
 export function defaultPostParams(): PostParams {
@@ -58,6 +65,8 @@ export function defaultPostParams(): PostParams {
     shock: new THREE.Vector4(0.5, 0.5, 0, 0),
     tilt: new THREE.Vector3(0, 0.45, 0.2),
     motion: 0,
+    shafts: new THREE.Vector4(0.5, 0.5, 0, 0.6),
+    shaftThreshold: 0.9,
   };
 }
 
@@ -259,6 +268,36 @@ void main() {
 }
 `;
 
+/**
+ * Light shafts, worked out at quarter size in one pass. Bright pixels (a window, the projector's
+ * screen, a low sun) are smeared toward the source's place on screen and fade with every step, the
+ * way dust in the air shows a beam. Whatever stands in front is dark there, so it cuts the rays.
+ */
+const shaftsFragment = /* glsl */ `
+uniform sampler2D tColor;
+uniform vec3 uShafts;
+uniform float uThreshold;
+varying vec2 vUv;
+const int STEPS = 20;
+void main() {
+  vec2 toward = (uShafts.xy - vUv) * uShafts.z / float(STEPS);
+  // A different start in every pixel of a small tile trades banding for grain the blur hides.
+  float jitter = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+  vec2 uv = vUv + toward * jitter;
+  vec3 sum = vec3(0.0);
+  float weight = 1.0;
+  for (int i = 0; i < STEPS; i++) {
+    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) break;
+    vec3 c = min(textureLod(tColor, uv, 0.0).rgb, vec3(6.0));
+    float luma = max(c.r, max(c.g, c.b));
+    sum += c * (max(luma - uThreshold, 0.0) / max(luma, 1e-3)) * weight;
+    weight *= 0.92;
+    uv += toward;
+  }
+  gl_FragColor = vec4(sum / float(STEPS), 1.0);
+}
+`;
+
 const prefilterFragment = /* glsl */ `
 uniform sampler2D tSource;
 uniform vec2 uPixel;
@@ -313,7 +352,8 @@ void main() {
 const compositeFragment = /* glsl */ `
 ${depthHelpers}
 ${focusHelpers}
-uniform sampler2D tColor, tBloom, tAo, tBlur, tReflect;
+uniform sampler2D tColor, tBloom, tAo, tBlur, tReflect, tShafts;
+uniform float uShaftStrength;
 uniform float uExposure, uContrast, uSaturation, uVignette, uGrain, uBloom, uTime, uFlash, uChroma, uAoStrength, uAspect;
 uniform float uHasBlur, uHasAo, uHasReflect, uMotion;
 uniform mat4 uReproject;
@@ -416,6 +456,7 @@ void main() {
     col *= mix(uAoTint * 2.2, vec3(1.0), ao);
   }
   col += texture2D(tBloom, uv).rgb * uBloom;
+  if (uShaftStrength > 0.0) col += texture2D(tShafts, uv).rgb * uShaftStrength;
   col *= uExposure;
   col = neutral(col);
 
@@ -459,6 +500,7 @@ export class PostPipeline {
   private aoB!: THREE.WebGLRenderTarget;
   private blur!: THREE.WebGLRenderTarget;
   private mirror!: THREE.WebGLRenderTarget;
+  private shaftTarget!: THREE.WebGLRenderTarget;
   private mips: Mip[] = [];
   private width = 0;
   private height = 0;
@@ -482,6 +524,7 @@ export class PostPipeline {
     true,
   );
   private readonly reflectMat = this.pass(reflectFragment, { tColor: { value: null }, uRange: { value: 6 }, uUp: { value: new THREE.Vector3(0, 1, 0) } }, true);
+  private readonly shaftsMat = this.pass(shaftsFragment, { tColor: { value: null }, uShafts: { value: new THREE.Vector3() }, uThreshold: { value: 0.9 } });
   private readonly prefilterMat = this.pass(prefilterFragment, { tSource: { value: null }, uPixel: { value: new THREE.Vector2() } });
   private readonly downMat = this.pass(downFragment, { tSource: { value: null }, uPixel: { value: new THREE.Vector2() } });
   private readonly upMat = this.pass(upFragment, { tSource: { value: null }, uPixel: { value: new THREE.Vector2() } }, false, true);
@@ -493,6 +536,8 @@ export class PostPipeline {
       tAo: { value: null },
       tBlur: { value: null },
       tReflect: { value: null },
+      tShafts: { value: null },
+      uShaftStrength: { value: 0 },
       uHasBlur: { value: 0 },
       uHasAo: { value: 0 },
       uHasReflect: { value: 0 },
@@ -572,6 +617,7 @@ export class PostPipeline {
     this.aoB = new THREE.WebGLRenderTarget(hw, hh, aoOptions);
     this.blur = new THREE.WebGLRenderTarget(hw, hh, hdrOptions);
     this.mirror = new THREE.WebGLRenderTarget(hw, hh, hdrOptions);
+    this.shaftTarget = new THREE.WebGLRenderTarget(Math.max(1, w >> 2), Math.max(1, h >> 2), hdrOptions);
     this.mips = [];
     let mw = hw;
     let mh = hh;
@@ -631,12 +677,23 @@ export class PostPipeline {
 
     this.runBloom(color);
 
+    const hasShafts = this.quality.shafts && p.shafts.z > 0.001;
+    if (hasShafts) {
+      const u = this.shaftsMat.uniforms;
+      u.tColor!.value = color;
+      u.uShafts!.value.set(p.shafts.x, p.shafts.y, p.shafts.w);
+      u.uThreshold!.value = p.shaftThreshold;
+      this.draw(this.shaftsMat, this.shaftTarget);
+    }
+
     const c = this.compositeMat.uniforms;
     c.tColor!.value = color;
     c.tBloom!.value = this.mips[0]!.up.texture;
     c.tAo!.value = this.aoA.texture;
     c.tBlur!.value = this.blur.texture;
     c.tReflect!.value = this.mirror.texture;
+    c.tShafts!.value = this.shaftTarget.texture;
+    c.uShaftStrength!.value = hasShafts ? p.shafts.z : 0;
     c.uHasReflect!.value = this.quality.reflections ? 1 : 0;
     c.uMirrorPixel!.value.set(1 / this.mirror.width, 1 / this.mirror.height);
     c.uAoSize!.value.set(this.aoA.width, this.aoA.height);
@@ -740,6 +797,7 @@ export class PostPipeline {
     this.aoB.dispose();
     this.blur.dispose();
     this.mirror.dispose();
+    this.shaftTarget.dispose();
     for (const mip of this.mips) {
       mip.down.dispose();
       mip.up.dispose();
