@@ -5,14 +5,15 @@ import { argValue } from './lib/harness.ts';
 
 /**
  * Builds the three-way picture review from the execution plan: full image, grayscale, thumbnail.
- * Usage: node tools/review.ts --only=a,b   (reads artifacts/shots/<name>.png)
+ * Usage: node tools/review.ts --only=a,b [--in=artifacts/shots] [--out=artifacts/review]
  */
 const names = (argValue('only') ?? 'm1-late,m4-kitchen-full,m5-cinema-full,m5-town-full,m5-earth-full').split(',');
-const outDir = join('artifacts', 'review');
+const inDir = argValue('in') ?? join('artifacts', 'shots');
+const outDir = argValue('out') ?? join('artifacts', 'review');
 mkdirSync(outDir, { recursive: true });
 
 for (const name of names) {
-  const input = join('artifacts', 'shots', `${name}.png`);
+  const input = join(inDir, `${name}.png`);
   if (!existsSync(input)) {
     console.error(`missing ${input}`);
     process.exitCode = 1;

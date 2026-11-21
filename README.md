@@ -181,7 +181,7 @@ The first end-to-end run needs browsers: `npx playwright install chromium firefo
 
 - **Everything is generated.** Machines, scenes, popcorn, textures, signs, shaders, music and sound effects are all made by code at load time. There are no model, texture or audio files.
 - **Rendering:** three.js on WebGL 2 with a custom toon-and-enamel material set, a heightfield heap with instanced surface flakes, refracting glass (high and ultra), screen-space reflections on polished floors, soft shadows, ground-truth-style ambient occlusion, a tilt-shift focus band, bloom, and camera motion blur during breakouts.
-- **Draw calls:** each machine type is one "part rig": all its parts in one mesh, posed from a small float texture, so a scene with every slot filled stays within 120 draw calls and 10 million triangles in the worst case (`npm run budget`).
+- **Draw calls:** each machine type is one "part rig": all its parts in one mesh, posed from a small float texture, so a scene with every slot filled stays within 120 draw calls and 13 million triangles in the worst case (`npm run budget`).
 - **Background building:** the next scene is built a few milliseconds per frame while you play, its shaders compile in parallel, and its buffers go to the GPU one piece per frame.
 - **Rules apart from rendering:** the economy runs at a fixed 10 steps a second in `src/sim` with no browser dependencies, so the balance simulator plays the real rules.
 - **Measured on one desktop** (Radeon RX 7900 XT, Chrome): every scene holds 60 FPS at 4K on the highest setting with ten clicks a second; with the CPU slowed down four times, 1080p on low still holds 60 FPS. A first visit on a simulated 10 Mbps connection shows the loading screen in about 0.4 s and the title in about 2.3 s.

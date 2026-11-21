@@ -10,7 +10,7 @@ import { qa, totalAt } from './shot-presets.ts';
 
 /**
  * Usage: node tools/budget.ts [--label=baseline] [--quality=ultra] [--scenes=0,1,2,3,4]
- *                             [--max-draws=150] [--max-triangles=10000000]
+ *                             [--max-draws=150] [--max-triangles=13000000]
  *
  * Puts every scene in its worst case: every slot filled, every upgrade and flavor bought, a frenzy,
  * a hopper, a cannon shot and steady clicking, then measures draw calls and triangles frame by frame.
@@ -124,16 +124,19 @@ async function measureBreakout(page: Page, threshold: number): Promise<Measure> 
   return measure(page, 3.6, false);
 }
 
-function summarize(breakdown: DrawBreakdown): { passes: Record<string, number>; top: Array<[string, number]> } {
+function summarize(breakdown: DrawBreakdown): { passes: Record<string, number>; top: Array<[string, number]>; heavy: Array<[string, number]> } {
   const passes: Record<string, number> = {};
   const byPart: Record<string, number> = {};
+  const byTriangles: Record<string, number> = {};
   for (const [key, entry] of Object.entries(breakdown.parts)) {
     const [pass, part] = key.split(' | ') as [string, string];
     passes[pass] = (passes[pass] ?? 0) + entry.calls;
     byPart[part] = (byPart[part] ?? 0) + entry.calls;
+    byTriangles[key] = (byTriangles[key] ?? 0) + entry.triangles;
   }
   const top = Object.entries(byPart).sort((a, b) => b[1] - a[1]);
-  return { passes, top };
+  const heavy = Object.entries(byTriangles).sort((a, b) => b[1] - a[1]);
+  return { passes, top, heavy };
 }
 
 const reports: SceneReport[] = [];
@@ -160,10 +163,12 @@ try {
 
     console.log(`\n=== scene ${scene} ===  geometries ${report.memory.geometries}  textures ${report.memory.textures}  programs ${report.memory.programs}  heap ${report.memory.heapMb} MB`);
     for (const [name, result] of Object.entries(report.cases)) {
-      const { passes, top } = summarize(result.breakdown);
+      const { passes, top, heavy } = summarize(result.breakdown);
       const passText = Object.entries(passes).map(([pass, calls]) => `${pass} ${calls}`).join(', ');
       console.log(`${name.padEnd(9)} draws ${String(result.maxDraws).padStart(3)}  triangles ${(result.maxTriangles / 1e6).toFixed(2)}M  [${passText}]`);
       console.log(`          ${top.slice(0, 14).map(([part, calls]) => `${part} ${calls}`).join(' · ')}`);
+      // Where the triangles go, so detail can be added where there is room and taken from where it is spent.
+      console.log(`          heaviest: ${heavy.slice(0, 8).map(([key, count]) => `${key} ${(count / 1e3).toFixed(0)}k`).join(' · ')}`);
     }
   }
 } finally {

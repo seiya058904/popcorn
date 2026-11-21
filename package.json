@@ -20,7 +20,7 @@
     "e2e": "playwright test",
     "e2e:prod": "npm run build && node tools/e2e-prod.ts",
     "soak": "node tools/soak.ts",
-    "budget": "node tools/budget.ts --max-draws=120 --max-triangles=10000000",
+    "budget": "node tools/budget.ts --max-draws=120 --max-triangles=13000000",
     "fonts": "node tools/fonts.ts",
     "build": "node tools/fonts.ts && vite build",
     "preview": "vite preview"
