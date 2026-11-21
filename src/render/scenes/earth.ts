@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import { clamp01, easeInOutCubic, easeOutBack, easeOutCubic, lerp, Spring } from '../../motion/ease.ts';
-import { Rng } from '../../motion/rng.ts';
 import type { Stage } from '../core/stage.ts';
 import { PopcornSnow } from '../fx/snow.ts';
 import { SpriteKind } from '../fx/sprites.ts';
@@ -135,26 +134,58 @@ float gnoise(vec3 p) {
   return mix(a, b, u.z);
 }
 float fbm(vec3 p) { return gnoise(p) * 0.55 + gnoise(p * 2.1 + 3.1) * 0.3 + gnoise(p * 4.3 + 7.7) * 0.15; }
+// More octaves for coastlines and mountain ranges, which are seen up close.
+float fbmFine(vec3 p) {
+  float sum = 0.0, amp = 0.5;
+  for (int i = 0; i < 4; i++) {
+    sum += gnoise(p) * amp;
+    p = p * 2.07 + vec3(1.7, 9.2, 4.4);
+    amp *= 0.5;
+  }
+  return sum / 0.94;
+}
+
+// Screen-space bump from a height, as used for the drifts.
+vec3 bumpBy(vec3 N, float h) {
+  vec3 dpx = dFdx(vWorld), dpy = dFdy(vWorld);
+  vec3 r1 = cross(dpy, N), r2 = cross(N, dpx);
+  float det = dot(dpx, r1);
+  vec3 grad = sign(det) * (dFdx(h) * r1 + dFdy(h) * r2);
+  return normalize(abs(det) * N - grad);
+}
 
 void main() {
   float c = cos(uSpin), s = sin(uSpin);
   vec3 d = vec3(vDir.x * c - vDir.z * s, vDir.y, vDir.x * s + vDir.z * c);
-  float height = fbm(d * 2.6 + 11.0) + gnoise(d * 11.0 + 5.0) * 0.035;
-  float land = smoothstep(0.5, 0.512, height);
-  float inland = smoothstep(0.54, 0.64, height);
-  float beach = smoothstep(0.5, 0.507, height) * (1.0 - smoothstep(0.507, 0.525, height));
-  float peaks = smoothstep(0.62, 0.68, height + gnoise(d * 16.0) * 0.05);
-  vec3 ocean = mix(vec3(0.02, 0.15, 0.48), vec3(0.05, 0.42, 0.74), smoothstep(0.34, 0.5, height));
-  vec3 ground = mix(vec3(0.2, 0.56, 0.28), vec3(0.72, 0.6, 0.3), inland * smoothstep(0.1, 0.55, gnoise(d * 5.0 + 2.0)));
-  ground = mix(ground, vec3(0.5, 0.42, 0.4), peaks * 0.75);
+  // Continents from warped noise, so coasts wander into bays and peninsulas instead of blobs.
+  vec3 q = d * 2.4 + 11.0;
+  vec3 warp = vec3(gnoise(q * 0.9 + 1.3), gnoise(q * 0.9 + 7.9), gnoise(q * 0.9 + 3.1)) - 0.5;
+  float height = fbmFine(q + warp * 1.25) * 1.06 - 0.03;
+  float land = smoothstep(0.5, 0.508, height);
+  float inland = smoothstep(0.53, 0.62, height);
+  float beach = smoothstep(0.5, 0.505, height) * (1.0 - smoothstep(0.505, 0.52, height));
+  float peaks = smoothstep(0.61, 0.69, height + gnoise(d * 22.0) * 0.04);
+  float lat = abs(d.y);
+
+  // Deep blue water, turquoise over the shelves along every coast.
+  vec3 ocean = mix(vec3(0.015, 0.09, 0.34), vec3(0.03, 0.3, 0.62), smoothstep(0.3, 0.47, height));
+  ocean = mix(ocean, vec3(0.08, 0.62, 0.66), smoothstep(0.455, 0.5, height) * 0.8);
+  // Land by climate: forest and meadow, a belt of dry country either side of the tropics.
+  float dryness = smoothstep(0.12, 0.3, lat) * (1.0 - smoothstep(0.34, 0.48, lat));
+  float desert = smoothstep(0.35, 0.65, dryness + (gnoise(d * 6.0 + 2.0) - 0.5) * 0.8) * inland;
+  vec3 ground = mix(vec3(0.13, 0.42, 0.2), vec3(0.36, 0.6, 0.26), smoothstep(0.3, 0.7, gnoise(d * 9.0 + 4.0)));
+  ground = mix(ground, vec3(0.8, 0.64, 0.36), desert);
+  ground = mix(ground, vec3(0.48, 0.4, 0.38), peaks * 0.8);
+  ground = mix(ground, vec3(0.95, 0.96, 1.0), smoothstep(0.69, 0.74, height) * 0.9);
   ground = mix(ground, vec3(0.96, 0.87, 0.64), beach);
   // Ice at the poles of the real planet, before the popcorn takes over.
-  float ice = smoothstep(0.86, 0.92, abs(d.y) + gnoise(d * 7.0) * 0.06);
+  float ice = smoothstep(0.86, 0.92, lat + gnoise(d * 7.0) * 0.06);
   vec3 albedo = mix(mix(ocean, ground, land), vec3(0.92, 0.96, 1.0), ice);
-  float gloss = mix(0.75, 0.1, land);
+  float gloss = mix(0.86, 0.1, max(land, ice));
 
   vec3 cloudP = d * 3.4 + vec3(uTime * 0.03, 0.0, uTime * 0.018);
-  float cloud = smoothstep(0.54, 0.66, fbm(cloudP) + gnoise(cloudP * 3.1) * 0.05);
+  float cloudShape = fbm(cloudP) + gnoise(cloudP * 3.1) * 0.06 + gnoise(cloudP * 7.3) * 0.025;
+  float cloud = smoothstep(0.54, 0.68, cloudShape);
   // Clouds throw a soft shadow onto the ground beneath them.
   float cloudShade = smoothstep(0.54, 0.66, fbm(cloudP + uSunDir * 0.12));
   albedo *= 1.0 - cloudShade * 0.32;
@@ -162,12 +193,20 @@ void main() {
   gloss = mix(gloss, 0.08, cloud);
 
   vec3 N = normalize(vNormal);
+  vec3 Ng = N;
   vec3 toCam = cameraPosition - vWorld;
   float dist = length(toCam);
   vec3 V = toCam / dist;
+  // Relief on land: ranges catch the light on one side and fall into shade on the other.
+  N = bumpBy(N, height * 0.55 * land * (1.0 - cloud) * (1.0 - ice));
+  // Small moving waves break the sun's reflection on the sea into a glinting path.
+  // Toward the rim the waves would be finer than a pixel and only sparkle, so they fade out; and
+  // only open sea, not land, ice or cloud, has any to work out.
+  float wet = smoothstep(0.15, 0.55, dot(Ng, V)) * (1.0 - land) * (1.0 - cloud) * (1.0 - ice);
+  float waves = wet > 0.001 ? gnoise(d * 90.0 + vec3(uTime * 0.25, 0.0, uTime * 0.18)) + gnoise(d * 170.0 - vec3(0.0, uTime * 0.3, 0.0)) * 0.35 : 0.0;
+  N = bumpBy(N, waves * 0.0035 * wet);
   float shadow = sunShadow(vWorld, N);
   vec3 col = toyLight(albedo, N, V, vWorld, gloss, 1.0, shadow);
-
   // Popcorn drifts advance from the pole, breaking up at their edge. They are lit exactly like
   // the heap, puffs and creases included, so heap and drift read as one material.
   float edge = fbm(vDir * 5.0) * 0.26;
@@ -181,10 +220,10 @@ void main() {
     float bump = (puff * 0.8 + sat(1.0 - worley(flat_ * 84.0 + 3.0).x) * 0.2) * 0.7;
     // Screen-space bump: the puffs catch the sun and drop into their creases.
     vec3 dpx = dFdx(vWorld), dpy = dFdy(vWorld);
-    vec3 r1 = cross(dpy, N), r2 = cross(N, dpx);
+    vec3 r1 = cross(dpy, Ng), r2 = cross(Ng, dpx);
     float det = dot(dpx, r1);
     vec3 grad = sign(det) * (dFdx(bump) * r1 + dFdy(bump) * r2);
-    vec3 Nd = normalize(abs(det) * N - grad);
+    vec3 Nd = normalize(abs(det) * Ng - grad);
     float crease = 0.55 + (1.0 - gap) * 0.25 + (1.0 - puff) * 0.25;
     vec3 drift = popcornShade(Nd, V, vWorld, sat(crease), 0.0, 1.0, 0.0, shadow, mix(0.08, 0.5, puff));
     // Thin cloud over the drifts: full white cloud read as holes torn in the popcorn.
@@ -196,15 +235,20 @@ void main() {
     vec2 grid = vec2(atan(d.z, d.x) * 6.0, asin(clamp(d.y, -1.0, 1.0)) * 12.0);
     float big = smoothstep(0.34, 0.1, worley(grid).x);
     float small = smoothstep(0.16, 0.05, worley(grid * 3.3 + 7.0).x) * 0.55;
-    float night = smoothstep(0.12, -0.22, dot(N, uSunDir));
+    float night = smoothstep(0.12, -0.22, dot(Ng, uSunDir));
     // The painted light is soft all round; the night side needs to go properly dark to read.
-    col *= 1.0 - 0.62 * smoothstep(0.1, -0.32, dot(N, uSunDir)) * uCities;
+    col *= 1.0 - 0.62 * smoothstep(0.1, -0.32, dot(Ng, uSunDir)) * uCities;
     // Under the popcorn the lights still glow, softened, as if through snow.
     float city = max(big, small) * inland * (1.0 - ice) * (1.0 - snow * 0.55) * (1.0 - cloud * 0.75);
     col += vec3(1.6, 1.05, 0.42) * city * night * uCities * (0.85 + 0.15 * sin(uTime * 3.0 + grid.x * 9.0));
   }
-  float atmosphere = pow(1.0 - sat(dot(N, V)), 3.0);
-  col += vec3(0.32, 0.56, 1.0) * atmosphere * 0.85;
+  // The air glows blue on the day side and warm along the line where night begins.
+  float atmosphere = pow(1.0 - sat(dot(Ng, V)), 3.0);
+  float sunward = dot(Ng, uSunDir);
+  float dusk = smoothstep(-0.3, 0.0, sunward) * (1.0 - smoothstep(0.0, 0.35, sunward));
+  col += (vec3(0.32, 0.56, 1.0) * mix(0.35, 1.0, smoothstep(-0.25, 0.4, sunward)) + vec3(1.0, 0.45, 0.2) * dusk * 0.6) * atmosphere * 0.85;
+  // The same warm band lies on the ground where the sun is setting.
+  col += albedo * vec3(1.0, 0.42, 0.18) * dusk * 0.18 * (1.0 - snow);
   gl_FragColor = vec4(applyFog(col, dist), 1.0);
 }
 `;
@@ -276,24 +320,69 @@ function moonGeometry(): THREE.BufferGeometry {
   return kit.build();
 }
 
-function starsGeometry(): THREE.BufferGeometry {
-  const kit = new Kit();
-  const top = new THREE.Color('#0c0a30');
-  const low = new THREE.Color('#2a1650');
-  kit.add(P.sphere(420, 24, 14), { color: top, emissive: 1, outline: 0, gloss: 0, matrix: at(0, 0, 0, [0, 0, 0], -1), colorFn: (p, _n, out) => out.lerpColors(low, top, clamp01(p.y / 260 + 0.5)) });
-  const rng = new Rng(555);
-  for (let i = 0; i < 240; i += 1) {
-    const a = rng.range(0, 6.28);
-    const y = rng.range(-0.4, 1);
-    const r = Math.sqrt(1 - y * y);
-    kit.add(P.sphere(rng.range(0.5, 1.5), 5, 4), {
-      color: rng.next() < 0.3 ? '#ffe9b0' : '#dbe6ff',
-      emissive: 1,
-      outline: 0,
-      matrix: at(Math.cos(a) * r * 400, y * 400, Math.sin(a) * r * 400),
-    });
-  }
-  return kit.build();
+/**
+ * Deep space round the planet: indigo above, violet below, faint nebulae and a milky band, and
+ * stars of every size that twinkle. Drawn in one pass on the inside of a large sphere.
+ */
+const spaceFragment = /* glsl */ `
+uniform float uTime;
+uniform vec3 uTop, uLow;
+varying vec3 vDir;
+float snoise(vec3 p) {
+  vec3 i = floor(p), f = fract(p);
+  vec3 u = f * f * (3.0 - 2.0 * f);
+  float a = mix(mix(hash31(i), hash31(i + vec3(1, 0, 0)), u.x), mix(hash31(i + vec3(0, 1, 0)), hash31(i + vec3(1, 1, 0)), u.x), u.y);
+  float b = mix(mix(hash31(i + vec3(0, 0, 1)), hash31(i + vec3(1, 0, 1)), u.x), mix(hash31(i + vec3(0, 1, 1)), hash31(i + vec3(1, 1, 1)), u.x), u.y);
+  return mix(a, b, u.z);
+}
+float sfbm(vec3 p) { return snoise(p) * 0.55 + snoise(p * 2.2 + 4.1) * 0.3 + snoise(p * 4.6 + 1.3) * 0.15; }
+// One layer of stars: a few cells of a grid round the sky hold a star each.
+vec3 starLayer(vec3 d, float scale, float density, float seed) {
+  vec3 p = d * scale + seed;
+  vec3 cell = floor(p);
+  float h = hash31(cell);
+  if (h < 1.0 - density) return vec3(0.0);
+  vec3 center = vec3(hash31(cell + 1.7), hash31(cell + 5.3), hash31(cell + 9.1)) * 0.6 + 0.2;
+  float r = length(fract(p) - center);
+  // At least a pixel wide wherever they are, so they never shimmer away to nothing.
+  float px = length(fwidth(p));
+  float size = max(0.06, px * 0.9);
+  float twinkle = 0.75 + 0.25 * sin(uTime * (1.5 + h * 3.0) + h * 40.0);
+  float bright = (0.6 + 2.2 * pow(fract(h * 97.0), 3.0)) * twinkle * min(1.0, 0.06 / size);
+  vec3 tint = mix(vec3(0.85, 0.9, 1.0), vec3(1.0, 0.88, 0.7), step(0.7, fract(h * 13.0)));
+  return tint * bright * smoothstep(size, 0.0, r);
+}
+void main() {
+  vec3 d = normalize(vDir);
+  vec3 col = mix(uLow, uTop, sat(d.y * 0.65 + 0.5));
+  float n = sfbm(d * 2.3 + 1.0);
+  float n2 = sfbm(d * 4.2 + 7.0);
+  col += vec3(0.32, 0.08, 0.42) * smoothstep(0.48, 0.85, n) * 0.22;
+  col += vec3(0.04, 0.2, 0.32) * smoothstep(0.55, 0.9, n2) * 0.16;
+  float band = exp(-pow(dot(d, normalize(vec3(0.3, 1.0, 0.45))) * 3.2, 2.0));
+  col += vec3(0.22, 0.17, 0.34) * band * (0.2 + 0.5 * n2);
+  col += starLayer(d, 70.0, 0.06, 0.0);
+  col += starLayer(d, 150.0, 0.05 + band * 0.12, 31.0) * 0.6;
+  gl_FragColor = vec4(col, 1.0);
+}
+`;
+
+function spaceMesh(): THREE.Mesh {
+  const hash31 = 'float hash31(vec3 p) { p = fract(p * 0.1031); p += dot(p, p.zyx + 31.32); return fract((p.x + p.y) * p.z); }\n';
+  const mesh = new THREE.Mesh(
+    new THREE.SphereGeometry(420, 32, 20),
+    new THREE.ShaderMaterial({
+      name: 'space',
+      vertexShader: 'varying vec3 vDir; void main() { vDir = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+      fragmentShader: `${GLSL_UTIL}\n${hash31}${spaceFragment}`,
+      uniforms: { uTime: globals.uTime, uTop: { value: new THREE.Color('#0c0a30') }, uLow: { value: new THREE.Color('#2a1650') } },
+      side: THREE.BackSide,
+      depthWrite: false,
+    }),
+  );
+  mesh.frustumCulled = false;
+  mesh.renderOrder = -1;
+  return mesh;
 }
 
 const SKIN = { color: '#ffd2ab', gloss: 0.28 };
@@ -549,7 +638,7 @@ function cloudGeometry(): THREE.BufferGeometry {
 function* buildEarth(stage: Stage, root: THREE.Group): SceneBuild {
   const sky = new THREE.Group();
   root.add(sky);
-  addToy(stage, sky, starsGeometry(), { shadow: false, outline: false });
+  sky.add(spaceMesh());
   yield;
 
   const globeUniforms = {
@@ -585,7 +674,17 @@ function* buildEarth(stage: Stage, root: THREE.Group): SceneBuild {
     new THREE.ShaderMaterial({
       name: 'atmosphere',
       vertexShader: 'varying vec3 vN, vP; void main() { vec4 w = modelMatrix * vec4(position, 1.0); vP = w.xyz; vN = normalize(mat3(modelMatrix) * normal); gl_Position = projectionMatrix * viewMatrix * w; }',
-      fragmentShader: 'varying vec3 vN, vP; void main() { float g = pow(abs(dot(normalize(vN), normalize(cameraPosition - vP))), 3.0); gl_FragColor = vec4(vec3(0.3, 0.55, 1.0) * g * 0.75, 0.0); }',
+      fragmentShader: `
+        uniform vec3 uSunDir, uCenter;
+        varying vec3 vN, vP;
+        void main() {
+          float g = pow(abs(dot(normalize(vN), normalize(cameraPosition - vP))), 3.0);
+          float sunward = dot(normalize(vP - uCenter), uSunDir);
+          float dusk = smoothstep(-0.3, 0.0, sunward) * (1.0 - smoothstep(0.0, 0.35, sunward));
+          vec3 glow = vec3(0.3, 0.55, 1.0) * mix(0.3, 1.0, smoothstep(-0.25, 0.4, sunward)) + vec3(1.0, 0.45, 0.2) * dusk * 0.7;
+          gl_FragColor = vec4(glow * g * 0.75, 0.0);
+        }`,
+      uniforms: { uSunDir: globals.uSunDir, uCenter: { value: new THREE.Vector3(0, -R, 0) } },
       side: THREE.BackSide,
       transparent: true,
       depthWrite: false,

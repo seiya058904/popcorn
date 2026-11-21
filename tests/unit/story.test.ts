@@ -4,6 +4,7 @@ import { applyLamps, globals, LIGHT_GROUPS, lightGroup, type Lamp } from '../../
 import { bindEnvironment, PROBE_LOOKS } from '../../src/render/core/probe.ts';
 import { QUALITY } from '../../src/render/core/quality.ts';
 import { Kit, P } from '../../src/render/geometry/kit.ts';
+import { createFlakeGeometry } from '../../src/render/geometry/popcorn.ts';
 import { SetPieces } from '../../src/render/scenes/pieces.ts';
 import { alongStory, LightBank, mixRig, moodScratch, storyMood, storyWeights, type Story } from '../../src/render/scenes/story.ts';
 import type { SceneContext } from '../../src/render/scenes/types.ts';
@@ -210,5 +211,35 @@ describe('the room probe', () => {
     expect(QUALITY.medium.probes).toBe(true);
     expect(QUALITY.medium.shafts).toBe(false);
     expect(QUALITY.high.shafts && QUALITY.ultra.shafts).toBe(true);
+  });
+});
+
+describe('surface channels', () => {
+  it('carry sway, velvet, vinyl and smudges per vertex, with neon marked apart from velvet', () => {
+    const kit = new Kit();
+    kit.add(P.box(1, 1, 1), { color: '#ffffff', sway: 0.4, sheen: 0.8, soft: 0.6, smudge: 0.3 });
+    kit.add(P.box(1, 1, 1), { color: '#ff5fa8', neon: true });
+    kit.add(P.box(1, 1, 1), { color: '#ffffff' });
+    const geometry = kit.build();
+    const channel = geometry.getAttribute('aMat3');
+    const count = channel.count / 3;
+    expect([channel.getX(0), channel.getY(0), channel.getZ(0), channel.getW(0)].map((x) => Number(x.toFixed(3)))).toEqual([0.4, 0.8, 0.6, 0.3]);
+    expect(channel.getY(count)).toBe(-1);
+    expect([channel.getX(count * 2), channel.getY(count * 2), channel.getZ(count * 2), channel.getW(count * 2)]).toEqual([0, 0, 0, 0]);
+  });
+
+  it('give every flake vertex its place along the kernel, crown to tip', () => {
+    const flake = createFlakeGeometry(2, 3);
+    const shade = flake.getAttribute('aShade');
+    expect(shade.itemSize).toBe(4);
+    let low = 1;
+    let high = 0;
+    for (let i = 0; i < shade.count; i += 1) {
+      low = Math.min(low, shade.getW(i));
+      high = Math.max(high, shade.getW(i));
+    }
+    expect(low).toBeGreaterThanOrEqual(0);
+    expect(high).toBeLessThanOrEqual(1);
+    expect(high - low).toBeGreaterThan(0.9);
   });
 });

@@ -15,7 +15,7 @@ export interface RigPart {
 /** A part matrix that collapses the part to a point. */
 export const RIG_HIDDEN = new THREE.Matrix4().makeScale(0, 0, 0);
 
-const ATTRIBUTES = ['position', 'normal', 'color', 'aMat', 'aMat2', 'aTint'] as const;
+const ATTRIBUTES = ['position', 'normal', 'color', 'aMat', 'aMat2', 'aMat3', 'aTint'] as const;
 
 /** Joins Kit geometries into one, recording in `aPart` which part, and which passes, each vertex is for. */
 function mergeParts(parts: Array<{ geometry: THREE.BufferGeometry; part: number; ink: boolean; shadow: boolean }>): THREE.BufferGeometry {

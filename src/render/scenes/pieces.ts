@@ -137,9 +137,9 @@ const seg = (n: number, q: number): number => Math.max(5, Math.round(n * q));
 
 function figureBody(look: FigureLook, kit = new Kit(), m = new THREE.Matrix4(), tinted = false, q = 1): Kit {
   const put = (local: THREE.Matrix4): THREE.Matrix4 => m.clone().multiply(local);
-  const pants = { color: look.pants, gloss: 0.5, coat: 0.3, fixedColor: true };
+  const pants = { color: look.pants, gloss: 0.5, coat: 0.3, soft: 0.4, fixedColor: true };
   // A crowd tints its shirts per copy; a single figure keeps the color it was given.
-  const shirt = { color: look.shirt, gloss: 0.6, coat: 0.35, fixedColor: !tinted };
+  const shirt = { color: look.shirt, gloss: 0.6, coat: 0.35, soft: 0.4, fixedColor: !tinted };
   for (const side of [-1, 1]) {
     kit.add(P.capsule(0.062, 0.15, seg(4, q), seg(10, q)), { ...pants, matrix: put(at(side * 0.07, 0.15, 0)) });
     kit.add(P.sphere(0.07, seg(12, q), seg(8, q)), { color: '#2b2230', gloss: 0.7, fixedColor: true, matrix: put(at(side * 0.07, 0.035, 0.025, [0, 0, 0], [1, 0.62, 1.4])) });
@@ -153,7 +153,7 @@ function figureBody(look: FigureLook, kit = new Kit(), m = new THREE.Matrix4(), 
 function figureHead(look: FigureLook, kit = new Kit(), m = new THREE.Matrix4(), q = 1): Kit {
   // The neck sits at the origin.
   const put = (local: THREE.Matrix4): THREE.Matrix4 => m.clone().multiply(local);
-  const skin = { color: look.skin, gloss: 0.35, fixedColor: true };
+  const skin = { color: look.skin, gloss: 0.35, soft: 0.9, fixedColor: true };
   kit.add(P.capsule(0.05, 0.03, 3, 8), { ...skin, outline: 0, matrix: put(at(0, 0.02, 0)) });
   kit.add(P.sphere(0.17, seg(20, q), seg(14, q)), { ...skin, matrix: put(at(0, 0.17, 0)) });
   for (const side of [-1, 1]) {
@@ -248,7 +248,7 @@ const POP_STROKES: Array<Array<[number, number]>> = [
   [[0.3, 0.5], [0.3, -0.62]],
 ];
 
-export const NEON_PINK = { color: '#ff5fa8', gloss: 0.6, emissive: 1, outline: 0, fixedColor: true } satisfies Paint;
+export const NEON_PINK = { color: '#ff5fa8', gloss: 0.6, emissive: 1, outline: 0, neon: true, fixedColor: true } satisfies Paint;
 
 /**
  * A neon 「砰」 on its backing board, facing +Z, placed by `place`. `tube` should carry a light

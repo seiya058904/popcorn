@@ -54,7 +54,8 @@ function valueNoise3(x: number, y: number, z: number): number {
 interface Lobe {
   center: THREE.Vector3;
   size: number;
-  sharp: number;
+  /** Angular radius of the puff, in radians. */
+  width: number;
 }
 
 /**
@@ -88,7 +89,7 @@ export function createFlakeGeometry(shape: number, detail: number): THREE.Buffer
     lobes.push({
       center,
       size: mushroom ? rng.range(0.86, 0.98) : big ? rng.range(0.92, 1.14) : rng.range(0.62, 0.88),
-      sharp: mushroom ? rng.range(5, 7.5) : big ? rng.range(3.2, 5) : rng.range(6, 11),
+      width: mushroom ? rng.range(0.62, 0.78) : big ? rng.range(0.95, 1.2) : rng.range(0.5, 0.75),
     });
   }
   // Close-up flakes get a second, finer layer of crinkles.
@@ -97,7 +98,7 @@ export function createFlakeGeometry(shape: number, detail: number): THREE.Buffer
   const pos = geometry.getAttribute('position') as THREE.BufferAttribute;
   const count = pos.count;
   const kernel = new Float32Array(count * 3);
-  const shade = new Float32Array(count * 3);
+  const shade = new Float32Array(count * 4);
   const dir = new THREE.Vector3();
   const warped = new THREE.Vector3();
   const seed = shape * 17.3;
@@ -114,8 +115,9 @@ export function createFlakeGeometry(shape: number, detail: number): THREE.Buffer
     let second = 0;
     let sum = 0;
     for (const lobe of lobes) {
-      const d = Math.max(0, (dot(warped, lobe.center) + 0.3) / 1.3);
-      const value = lobe.size * Math.pow(d, lobe.sharp);
+      // Each puff is a round bubble: a spherical cap, so neighbours meet in creases, not in ridges.
+      const t = Math.acos(Math.max(-1, Math.min(1, dot(warped, lobe.center)))) / lobe.width;
+      const value = t < 1 ? lobe.size * Math.sqrt(1 - t * t) : 0;
       sum += Math.pow(value, 9);
       if (value > best) {
         second = best;
@@ -140,9 +142,11 @@ export function createFlakeGeometry(shape: number, detail: number): THREE.Buffer
     // Folds between lobes and low valleys both toast darker.
     const fold = 1 - smooth(0, 0.16, best - second);
     const valley = 1 - smooth(0.22, 0.62, field);
-    shade[i * 3] = Math.min(1, Math.max(fold * smooth(0.1, 0.5, best) * 0.82, valley * 0.92));
-    shade[i * 3 + 1] = core;
-    shade[i * 3 + 2] = field;
+    shade[i * 4] = Math.min(1, Math.max(fold * smooth(0.1, 0.5, best) * 0.82, valley * 0.92));
+    shade[i * 4 + 1] = core;
+    shade[i * 4 + 2] = field;
+    // Where along the kernel this point lies, crown 0 to tip 1, for the kernel's own colouring.
+    shade[i * 4 + 3] = (hullDot + 1) * 0.5;
 
     // Kernel: a flat teardrop, like a real kernel. Broad and round at the crown, narrowing to a
     // short point at the hull end, and thinner front to back than side to side.
@@ -169,7 +173,7 @@ export function createFlakeGeometry(shape: number, detail: number): THREE.Buffer
 
   geometry.setAttribute('aKernelPos', new THREE.BufferAttribute(kernel, 3));
   geometry.setAttribute('aKernelNormal', kernelGeometry.getAttribute('normal'));
-  geometry.setAttribute('aShade', new THREE.BufferAttribute(shade, 3));
+  geometry.setAttribute('aShade', new THREE.BufferAttribute(shade, 4));
   geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1.6);
   return geometry;
 }

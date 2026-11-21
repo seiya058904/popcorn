@@ -49,6 +49,7 @@ export function flakeAtlas(detail: number): FlakeAtlas {
         data[offset + i * 4] = attribute.getX(i);
         data[offset + i * 4 + 1] = attribute.getY(i);
         data[offset + i * 4 + 2] = attribute.getZ(i);
+        if (attribute.itemSize > 3) data[offset + i * 4 + 3] = attribute.getW(i);
       }
     });
   });

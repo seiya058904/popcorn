@@ -99,7 +99,7 @@ export function fridgeBadge(kit: Kit): void {
 
 export function dressCinema(kit: Kit, ground: number, stageR: number): void {
   // Patterned carpet runner down the aisle with brass edging.
-  kit.add(P.box(11, 0.05, 88, 0.01, 1), { color: '#7d1e30', gloss: 0.04, pattern: Pattern.Fabric + 0.2, outline: 0, fixedColor: true, matrix: at(0, ground + 0.11, 58) });
+  kit.add(P.box(11, 0.05, 88, 0.01, 1), { color: '#7d1e30', gloss: 0.04, pattern: Pattern.Fabric + 0.2, sheen: 0.5, outline: 0, fixedColor: true, matrix: at(0, ground + 0.11, 58) });
   for (const x of [-5.7, 5.7]) kit.add(P.box(0.3, 0.1, 88, 0.02, 1), { ...M.brass, outline: 0, matrix: at(x, ground + 0.12, 58) });
   // Stage boards fanning out from the bucket.
   for (let i = 0; i < 48; i += 1) {

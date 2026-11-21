@@ -3,10 +3,10 @@ import { globals } from '../core/globals.ts';
 import { GLSL_INSTANCE_WORLD, GLSL_LIGHT_PARS, GLSL_RIG_SKIP, GLSL_UTIL, SHADOW_DEPTH_FRAGMENT } from './glsl.ts';
 
 const toyVertex = /* glsl */ `
-attribute vec4 aMat, aMat2;
+attribute vec4 aMat, aMat2, aMat3;
 attribute float aTint;
 varying vec3 vWorld, vNormal, vColor, vLocal;
-varying vec4 vMat, vMat2;
+varying vec4 vMat, vMat2, vMat3;
 ${GLSL_INSTANCE_WORLD}
 void main() {
   mat4 world = worldMatrixOf();
@@ -20,6 +20,7 @@ void main() {
   #endif
   vMat = aMat;
   vMat2 = aMat2;
+  vMat3 = aMat3;
   gl_Position = projectionMatrix * viewMatrix * wp;
 }
 `;
@@ -28,7 +29,7 @@ const toyFragment = /* glsl */ `
 ${GLSL_UTIL}
 ${GLSL_LIGHT_PARS}
 varying vec3 vWorld, vNormal, vColor, vLocal;
-varying vec4 vMat, vMat2;
+varying vec4 vMat, vMat2, vMat3;
 
 float hash3(vec3 p) { p = fract(p * 0.1031); p += dot(p, p.zyx + 31.32); return fract((p.x + p.y) * p.z); }
 float noise3d(vec3 p) {
@@ -184,13 +185,36 @@ void main() {
     gloss *= 1.0 - edge * scuff * wear * 0.4;
   }
 
+  float velvet = max(vMat3.y, 0.0), neon = step(vMat3.y, -0.5), soft = vMat3.z, smudge = vMat3.w;
+  if (smudge > 0.0) {
+    // Fingerprints and wiped streaks: patches of duller gloss that break up a mirror finish.
+    float print = smoothstep(0.42, 0.78, noise3d(vLocal * 7.0 + noise3d(vLocal * 2.3) * 1.8));
+    gloss *= 1.0 - smudge * print * 0.5;
+    albedo *= 1.0 - smudge * print * 0.05;
+  }
+
   float shadow = sunShadow(vWorld, N);
   vec3 col = surfaceLight(albedo, N, V, vWorld, gloss, ao, shadow, metal, coat);
+  float ndv = sat(dot(N, V));
+  if (velvet > 0.0) {
+    // Pile catches light at grazing angles and swallows it face on.
+    float graze = pow(1.0 - ndv, 2.2);
+    vec3 fiber = mix(albedo, vec3(1.0), 0.3);
+    vec3 around = ambientLight(N) + uSunColor * sat(dot(N, uSunDir) * 0.5 + 0.5) * mix(0.35, 1.0, shadow) * 0.6;
+    col = col * mix(1.0, 0.72, velvet * (1.0 - graze)) + fiber * around * graze * velvet * 0.85;
+  }
+  if (soft > 0.0) {
+    // Soft vinyl: light creeps a little way into the shade, warm where it turns away.
+    float ndl = dot(N, uSunDir);
+    float edgeGlow = sat(1.0 - abs(ndl + 0.1) * 2.2);
+    col += albedo * uSunColor * vec3(1.0, 0.62, 0.5) * edgeGlow * soft * 0.22 * mix(0.5, 1.0, shadow);
+  }
   // A thin highlight along every bevel, which is what makes small parts look machined.
   vec3 R = reflect(-V, N);
   if (edge > 0.002) col += (envRadiance(R, 0.3) + uSunColor * 0.35) * edge * mix(0.03, 0.2, max(gloss, metal)) * mix(0.4, 1.0, ao);
   col = mix(col, albedo * (1.0 + emissive * 1.6), sat(emissive));
-  float ndv = sat(dot(N, V));
+  // A lit tube is white-hot along its middle; its color lives in the glow around it.
+  if (neon > 0.5) col += mix(albedo, vec3(1.0), 0.75) * pow(ndv, 2.5) * sat(emissive) * 1.4;
   float mirror = coat * smoothstep(0.75, 0.97, N.y) * (0.22 + 0.78 * pow(1.0 - ndv, 3.0));
   // Alpha carries how much screen-space reflection this pixel wants.
   gl_FragColor = vec4(applyFog(col, dist), 1.0 - mirror);

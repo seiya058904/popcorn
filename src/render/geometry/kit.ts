@@ -71,6 +71,16 @@ export interface Paint {
   light?: number;
   /** With `light`: off, the part keeps its paint and only stops glowing, like a clock face. */
   lightKeepsPaint?: boolean;
+  /** How far the part sways in the wind, 0 to 1: leaves, flags, bunting. */
+  sway?: number;
+  /** Velvet and plush: darker face-on, a soft bright sheen at grazing angles. 0 to 1. */
+  sheen?: number;
+  /** Soft vinyl, as on toy figures: light creeps round into the shade, warm at the edge. 0 to 1. */
+  soft?: number;
+  /** Fingerprints and smudges that break up the reflection on chrome and enamel. 0 to 1. */
+  smudge?: number;
+  /** A glowing tube: white-hot along its core, its color in the glow around it. */
+  neon?: boolean;
 }
 
 const tempP = new THREE.Vector3();
@@ -114,6 +124,7 @@ export class Kit {
   private readonly colors = new Grow(3 * 1024);
   private readonly mats = new Grow(4 * 1024);
   private readonly mats2 = new Grow(4 * 1024);
+  private readonly mats3 = new Grow(4 * 1024);
   private readonly tints = new Grow(1024);
   private indices = new Uint32Array(4096);
   private indexCount = 0;
@@ -149,6 +160,11 @@ export class Kit {
     const coat = paint.coat ?? 0;
     const pattern = paint.pattern ?? 0;
     const wear = paint.wear ?? 0;
+    const sway = paint.sway ?? 0;
+    // Velvet and neon share a channel: neon is marked by a negative value.
+    const sheen = paint.neon ? -1 : (paint.sheen ?? 0);
+    const soft = paint.soft ?? 0;
+    const smudge = paint.smudge ?? 0;
     const tint = paint.fixedColor ? 0 : 1;
     // The group travels in the glow channel, two per step, where the shader takes it apart again.
     const group = paint.light ? (paint.light + (paint.lightKeepsPaint ? LIGHT_GROUPS : 0)) * 2 : 0;
@@ -170,12 +186,14 @@ export class Kit {
     const oc = this.colors.reserve(count * 3);
     const om = this.mats.reserve(count * 4);
     const om2 = this.mats2.reserve(count * 4);
+    const om3 = this.mats3.reserve(count * 4);
     const ot = this.tints.reserve(count);
     const P = this.positions.data;
     const N = this.normals.data;
     const C = this.colors.data;
     const M = this.mats.data;
     const M2 = this.mats2.data;
+    const M3 = this.mats3.data;
     const T = this.tints.data;
     const interleaved = (pos as THREE.BufferAttribute & { isInterleavedBufferAttribute?: boolean }).isInterleavedBufferAttribute === true;
     let minX = this.box.min.x;
@@ -264,6 +282,10 @@ export class Kit {
       M2[om2 + j4 + 1] = coat;
       M2[om2 + j4 + 2] = pattern;
       M2[om2 + j4 + 3] = wear;
+      M3[om3 + j4] = sway;
+      M3[om3 + j4 + 1] = sheen;
+      M3[om3 + j4 + 2] = soft;
+      M3[om3 + j4 + 3] = smudge;
       T[ot + i] = tint;
     }
     this.box.min.set(minX, minY, minZ);
@@ -298,6 +320,7 @@ export class Kit {
     geometry.setAttribute('color', new THREE.BufferAttribute(grab(this.colors), 3));
     geometry.setAttribute('aMat', new THREE.BufferAttribute(grab(this.mats), 4));
     geometry.setAttribute('aMat2', new THREE.BufferAttribute(grab(this.mats2), 4));
+    geometry.setAttribute('aMat3', new THREE.BufferAttribute(grab(this.mats3), 4));
     geometry.setAttribute('aTint', new THREE.BufferAttribute(grab(this.tints), 1));
     const vertices = this.positions.length / 3;
     const indices = this.indices.subarray(0, this.indexCount);

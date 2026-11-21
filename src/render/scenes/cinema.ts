@@ -217,6 +217,7 @@ function addProscenium(kit: Kit): void {
         color: i % 2 ? C.curtain : C.curtainDeep,
         gloss: 0.22,
         pattern: Pattern.Fabric,
+        sheen: 0.85,
         outline: i === 8 ? 1 : 0.35,
         matrix: at(x, 16 + i * 0.25, -39.5 + (i % 2) * 0.7, [0, 0, side * i * 0.008]),
         ao: (p) => 0.55 + 0.45 * smooth(GROUND, 8, p.y),
@@ -224,7 +225,7 @@ function addProscenium(kit: Kit): void {
     }
   }
   for (let i = -11; i <= 11; i += 1) {
-    kit.add(P.sphere(2.3, 12, 9), { color: i & 1 ? C.curtain : C.curtainDeep, gloss: 0.22, pattern: Pattern.Fabric, outline: 0.5, matrix: at(i * 3.65, 35.5, -39.3, [0, 0, 0], [1, 1.15, 0.6]) });
+    kit.add(P.sphere(2.3, 12, 9), { color: i & 1 ? C.curtain : C.curtainDeep, gloss: 0.22, pattern: Pattern.Fabric, sheen: 0.85, outline: 0.5, matrix: at(i * 3.65, 35.5, -39.3, [0, 0, 0], [1, 1.15, 0.6]) });
   }
   // Marquee letters of light along the arch.
   for (let i = -20; i <= 20; i += 1) {
@@ -257,8 +258,8 @@ function addSnackBar(kit: Kit): void {
 
 function seatGeometry(): THREE.BufferGeometry {
   const kit = new Kit();
-  kit.add(P.box(3, 0.7, 2.6, 0.3, 2), { color: '#ffffff', gloss: 0.2, pattern: Pattern.Fabric, matrix: at(0, 1.9, 0) });
-  kit.add(P.box(3, 3, 0.6, 0.28, 2), { color: '#ffffff', gloss: 0.2, pattern: Pattern.Fabric, matrix: at(0, 3.5, 1.2, [0.14, 0, 0]) });
+  kit.add(P.box(3, 0.7, 2.6, 0.3, 2), { color: '#ffffff', gloss: 0.2, pattern: Pattern.Fabric, sheen: 0.7, matrix: at(0, 1.9, 0) });
+  kit.add(P.box(3, 3, 0.6, 0.28, 2), { color: '#ffffff', gloss: 0.2, pattern: Pattern.Fabric, sheen: 0.7, matrix: at(0, 3.5, 1.2, [0.14, 0, 0]) });
   for (const side of [-1, 1]) kit.add(P.box(0.32, 1.9, 2.4, 0.12, 1), { color: '#2d1520', gloss: 0.5, matrix: at(side * 1.65, 1, 0.1) });
   return kit.build();
 }
@@ -362,7 +363,7 @@ function carpetGeometry(): THREE.BufferGeometry {
   const from = STAGE_R + 0.6;
   const to = 64;
   const length = to - from;
-  kit.add(P.box(7.6, 0.06, length, 0.02, 1), { color: '#c4142a', gloss: 0.12, pattern: Pattern.Fabric + 0.3, outline: 0, fixedColor: true, matrix: at(0, 0.03, from + length / 2) });
+  kit.add(P.box(7.6, 0.06, length, 0.02, 1), { color: '#c4142a', gloss: 0.12, pattern: Pattern.Fabric + 0.3, sheen: 0.55, outline: 0, fixedColor: true, matrix: at(0, 0.03, from + length / 2) });
   for (const x of [-3.9, 3.9]) kit.add(P.box(0.24, 0.08, length, 0.03, 1), { color: '#f0b73a', gloss: 0.85, metal: 1, outline: 0, fixedColor: true, matrix: at(x, 0.04, from + length / 2) });
   const posts = 8;
   for (const x of [-4.6, 4.6]) {
@@ -373,7 +374,7 @@ function carpetGeometry(): THREE.BufferGeometry {
       kit.add(P.puck(0.1, 0.1, 2.7, 10, 0.03), { color: '#f0b73a', gloss: 0.9, metal: 1, wear: 0.2, fixedColor: true, matrix: at(x, 0.1, z) });
       kit.add(P.sphere(0.24, 12, 8), { color: '#f0b73a', gloss: 0.9, metal: 1, fixedColor: true, matrix: at(x, 2.95, z) });
       const top = new THREE.Vector3(x, 2.68, z);
-      if (previous) kit.add(P.tube([previous, new THREE.Vector3(x, 2.05, (previous.z + z) / 2), top], 0.13, 14, 8), { color: '#7a0c1e', gloss: 0.3, pattern: Pattern.Fabric + 0.5, fixedColor: true });
+      if (previous) kit.add(P.tube([previous, new THREE.Vector3(x, 2.05, (previous.z + z) / 2), top], 0.13, 14, 8), { color: '#7a0c1e', gloss: 0.3, pattern: Pattern.Fabric + 0.5, sheen: 0.9, fixedColor: true });
       previous = top;
     }
   }

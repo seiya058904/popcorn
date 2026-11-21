@@ -9,7 +9,7 @@ export const popcornUniforms = {
   uPopDeep: { value: new THREE.Color('#d0822f') },
   uPopHull: { value: new THREE.Color('#8a4a1e') },
   uPopCool: { value: new THREE.Color('#bfae9f') },
-  uKernel: { value: new THREE.Color('#f7a51c') },
+  uKernel: { value: new THREE.Color('#eba63a') },
   uPopSheen: { value: 0.3 },
   // The incoming flavor, revealed by an expanding ring around uWave.xy.
   uCreamB: { value: new THREE.Color('#fffaf0') },
@@ -98,12 +98,17 @@ vec3 puffGradient(vec3 p) {
   return (vec3(x, y, z) - n) / e;
 }
 
-vec3 popcornShade(vec3 N, vec3 V, vec3 P, float crease, float core, float pop, float glow, float shadow, float ao) {
+/**
+ * thin is 0 for the thick body of a flake and 1 at the tip of a wing, where light comes through.
+ * axial runs along a kernel from its crown (0) to its pointed tip (1).
+ */
+vec3 popcornShadeFull(vec3 N, vec3 V, vec3 P, float crease, float core, float pop, float glow, float shadow, float ao, float thin, float axial) {
   float ndl = dot(N, uSunDir);
-  float wrap = sat((ndl + 0.7) / 1.7);
-  float lit = min(wrap, mix(0.4, 1.0, shadow));
-  float stepped = smoothstep(0.3, 0.4, lit) * 0.4 + smoothstep(0.54, 0.68, lit) * 0.6;
-  float band = mix(lit, stepped, 0.55);
+  // Puffed starch scatters the light inside it, so the side away from the sun stays bright and warm.
+  float wrap = sat((ndl + 0.85) / 1.85);
+  float lit = min(wrap, mix(0.48, 1.0, shadow));
+  float stepped = smoothstep(0.3, 0.42, lit) * 0.38 + smoothstep(0.55, 0.7, lit) * 0.62;
+  float band = mix(lit, stepped, 0.5);
   float pool = lightPool(P);
 
   float wave = smoothstep(uWave.z + 0.4, uWave.z - 0.4, length(P.xz - uWave.xy));
@@ -115,28 +120,39 @@ vec3 popcornShade(vec3 N, vec3 V, vec3 P, float crease, float core, float pop, f
 
   vec3 base = mix(shade, cream, band);
   base = mix(base * mix(uPopCool, vec3(1.0), sat(N.y * 0.6 + 0.66)), base, band);
-  float crevice = sat(crease * (1.0 - band * 0.45));
-  // Crevices stay a tint rather than a dark line, so strong flavors still look puffed and airy.
-  base = mix(base, deep, crevice * 0.62);
-  base = mix(base, hull, smoothstep(0.3, 0.85, core));
+  float crevice = sat(crease * (1.0 - band * 0.5));
+  // Folds take a warm tint; only the deepest of them toast, so the white never turns to gravel.
+  base = mix(base, deep, pow(crevice, 1.5) * 0.6);
+  base = mix(base, hull, smoothstep(0.4, 0.88, core));
   flavorEffect(wave > 0.5 ? uEffect.y : uEffect.x, base, N, V, P, band, shadow);
   // A bright band rides the leading edge of a new flavor as it spreads.
   float front = smoothstep(0.42, 0.0, abs(length(P.xz - uWave.xy) - uWave.z)) * step(0.0, uWave.z);
   base += cream * front * 0.3;
-  base *= mix(vec3(0.74, 0.54, 0.32), vec3(1.0), ao);
+  base *= mix(vec3(0.78, 0.62, 0.46), vec3(1.0), ao);
 
-  // Light bleeding through thin puffs keeps the white from going chalky.
+  // Light comes through thin puffs, and through the wings most of all when the sun is behind them.
+  float back = pow(sat(dot(V, -uSunDir)), 3.0);
   float through = pow(sat(dot(V, -uSunDir + N * 0.45) * 0.5 + 0.5), 3.0);
-  base += shade * through * 0.32 * (1.0 - core) * mix(0.5, 1.0, shadow);
+  base += mix(shade, cream, 0.6) * (through * 0.3 + thin * (0.07 + back * 0.75)) * (1.0 - core) * mix(0.5, 1.0, shadow);
 
   float ndv = sat(dot(N, V));
   vec3 H = normalize(uSunDir + V);
-  float sheen = pow(sat(dot(N, H)), 22.0);
-  base += cream * smoothstep(0.3, 0.8, sheen) * sheenAmount * shadow * (1.0 - crevice);
+  // Caramel, chocolate and gold are glazed: a tight, wet highlight instead of a starchy sheen.
+  float glaze = smoothstep(0.8, 0.95, sheenAmount);
+  // Under the glaze the color runs deeper and richer, like sugar cooked to amber.
+  base = mix(base, base * shade * 1.2, glaze * 0.45);
+  float sheen = pow(sat(dot(N, H)), mix(22.0, 60.0, glaze));
+  base += cream * smoothstep(0.3, 0.8, sheen) * mix(sheenAmount, 1.8, glaze) * shadow * (1.0 - crevice);
   float rim = pow(1.0 - ndv, 3.0) * sat(dot(N, uRimDir) * 0.8 + 0.4);
   base += uRimColor * rim * 0.6 * ao;
   base *= (uSunColor * 0.5 + 0.38) * mix(0.66, 1.0, pool);
   base += cream * lampDiffuse(P, N) * 0.42 * ao;
+  if (glaze > 0.0) {
+    // The coat reflects the room and the studio lights over whatever color is underneath.
+    vec3 R = reflect(-V, N);
+    float coatF = 0.04 + 0.96 * pow(1.0 - ndv, 5.0);
+    base += (envRadiance(R, 0.12) + uSunColor * studioSoft(R, 0.06)) * coatF * glaze * 1.3 * mix(0.45, 1.0, shadow) * mix(0.3, 1.0, ao);
+  }
   if (uFrenzy > 0.0) {
     // Frenzy: buttery warmth and a glitter of sugar that sparkles on and off.
     base *= mix(vec3(1.0), vec3(1.08, 1.0, 0.86), uFrenzy);
@@ -145,13 +161,18 @@ vec3 popcornShade(vec3 N, vec3 V, vec3 P, float crease, float core, float pop, f
     base += vec3(1.4, 1.1, 0.6) * step(0.985, grain) * uFrenzy * mix(0.5, 1.0, shadow) * (1.0 - crevice);
   }
 
-  // The unpopped kernel: glossy amber that heats up before it bursts.
+  // The unpopped kernel: golden at the crown, deepening to toasted orange toward the pointed tip,
+  // where the pale little cap that held it to the cob sits.
   float kernelBand = toonBand(min(sat(ndl * 0.5 + 0.5), mix(0.25, 1.0, shadow)));
-  vec3 kernel = mix(uKernel * vec3(0.5, 0.26, 0.2), uKernel * 1.12, kernelBand);
-  // The pale germ at the tip; a dark spot here would read as an eye.
-  kernel = mix(kernel, uKernel * vec3(1.15, 1.2, 1.5) * mix(0.55, 1.0, kernelBand), smoothstep(0.0, 1.0, core) * 0.5);
-  float glint = pow(sat(dot(N, H)), 90.0);
-  kernel += vec3(1.0, 0.9, 0.7) * smoothstep(0.25, 0.55, glint) * 0.9;
+  vec3 kernelPaint = mix(mix(uKernel, vec3(1.0, 0.86, 0.5), 0.22), uKernel * vec3(0.86, 0.58, 0.34), smoothstep(0.6, 0.97, axial));
+  kernelPaint = mix(kernelPaint, vec3(0.96, 0.86, 0.64), smoothstep(0.965, 0.995, axial) * 0.7);
+  vec3 kernel = mix(kernelPaint * vec3(0.42, 0.24, 0.16), kernelPaint * 1.04, kernelBand);
+  // The hull is translucent: its edges glow amber where the light runs through them.
+  kernel += uKernel * vec3(0.95, 0.5, 0.12) * pow(1.0 - ndv, 2.5) * 0.4 * mix(0.5, 1.0, shadow);
+  // Polished and hard: one small, bright highlight over a faint broad sheen.
+  float dh = sat(dot(N, H));
+  kernel += vec3(1.0, 0.94, 0.8) * smoothstep(0.2, 0.6, pow(dh, 160.0)) * 1.2 * mix(0.3, 1.0, shadow);
+  kernel += vec3(1.0, 0.86, 0.6) * pow(dh, 14.0) * 0.1 * shadow;
   kernel += uRimColor * rim * 0.5;
   // Heat deepens the color instead of washing it out, so the swell stays a saturated ember.
   kernel = mix(kernel, kernel * vec3(1.05, 0.46, 0.14), glow * 0.9);
@@ -162,6 +183,10 @@ vec3 popcornShade(vec3 N, vec3 V, vec3 P, float crease, float core, float pop, f
   col += vec3(1.0, 0.72, 0.4) * smoothstep(0.15, 0.45, pop) * glow * 0.9;
   return col;
 }
+
+vec3 popcornShade(vec3 N, vec3 V, vec3 P, float crease, float core, float pop, float glow, float shadow, float ao) {
+  return popcornShadeFull(N, V, P, crease, core, pop, glow, shadow, ao, 0.2, 0.0);
+}
 `;
 
 /**
@@ -171,6 +196,7 @@ vec3 popcornShade(vec3 N, vec3 V, vec3 P, float crease, float core, float pop, f
 const flakeAtlas = /* glsl */ `
 uniform highp sampler2D tFlakes;
 vec3 flakeRow(int shape, int row) { return texelFetch(tFlakes, ivec2(gl_VertexID, shape * 5 + row), 0).xyz; }
+float flakeAxial(int shape) { return texelFetch(tFlakes, ivec2(gl_VertexID, shape * 5 + 4), 0).w; }
 `;
 
 const pieceVertex = /* glsl */ `
@@ -178,10 +204,11 @@ ${flakeAtlas}
 attribute vec4 iState;
 varying vec3 vWorld, vNormal, vShade, vObject;
 varying vec2 vPop;
-varying float vGold;
+varying float vGold, vAxial;
 varying mat3 vRotation;
 void main() {
   int shape = int(iState.z + 0.5);
+  vAxial = flakeAxial(shape);
   vGold = iState.w;
   vec3 flakePos = flakeRow(shape, 0);
   float pop = iState.x;
@@ -203,7 +230,7 @@ void main() {
 const pieceFragment = /* glsl */ `
 varying vec3 vWorld, vNormal, vShade, vObject;
 varying vec2 vPop;
-varying float vGold;
+varying float vGold, vAxial;
 varying mat3 vRotation;
 void main() {
   vec3 N = normalize(vNormal);
@@ -214,7 +241,7 @@ void main() {
   float dist = length(toCam);
   vec3 V = toCam / dist;
   float shadow = sunShadow(vWorld, N);
-  vec3 col = popcornShade(N, V, vWorld, vShade.x, vShade.y, vPop.x, vPop.y, shadow, 1.0 - vShade.x * 0.3);
+  vec3 col = popcornShadeFull(N, V, vWorld, vShade.x, vShade.y, vPop.x, vPop.y, shadow, 1.0 - vShade.x * 0.3, smoothstep(0.55, 1.0, vShade.z), vAxial);
   if (vGold > 0.5) {
     // Gold leaf: the piece's own light and shade, recolored, with a hard bright sheen.
     float light = dot(col, vec3(0.3, 0.55, 0.15));
@@ -316,8 +343,8 @@ void main() {
   // Flakes seated deeper in the heap sit in each other's shade.
   float ao = smoothstep(-0.11, 0.02, vBury / uPieceK) * (1.0 - vShade.x * 0.3);
   ao *= mix(0.62, 1.0, smoothstep(0.0, 0.42, vDepth / uPieceK));
-  vec3 col = popcornShade(lightN, V, vWorld, vShade.x, vShade.y, 1.0, 0.0, shadow, ao);
-  col *= mix(vec3(1.0, 0.91, 0.78), vec3(1.05, 1.03, 1.0), vTone);
+  vec3 col = popcornShadeFull(lightN, V, vWorld, vShade.x, vShade.y, 1.0, 0.0, shadow, ao, smoothstep(0.55, 1.0, vShade.z), 0.0);
+  col *= mix(vec3(1.0, 0.95, 0.87), vec3(1.04, 1.03, 1.0), vTone);
   gl_FragColor = vec4(applyFog(col, dist), 1.0);
 }
 `;
