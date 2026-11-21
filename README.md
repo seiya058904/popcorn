@@ -111,7 +111,11 @@
 
 **Flavors and decorations.** Twelve flavors, from butter and sea salt to rainbow, starry and a mystery flavor, each recoloring the whole heap. Ten decorations, two per scene, from a neon sign to an aurora.
 
-**Poke things.** Point at a working machine and it lifts a little; poke it and it squashes, springs back and works one extra cycle.
+**Poke things.** Point at a working machine and it lifts a little and glows warm round its edges; poke it and it squashes, springs back and works one extra cycle.
+
+**Everything answers.** A click sends a ring of warm light over the heap. Every twelve clicks in a run burst over the pot, and the burst steps up at 24, 48 and 96, from gold to peach to a rainbow, with a higher note each time. A bought machine's ticket flies out of the shop to the spot where the machine will stand, and the machine drops in as it lands. Big wins stream popcorn into the counter.
+
+**Photo mode.** Press <kbd>P</kbd> or pick it from the pause menu. The economy stops and the interface steps aside: turn, zoom and pan the camera round the scene, tap to focus, add a tilt-shift band, pick a warm, cool or black-and-white look, freeze the scene or let it keep moving, and save the picture as a PNG.
 
 **Fifteen hidden things.** Three per scene. A wall clock, a pepper shaker, a fridge, a radio, the projector, a curtain cord, the pigeons, a satellite, the moon… each one plays a short gag and joins the album in the achievements page.
 
@@ -136,6 +140,7 @@
 | Hold <kbd>Space</kbd> or the pressure gauge, release in the green zone | Fire the cannon |
 | Click the bouncing orange kernel | Start a frenzy |
 | <kbd>Esc</kbd> | Pause, settings and saves |
+| <kbd>P</kbd> | Photo mode: drag to turn, wheel to zoom, right-drag or <kbd>Shift</kbd>-drag to pan, click to focus, <kbd>H</kbd> hides the toolbar, <kbd>Esc</kbd> leaves |
 
 The game is made for a desktop screen and a mouse. Phones and small windows get a short notice first and can still go on. All text in the game is Simplified Chinese.
 
@@ -180,11 +185,12 @@ The first end-to-end run needs browsers: `npx playwright install chromium firefo
 <summary><strong>🛠️ Under the Hood</strong></summary>
 
 - **Everything is generated.** Machines, scenes, popcorn, textures, signs, shaders, music and sound effects are all made by code at load time. There are no model, texture or audio files.
-- **Rendering:** three.js on WebGL 2 with a custom toon-and-enamel material set, a heightfield heap with instanced surface flakes, refracting glass (high and ultra), screen-space reflections on polished floors, soft shadows, ground-truth-style ambient occlusion, a tilt-shift focus band, bloom, and camera motion blur during breakouts.
+- **Rendering:** three.js on WebGL 2 with a custom toon-and-enamel material set, a heightfield heap with instanced surface flakes, refracting glass (high and ultra), screen-space reflections on polished floors, soft shadows, ground-truth-style ambient occlusion, a tilt-shift focus band, bloom, and camera motion blur during breakouts. Each scene captures its own room into prefiltered cube maps while it is built in the background, so chrome and enamel reflect the actual set; materials add velvet, soft vinyl, smudged metal and neon. Light shafts fall from windows and the projector, trees sway in the wind with their shadows, dust, fireflies and meteors drift through the air, and the final pass sharpens what is in focus.
 - **Draw calls:** each machine type is one "part rig": all its parts in one mesh, posed from a small float texture, so a scene with every slot filled stays within 120 draw calls and 13 million triangles in the worst case (`npm run budget`).
 - **Background building:** the next scene is built a few milliseconds per frame while you play, its shaders compile in parallel, and its buffers go to the GPU one piece per frame.
 - **Rules apart from rendering:** the economy runs at a fixed 10 steps a second in `src/sim` with no browser dependencies, so the balance simulator plays the real rules.
 - **Measured on one desktop** (Radeon RX 7900 XT, Chrome): every scene holds 60 FPS at 4K on the highest setting with ten clicks a second; with the CPU slowed down four times, 1080p on low still holds 60 FPS. A first visit on a simulated 10 Mbps connection shows the loading screen in about 0.4 s and the title in about 2.3 s.
+- **Measured again on a laptop** (GeForce RTX 3070 Laptop GPU, Chrome) after the visual overhaul: at 1440p every scene holds 60 FPS with ten clicks a second; at 4K on ultra with nothing capping the frame rate, frames take 10–22% longer than before it, the cinema and its crowd of 176 the most.
 
 ```text
 src/sim, src/content, src/events   Game rules and data, with no browser dependencies
@@ -201,7 +207,7 @@ docs                               Design, plan, balance report and credits
 ## 🧪 Verification
 
 - Unit tests cover prices, multipliers, offline time, save migration and damage, content, story timing and interface rules.
-- End-to-end tests run the real game in Chromium, Chrome and Firefox: layout at six window sizes, every button's press-and-release behavior, the shop, the cannon, saves, the ending, pokes, and all fifteen hidden things found by clicking them on screen.
+- End-to-end tests run the real game in Chromium, Chrome and Firefox: layout at six window sizes, every button's press-and-release behavior, the shop, the cannon, saves, the ending, pokes, all fifteen hidden things found by clicking them on screen, the purchase fly-in, combo tiers, hover glow, and photo mode down to the saved PNG.
 - Production tests check the built site; the same tests were run against the live site after it was deployed.
 - GitHub Actions type-checks, runs the unit tests and builds before deploying to GitHub Pages.
 - `docs/EXECUTION_PLAN.md` records every phase with the checks that were actually run and their results.
@@ -210,7 +216,9 @@ docs                               Design, plan, balance report and credits
 
 - Edge has not been tested; Chromium and Chrome pass, and Edge shares their engine.
 - Performance was measured on one desktop with a Radeon RX 7900 XT. Integrated graphics and laptops have not been tested on real hardware; the automatic quality setting lowers resolution and then detail when frames run long.
-- A breakout can drop one frame at 60 FPS. While the town and the Earth are built in the background, one or two build steps take 18–25 ms.
+- A breakout can drop one frame at 60 FPS. While the scenes are built in the background, a few build steps take longer than one frame (the little train up to about 38 ms).
+- On the laptop above, a first visit on a simulated 10 Mbps connection shows the title in 3.2–3.6 s, most of it compiling shaders; the version before the visual overhaul took the same there.
+- Soft shadow edges on small objects show a fine cross-hatch grain, and the Earth's snow and cloud edges step slightly at 1080p.
 - Game feel, sound and art direction have been checked with frame captures and loudness analysis, not yet by a group of human players. Pacing was tuned with simulated players: about 2.5 hours for an active player and about 3.3 hours for one who never clicks.
 - Simplified Chinese is the only language.
 

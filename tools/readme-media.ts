@@ -40,7 +40,8 @@ async function scene(page: Page, stage: number, progress: number, flavors: numbe
 const save = async (page: Page, name: string): Promise<void> => {
   // The counter's digits roll on the wall clock; let them land.
   await page.waitForTimeout(700);
-  writeFileSync(`${OUT}/${name}.jpg`, await page.screenshot({ type: 'jpeg', quality: QUALITY }));
+  // Interface transitions run on the wall clock; settled, the counter never shows mid-roll.
+  writeFileSync(`${OUT}/${name}.jpg`, await page.screenshot({ type: 'jpeg', quality: QUALITY, animations: 'disabled' }));
   console.log(name);
 };
 
