@@ -94,6 +94,41 @@ export const filmScenarios: Record<string, FilmScenario> = {
     },
     step: (page) => advance(page, FRAME * 2),
   },
+  /** A machine bought in the kitchen: its ticket flies from the shop, and the cart arrives as it lands. */
+  flyin: {
+    clip: { x: 0, y: 0, width: 1280, height: 720 },
+    frames: 24,
+    columns: 6,
+    setup: async (page) => {
+      await qa(page, (api, total: number) => {
+        api.set({ stage: 1, totalEarned: total, popcorn: 1e9 });
+        api.advance(2);
+      }, totalAt(1, 0.3));
+    },
+    beforeFrame: async (page, frame) => {
+      if (frame === 1) await qa(page, (api) => api.buy(2), null);
+    },
+    step: (page) => advance(page, FRAME * 3),
+  },
+  /** The burst at each combo tier on its own: 24 (gold), 48 (peach) and 96 (rainbow), ten frames apart. */
+  combo: {
+    clip: { x: 0, y: 0, width: 1280, height: 720 },
+    frames: 30,
+    columns: 6,
+    setup: (page) => warmedUp(page, 60),
+    beforeFrame: async (page, frame) => {
+      const tier = [23, 47, 95][frame / 10];
+      if (frame % 10 !== 0 || tier === undefined) return;
+      // The run is set one short of the tier, so a single click reaches it.
+      await qa(page, (api, value: { combo: number; x: number; y: number }) => {
+        // A first click keeps the run alive; the second one reaches the tier.
+        api.click(value.x, value.y);
+        (api.game.world.current!.director as unknown as { combo: number }).combo = value.combo;
+        api.click(value.x, value.y);
+      }, { combo: tier, x: POT_X, y: POT_Y });
+    },
+    step: (page) => advance(page, FRAME * 3),
+  },
   /** A frenzy: the warm wash and the glow pulsing in from the edges. */
   frenzy: {
     clip: { x: 0, y: 0, width: 1280, height: 720 },

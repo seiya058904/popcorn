@@ -1780,3 +1780,102 @@
   opacity: 0 !important;
   pointer-events: none !important;
 }
+
+/* Combo tiers: the marquee flares in the tier's color ----------------------- */
+
+/* A soft gradient rather than a blurred shadow: a shadow this size costs a long raster the first
+   time it shows, which dropped frames in the middle of a run of clicks. */
+.marquee-combo {
+  position: absolute;
+  inset: -4rem -6rem;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0;
+  --combo: rgb(255 244 220 / 75%);
+  background: radial-gradient(closest-side, var(--combo) 62%, transparent);
+}
+
+.marquee-combo[data-tier='2'] { --combo: rgb(255 208 74 / 85%); }
+.marquee-combo[data-tier='3'] { --combo: rgb(255 140 170 / 85%); }
+.marquee-combo[data-tier='4'] { --combo: rgb(255 90 90 / 90%); }
+
+.marquee-combo.is-on {
+  animation: combo-glow 0.7s cubic-bezier(0.2, 0.7, 0.3, 1) 1;
+}
+
+/* The top tier runs once through the rainbow. */
+.marquee-combo[data-tier='4'].is-on {
+  animation: combo-glow 1s cubic-bezier(0.2, 0.7, 0.3, 1) 1, combo-rainbow 1s linear 1;
+}
+
+@keyframes combo-glow {
+  0% { opacity: 0; }
+  15% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@keyframes combo-rainbow {
+  to { filter: hue-rotate(360deg); }
+}
+
+/* Things flying between the shop, the scene and the counter ----------------- */
+
+.flyin-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 22;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.flyin-ticket,
+.flyin-crumb {
+  position: absolute;
+  left: 0;
+  top: 0;
+  will-change: transform, opacity;
+}
+
+/* A little copy of the ticket stub, glowing as it goes. */
+.flyin-ticket {
+  display: grid;
+  place-items: center;
+  width: 8.4rem;
+  height: 8.4rem;
+  border-radius: var(--r-s);
+  background: linear-gradient(180deg, #fff3d6, #f6dcae);
+  box-shadow:
+    0 0 0 0.25rem #ffdf9c,
+    0 0 1.6rem 0.4rem rgb(255 196 90 / 75%),
+    var(--e2);
+}
+
+.flyin-ticket svg {
+  width: 6rem;
+  height: 6rem;
+}
+
+.flyin-count {
+  position: absolute;
+  right: -1rem;
+  top: -1rem;
+  padding: 0.2rem 0.8rem;
+  border-radius: 99rem;
+  font-size: 2rem;
+  color: #fff6dc;
+  background: #c62a3a;
+  box-shadow: 0 0 0 0.2rem #ffdf9c;
+}
+
+/* A puff of popcorn in gradients, with a warm glow behind: cheap to raster at any scale. */
+.flyin-crumb {
+  width: 4.4rem;
+  height: 4.4rem;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 36% 40%, #fffaf0 0 21%, transparent 23%),
+    radial-gradient(circle at 63% 36%, #fff4de 0 19%, transparent 21%),
+    radial-gradient(circle at 50% 62%, #fbe6c0 0 23%, transparent 25%),
+    radial-gradient(circle at 50% 50%, #d9a04a 0 31%, transparent 33%),
+    radial-gradient(closest-side, rgb(255 200 110 / 70%), transparent);
+}

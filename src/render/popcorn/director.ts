@@ -195,6 +195,9 @@ export class PopDirector {
    * Starts one manual pop. Runs synchronously inside the input event. On a golden click the
    * kernel nearest the pointer is the golden one and carries `goldenGain`; the others pay as usual.
    */
+  /** Where the last click took its kernel from, in the world. */
+  readonly lastClickAt = new THREE.Vector3();
+
   click(pointer: THREE.Ray | null, count: number, gainEach: number, goldenGain = 0): void {
     const since = this.clock - this.lastClick;
     this.lastClick = this.clock;
@@ -205,6 +208,7 @@ export class PopDirector {
       const piece = this.takeKernel(pointer) ?? this.spawnEmergencyKernel();
       if (!piece) continue;
       const golden = goldenGain > 0 && i === 0;
+      if (i === 0) this.lastClickAt.copy(piece.pos).applyMatrix4(this.batches.group.matrixWorld);
       piece.golden = golden;
       this.charge(piece, golden ? goldenGain : gainEach, i * 0.016);
     }

@@ -21,6 +21,9 @@ export const popcornUniforms = {
   uEffect: { value: new THREE.Vector2(0, 0) },
   /** 0 to 1 while a frenzy is on: the popcorn glitters and runs a little warmer. */
   uFrenzy: { value: 0 },
+  /** Where the last click landed, in the world, and the ring running out from it: radius, strength, least width. */
+  uRippleAt: { value: new THREE.Vector3() },
+  uRipple: { value: new THREE.Vector3(0, 0, 0) },
 };
 
 /** Each heap owns one of these, so two scenes can show their heaps at once during a transition. */
@@ -49,8 +52,25 @@ export interface PileUniforms {
 const shading = /* glsl */ `
 uniform vec3 uPopCream, uPopShade, uPopDeep, uPopHull, uPopCool, uKernel;
 uniform float uPopSheen, uSheenB, uFrenzy;
-uniform vec3 uCreamB, uShadeB, uDeepB, uHullB, uWave;
+uniform vec3 uCreamB, uShadeB, uDeepB, uHullB, uWave, uRippleAt, uRipple;
 uniform vec2 uEffect;
+
+// A ring of light running out over the heap from the last click.
+float clickRipple(vec3 P) {
+  if (uRipple.y <= 0.001) return 0.0;
+  float d = distance(P, uRippleAt);
+  float width = uRipple.x * 0.16 + uRipple.z;
+  float x = (d - uRipple.x) / width;
+  return exp(-x * x) * uRipple.y;
+}
+
+// The ring lights what it passes warm and bright enough to bloom: brightly lit popcorn is already
+// near white after tone mapping, where only a glow round it still shows.
+vec3 withRipple(vec3 col, vec3 P, float amount) {
+  float r = clickRipple(P) * amount;
+  if (r <= 0.001) return col;
+  return col * mix(vec3(1.0), vec3(2.6, 1.85, 0.95), r);
+}
 
 vec3 hsv(float h, float s, float v) {
   vec3 k = abs(fract(vec3(h) + vec3(1.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0);
@@ -248,6 +268,8 @@ void main() {
     float sheen = pow(sat(dot(N, normalize(uSunDir + V))), 30.0);
     col = vec3(1.0, 0.72, 0.2) * (0.3 + 1.3 * light) + vec3(1.0, 0.92, 0.6) * smoothstep(0.2, 0.6, sheen) * 1.4 * mix(0.4, 1.0, shadow);
   }
+  // Popped flakes catch the ring from a click too; kernels waiting in the pot do not.
+  col = withRipple(col, vWorld, 0.8 * step(0.15, vPop.x));
   gl_FragColor = vec4(applyFog(col, dist), 1.0);
 }
 `;
@@ -345,6 +367,7 @@ void main() {
   ao *= mix(0.62, 1.0, smoothstep(0.0, 0.42, vDepth / uPieceK));
   vec3 col = popcornShadeFull(lightN, V, vWorld, vShade.x, vShade.y, 1.0, 0.0, shadow, ao, smoothstep(0.55, 1.0, vShade.z), 0.0);
   col *= mix(vec3(1.0, 0.95, 0.87), vec3(1.04, 1.03, 1.0), vTone);
+  col = withRipple(col, vWorld, 0.8);
   gl_FragColor = vec4(applyFog(col, dist), 1.0);
 }
 `;
@@ -397,6 +420,7 @@ void main() {
   // The heap under the flakes stays toasted and dark, so gaps read as depth.
   float crease = 0.55 + (1.0 - gap) * 0.25 + (1.0 - puff) * 0.25;
   vec3 col = popcornShade(N, V, vWorld, sat(crease), 0.0, 1.0, 0.0, shadow, mix(0.08, 0.5, puff));
+  col = withRipple(col, vWorld, 0.7);
   gl_FragColor = vec4(applyFog(col, dist), 1.0);
 }
 `;

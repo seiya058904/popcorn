@@ -127,6 +127,11 @@ export class PartRig {
     matrix.toArray(this.data, (copy * this.partCount + part) * 16);
   }
 
+  /** A warm rim round one copy, as when the pointer rests on it; `amount` 0 turns it off. */
+  setHover(copy: number, amount: number): void {
+    (this.materials.body.uniforms.uHover!.value as THREE.Vector2).set(copy, amount);
+  }
+
   setColor(copy: number, color: THREE.Color): void {
     this.body.setColorAt(copy, color);
     if (this.ink) this.ink.instanceColor = this.body.instanceColor;

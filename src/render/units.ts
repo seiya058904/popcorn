@@ -215,6 +215,14 @@ export class UnitRig {
     };
   }
 
+  /** Where a copy stands (the last place, past the end), at half its height. */
+  slotPoint(copy: number, out: THREE.Vector3): THREE.Vector3 | null {
+    const slot = this.slots[Math.min(copy, this.slots.length - 1)];
+    if (!slot) return null;
+    const s = slot.scale ?? 1;
+    return out.set(slot.x, slot.y + ((this.height + this.lowest) / 2) * s, slot.z);
+  }
+
   /** Machines of this kind on show, for sparkles and the like. */
   positions(): THREE.Vector3[] {
     return this.states.map((_st, index) => {
@@ -352,6 +360,8 @@ export class UnitRig {
     const entrance = calm ? CALM_ENTRANCE : this.entrance;
     let shown = 0;
     bounds.makeEmpty();
+    let glow = 0;
+    let glowCopy = -1;
     this.states.forEach((st, index) => {
       copy = index;
       st.age += dt;
@@ -434,6 +444,10 @@ export class UnitRig {
       // The pointer resting on a machine lifts it a touch, ready to be poked.
       const poke = st.poke.update(dt) * (calm ? 0.5 : 1);
       st.hover += ((index === this.hovered ? 1 : 0) - st.hover) * (1 - Math.exp(-dt * 14));
+      if (st.hover > glow) {
+        glow = st.hover;
+        glowCopy = index;
+      }
       frame.y += st.hover * 0.06;
       frame.sy *= 1 + poke * 0.16 + st.hover * 0.035;
       frame.sx *= 1 - poke * 0.08 + st.hover * 0.02;
@@ -462,6 +476,7 @@ export class UnitRig {
     });
     const count = shown > 0 ? this.states.length : 0;
     rig.commit(count);
+    rig.setHover(glowCopy, glow > 0.01 ? glow : 0);
     rig.setBounds(shown > 0 ? bounds.getBoundingSphere(sphere) : null);
     for (const sign of this.signs) {
       sign.count = count;

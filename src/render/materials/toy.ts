@@ -15,6 +15,17 @@ vec3 swayed(vec3 p, float amount) {
 }
 `;
 
+/** Which copy of a part rig the pointer rests on (x) and how far its glow has come on (y). */
+const GLSL_HOVER = /* glsl */ `
+#ifdef USE_PART_RIG
+  uniform vec2 uHover;
+  varying float vHover;
+  #define SET_HOVER vHover = abs(float(gl_InstanceID) - uHover.x) < 0.5 ? uHover.y : 0.0;
+#else
+  #define SET_HOVER
+#endif
+`;
+
 const toyVertex = /* glsl */ `
 attribute vec4 aMat, aMat2, aMat3;
 attribute float aTint;
@@ -22,9 +33,11 @@ varying vec3 vWorld, vNormal, vColor, vLocal;
 varying vec4 vMat, vMat2, vMat3;
 ${GLSL_INSTANCE_WORLD}
 ${GLSL_SWAY}
+${GLSL_HOVER}
 void main() {
   mat4 world = worldMatrixOf();
   vec4 wp = world * vec4(swayed(position, aMat3.x), 1.0);
+  SET_HOVER
   vWorld = wp.xyz;
   vLocal = position;
   vNormal = normalize(transpose(inverse(mat3(world))) * normal);
@@ -44,6 +57,9 @@ ${GLSL_UTIL}
 ${GLSL_LIGHT_PARS}
 varying vec3 vWorld, vNormal, vColor, vLocal;
 varying vec4 vMat, vMat2, vMat3;
+#ifdef USE_PART_RIG
+  varying float vHover;
+#endif
 
 float hash3(vec3 p) { p = fract(p * 0.1031); p += dot(p, p.zyx + 31.32); return fract((p.x + p.y) * p.z); }
 float noise3d(vec3 p) {
@@ -235,6 +251,10 @@ void main() {
   col = mix(col, albedo * (1.0 + emissive * 1.6), sat(emissive));
   // A lit tube is white-hot along its middle; its color lives in the glow around it.
   if (neon > 0.5) col += mix(albedo, vec3(1.0), 0.75) * pow(ndv, 2.5) * sat(emissive) * 1.4;
+  #ifdef USE_PART_RIG
+    // The machine under the pointer: a warm rim of light, and the whole of it a touch brighter.
+    if (vHover > 0.001) col = col * (1.0 + 0.06 * vHover) + vec3(1.0, 0.7, 0.36) * pow(1.0 - ndv, 2.4) * vHover * 0.6;
+  #endif
   float mirror = coat * smoothstep(0.75, 0.97, N.y) * (0.22 + 0.78 * pow(1.0 - ndv, 3.0));
   // Alpha carries how much screen-space reflection this pixel wants.
   gl_FragColor = vec4(applyFog(col, dist), 1.0 - mirror);
@@ -251,9 +271,11 @@ varying float vDist;
 ${GLSL_INSTANCE_WORLD}
 ${GLSL_RIG_SKIP}
 ${GLSL_SWAY}
+${GLSL_HOVER}
 void main() {
   mat4 world = worldMatrixOf();
   vec4 wp = world * vec4(swayed(position, aMat3.x), 1.0);
+  SET_HOVER
   vec3 wn = normalize(transpose(inverse(mat3(world))) * normal);
   vec4 clip = projectionMatrix * viewMatrix * wp;
   vec2 dir = (projectionMatrix * viewMatrix * vec4(wn, 0.0)).xy;
@@ -278,9 +300,16 @@ uniform vec3 uFogColor;
 uniform vec2 uFogRange;
 varying vec3 vColor;
 varying float vDist;
+#ifdef USE_PART_RIG
+  varying float vHover;
+#endif
 void main() {
   // A thin line in a deep shade of the local paint: a seam, not a cartoon contour.
   vec3 ink = vColor * 0.3 + vec3(0.016, 0.01, 0.014);
+  #ifdef USE_PART_RIG
+    // Round the machine under the pointer the seam turns to a warm glow.
+    ink = mix(ink, vec3(1.0, 0.62, 0.26), vHover * 0.8);
+  #endif
   float f = clamp((vDist - uFogRange.x) / (uFogRange.y - uFogRange.x), 0.0, 1.0);
   gl_FragColor = vec4(mix(ink, uFogColor, f), 1.0);
 }
@@ -497,7 +526,7 @@ export function toyMaterials(): ToyMaterials {
  * holds the rig's part matrices is its own.
  */
 export function rigToyMaterials(parts: THREE.Texture): ToyMaterials {
-  return makeToyMaterials({ tParts: { value: parts } }, { USE_PART_RIG: '' });
+  return makeToyMaterials({ tParts: { value: parts }, uHover: { value: new THREE.Vector2(-1, 0) } }, { USE_PART_RIG: '' });
 }
 
 /** Ink materials are recognized by this flag, whichever rig they belong to. */

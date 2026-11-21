@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { STAGES } from '../content/stages.ts';
 import type { EventBus } from '../events/bus.ts';
 import type { GameEvents } from '../events/game-events.ts';
-import { clamp01, easeInOutCubic, lerp } from '../motion/ease.ts';
+import { clamp01, easeInOutCubic, easeOutCubic, lerp } from '../motion/ease.ts';
 import type { ImpactDirector } from '../motion/impact.ts';
 import { Rng } from '../motion/rng.ts';
 import { tuning } from '../motion/tuning.ts';
@@ -13,6 +13,7 @@ import { releaseSharedShapes } from './geometry/kit.ts';
 import { QUALITY } from './core/quality.ts';
 import { bindEnvironment } from './core/probe.ts';
 import type { Stage } from './core/stage.ts';
+import { comboColor, comboTier, reachedTier } from './fx/combo.ts';
 import { popcornUniforms } from './materials/popcorn.ts';
 import { SceneRuntime, type RuntimeHooks } from './scene-runtime.ts';
 import { alongStory, mixGrade, mixRig, moodScratch, storyMood } from './scenes/story.ts';
@@ -31,8 +32,8 @@ export interface WorldHooks {
   onLand(gain: number): void;
   onMachineCannon(): void;
   onMachineSound(name: string): void;
-  /** A run of clicks reached a round number. */
-  onCombo(count: number): void;
+  /** A run of clicks reached a round number; `tier` 1 to 4 grows at 12, 24, 48 and 96. */
+  onCombo(count: number, tier: number): void;
   onBreakBeat(beat: BreakBeat, stage: number): void;
   onFinaleBeat(beat: FinaleBeat): void;
   onFinaleDone(): void;
@@ -44,6 +45,13 @@ export interface WorldHooks {
   onPoke(unit: number): void;
   /** What the pointer rests on changed: a machine, a hidden thing, or nothing. */
   onHover(target: HoverTarget): void;
+  /**
+   * A machine was bought: the interface may fly its ticket to `target` on screen, asked again
+   * every frame. `land` runs as it arrives, at once if nothing flies. Returns the flight's seconds.
+   */
+  onFlyIn(unit: number, quantity: number, target: () => { x: number; y: number } | null, land: () => void): number;
+  /** A big win: popcorn may stream from this point on screen into the counter. */
+  onIncome(screenX: number, screenY: number, count: number): void;
 }
 
 export type HoverTarget = { kind: 'machine'; unit: number } | { kind: 'egg' } | null;
@@ -64,6 +72,10 @@ const BREAKOUT_BLUR = 0.75;
 const PRESSURE_FROM = 0.955;
 const PRESSURE_SHARE = 0.5;
 const COMBO_STEP = 12;
+/** How long the ring of light from a click takes to run out over the heap. */
+const RIPPLE_SECONDS = 0.55;
+const screenScratch = new THREE.Vector3();
+const flashColor = new THREE.Color();
 /** A found egg can be tapped again for its gag, but not faster than this. */
 const EGG_COOLDOWN = 4;
 /** Now and then an egg not yet found twinkles, somewhere between these many seconds apart. */
@@ -237,7 +249,10 @@ export class World {
         }
         v.project(this.stage.camera);
         const canvas = this.stage.renderer.domElement;
-        this.hooks.onBurst((v.x * 0.5 + 0.5) * canvas.clientWidth, (0.5 - v.y * 0.5) * canvas.clientHeight, combo, gain, manual, golden);
+        const sx = (v.x * 0.5 + 0.5) * canvas.clientWidth;
+        const sy = (0.5 - v.y * 0.5) * canvas.clientHeight;
+        this.hooks.onBurst(sx, sy, combo, gain, manual, golden);
+        if (golden && manual) this.hooks.onIncome(sx, sy, 10);
       },
       onLand: (gain) => {
         this.pendingGain = Math.max(0, this.pendingGain - gain);
@@ -251,12 +266,23 @@ export class World {
     bus.on('auto_popped', () => this.current?.autoPop());
     bus.on('producer_purchased', ({ producer, owned, quantity, milestone, spent }) => {
       const runtime = this.current;
-      runtime?.syncUnits(this.sim.state.owned, true);
-      this.updateFraming();
       this.scoopPayment(spent);
-      if (!runtime) return;
-      if (!runtime.hasMachine(producer)) runtime.dropParcel();
-      else if (owned === quantity && producer > 0) this.startSpotlight(producer);
+      if (!runtime) {
+        this.updateFraming();
+        return;
+      }
+      const placed = runtime.hasMachine(producer);
+      const point = runtime.arrivalPoint(producer, owned - quantity, new THREE.Vector3());
+      const land = (): void => {
+        if (this.current !== runtime) return;
+        runtime.arrivalSparkle(point);
+        if (!placed) runtime.dropParcel();
+      };
+      // The bought ticket flies from the shop to where the machine will stand; the machine waits for it.
+      const lead = this.attract || this.transition ? (land(), 0) : this.hooks.onFlyIn(producer, quantity, () => this.screenOf(runtime.root.localToWorld(screenScratch.copy(point))), land);
+      runtime.syncUnits(this.sim.state.owned, true, lead);
+      this.updateFraming();
+      if (placed && owned === quantity && producer > 0) this.startSpotlight(producer);
       if (milestone) {
         runtime.celebrate(producer);
         this.impact.hit('medium');
@@ -279,6 +305,8 @@ export class World {
       const cannon = this.current?.heroCannon;
       const k = this.current?.spec.pile.k ?? 1;
       if (cannon) this.flashLight(cannon.muzzle(v2), result === 'perfect' ? '#ffd27a' : '#ffa552', result === 'perfect' ? 4 : 3, k * 9, 0.22);
+      const at = cannon && result === 'perfect' ? this.screenOf(cannon.muzzle(v2)) : null;
+      if (at) this.hooks.onIncome(at.x, at.y, 12);
     });
     bus.on('stage_broken', ({ stage: broken }) => this.beginBreak(broken));
     bus.on('hopper_spawned', () => this.current?.director?.showHopper());
@@ -625,17 +653,26 @@ export class World {
     } else {
       director.click(this.raycaster.ray, count, gainEach);
     }
+    // The ring starts where the pointer meets the heap, or at the kernel when it misses.
+    if (!runtime.heapHit(this.raycaster.ray, this.rippleAt)) this.rippleAt.copy(director.lastClickAt);
+    this.rippleT = 0;
     // A click during a machine's close-up means the player wants the game back.
     if (this.spotlight) this.spotlight.t = Math.max(this.spotlight.t, SPOTLIGHT_IN + SPOTLIGHT_HOLD);
     const combo = director.comboCount;
     if (combo > 0 && combo % COMBO_STEP === 0) {
       const power = Math.min(3, combo / (COMBO_STEP * 2));
-      runtime.comboBurst(power);
-      this.hooks.onCombo(combo);
+      const tier = comboTier(combo);
+      const hue = this.time * 0.35;
+      runtime.comboBurst(power, tier, hue);
+      this.hooks.onCombo(combo, tier);
       const { pile } = runtime;
       const k = pile.shape.k;
       v.set(pile.shape.centerX, pile.heightAt(pile.shape.centerX, pile.shape.centerZ) + k, pile.shape.centerZ);
-      this.flashLight(runtime.root.localToWorld(v), '#ffc070', 1.1 + power * 0.5, k * 4.5, 0.28);
+      runtime.root.localToWorld(v);
+      this.flashLight(v, comboColor(tier, hue, flashColor).multiplyScalar(0.5), 1.1 + power * 0.5 + tier * 0.2, k * 4.5, 0.28);
+      // Stepping up a tier pays out in a stream of popcorn into the counter.
+      const at = reachedTier(combo) ? this.screenOf(v) : null;
+      if (at) this.hooks.onIncome(at.x, at.y, 4 + tier * 2);
     }
   }
 
@@ -1158,6 +1195,8 @@ export class World {
   /** Where a golden kernel burst, in the world, and how long ago. */
   private readonly flare = new THREE.Vector3();
   private flareT = FLARE_SECONDS;
+  private readonly rippleAt = new THREE.Vector3();
+  private rippleT = RIPPLE_SECONDS;
   /** The burst of colour as a vessel gives way, fading from 1. */
   private punch = 0;
   /** The pointer's place in the window, -1 to 1, eased; the camera leans toward it. */
@@ -1269,6 +1308,14 @@ export class World {
     post.shaftThreshold = shafts.threshold ?? 0.9;
   }
 
+  /** A point in the world, in CSS pixels on screen; null behind the camera. */
+  private screenOf(world: THREE.Vector3): { x: number; y: number } | null {
+    const p = screenScratch.copy(world).project(this.stage.camera);
+    if (p.z > 1) return null;
+    const canvas = this.stage.renderer.domElement;
+    return { x: (p.x * 0.5 + 0.5) * canvas.clientWidth, y: (0.5 - p.y * 0.5) * canvas.clientHeight };
+  }
+
   /** A brief light at a point in the world, for a moment the whole set should feel. */
   private flashLight(at: THREE.Vector3, color: THREE.ColorRepresentation, intensity: number, radius: number, decay: number): void {
     let flash = this.flashes[0]!;
@@ -1293,6 +1340,17 @@ export class World {
     this.frenzy += (wanted - this.frenzy) * (1 - Math.exp(-dt * 2.5));
     if (this.frenzy < 0.002) this.frenzy = 0;
     popcornUniforms.uFrenzy.value = this.frenzy;
+    // The ring of light running out over the heap from the last click.
+    this.rippleT += dt;
+    const ripple = popcornUniforms.uRipple.value;
+    const ru = this.rippleT / RIPPLE_SECONDS;
+    if (ru >= 1 || !this.current) {
+      ripple.y = 0;
+    } else {
+      const k = this.current.spec.pile.k;
+      popcornUniforms.uRippleAt.value.copy(this.rippleAt);
+      ripple.set(k * (this.reduceMotion ? 0.8 : 0.12 + easeOutCubic(ru) * 2.2), (1 - ru) * (1 - ru) * (this.reduceMotion ? 0.45 : 0.85), 0.03 * k);
+    }
     const lamp = this.frenzyLamp;
     const runtime = this.current;
     if (!runtime || this.frenzy === 0) {

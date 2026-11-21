@@ -8,6 +8,7 @@ import { UPGRADE_BY_ID } from '../content/upgrades.ts';
 import { Cracks, Debris, Parcel } from './fx/breakout.ts';
 import { Flock } from './fx/flock.ts';
 import { Shovel } from './fx/shovel.ts';
+import { comboColor as tierColor } from './fx/combo.ts';
 import { SpriteKind, Sprites } from './fx/sprites.ts';
 import { Stirrer } from './fx/stirrer.ts';
 import { runAmbience } from './fx/ambience.ts';
@@ -38,7 +39,7 @@ const SOUND_GAP = 0.45;
 const THUMP_GAP = 0.4;
 const dustColor = new THREE.Color('#c9b8a2');
 const sparkleColor = new THREE.Color(2.4, 2, 1.1);
-const comboColor = new THREE.Color(2, 1.5, 0.7);
+const burstColor = new THREE.Color();
 const flashColor = new THREE.Color(2.4, 1.8, 1);
 const smokeColor = new THREE.Color(0.55, 0.5, 0.5);
 const caramelColor = new THREE.Color('#d99a58');
@@ -46,6 +47,8 @@ const PIGEON_EGG = 'egg-pigeons';
 /** Scratch for turning a world-space ray into a scene's own space. */
 const sceneRay = new THREE.Ray();
 const toScene = new THREE.Matrix4();
+const heapBox = new THREE.Box3();
+const heapPoint = new THREE.Vector3();
 const emberColor = new THREE.Color(2.8, 1.05, 0.25);
 const butterColor = new THREE.Color('#ffd25a').multiplyScalar(1.3);
 
@@ -275,11 +278,12 @@ export class SceneRuntime {
     return this.live;
   }
 
-  syncUnits(owned: readonly number[], animate: boolean): void {
+  /** `lead` holds new machines back, as while their ticket is still flying in. */
+  syncUnits(owned: readonly number[], animate: boolean, lead = 0): void {
     UNIT_ORDER.forEach((kind, index) => {
       const rig = this.rigs.get(kind);
       if (!rig) return;
-      rig.sync(owned[index]!, animate, UNIT_DROP_DELAY);
+      rig.sync(owned[index]!, animate, Math.max(UNIT_DROP_DELAY, lead));
       this.parts.unitsChanged?.(kind, rig.visible);
     });
   }
@@ -297,6 +301,45 @@ export class SceneRuntime {
   /** The ray in this scene's own space. */
   private toScene(ray: THREE.Ray): THREE.Ray {
     return sceneRay.copy(ray).applyMatrix4(toScene.copy(this.root.matrixWorld).invert());
+  }
+
+  /**
+   * Where a ray (world space) first meets the heap's surface, marched over its height field; null
+   * if it misses, or meets only bare floor.
+   */
+  heapHit(ray: THREE.Ray, out: THREE.Vector3): THREE.Vector3 | null {
+    const local = this.toScene(ray);
+    const { pile } = this;
+    const shape = pile.shape;
+    const k = shape.k;
+    const reach = this.spec.spreadRadius;
+    const top = pile.heightAt(shape.centerX, shape.centerZ) + k;
+    heapBox.min.set(shape.centerX - reach, -1e6, shape.centerZ - reach);
+    heapBox.max.set(shape.centerX + reach, top, shape.centerZ + reach);
+    if (!local.intersectBox(heapBox, heapPoint)) return null;
+    const step = 0.12 * k;
+    let before = local.origin.distanceTo(heapPoint);
+    const end = before + reach * 3 + top;
+    for (let t = before; t < end; t += step) {
+      local.at(t, heapPoint);
+      if (heapPoint.y > pile.heightAt(heapPoint.x, heapPoint.z)) {
+        before = t;
+        continue;
+      }
+      // Narrow it down between the last step above the surface and this one below.
+      let above = before;
+      let below = t;
+      for (let i = 0; i < 6; i += 1) {
+        const mid = (above + below) / 2;
+        local.at(mid, heapPoint);
+        if (heapPoint.y > pile.heightAt(heapPoint.x, heapPoint.z)) above = mid;
+        else below = mid;
+      }
+      local.at(below, heapPoint);
+      if (pile.heightAt(heapPoint.x, heapPoint.z) - shape.floor(heapPoint.x, heapPoint.z) < 0.05 * k) return null;
+      return this.root.localToWorld(out.copy(heapPoint));
+    }
+    return null;
   }
 
   /** The machine copy a ray (world space) meets first, if any. */
@@ -364,6 +407,24 @@ export class SceneRuntime {
     for (const [other, rig] of this.rigs) rig.setHover(other === kind ? copy : -1);
   }
 
+  /** Where a new machine of this kind will stand, in this scene's space; else over the heap, where parcels drop. */
+  arrivalPoint(unit: number, copy: number, out: THREE.Vector3): THREE.Vector3 {
+    if (this.rigFor(unit)?.slotPoint(copy, out)) return out;
+    const shape = this.pile.shape;
+    return out.set(shape.centerX, this.pile.heightAt(shape.centerX, shape.centerZ) + 0.6 * shape.k, shape.centerZ);
+  }
+
+  /** A bought ticket landed: a ring and a puff of sparkles where the machine is about to arrive. */
+  arrivalSparkle(point: THREE.Vector3): void {
+    const k = this.spec.pile.k;
+    const { x, y, z } = point;
+    this.sprites.spawn({ x, y, z, sizeStart: 0.3 * k, sizeEnd: 1.6 * k, life: 0.45, color: sparkleColor, alpha: 0.7, additive: 1, kind: SpriteKind.Ring });
+    for (let i = 0; i < 8; i += 1) {
+      const a = (i / 8) * Math.PI * 2 + this.rng.range(-0.3, 0.3);
+      this.sprites.spawn({ x, y, z, vx: Math.cos(a) * 2.2 * k, vy: this.rng.range(0.8, 2.6) * k, vz: Math.sin(a) * 2.2 * k, gravity: 5 * k, drag: 1.2, sizeStart: 0.22 * k, sizeEnd: 0.04 * k, life: this.rng.range(0.45, 0.8), color: sparkleColor, alpha: 1, additive: 1, kind: SpriteKind.Star, spin: this.rng.range(-4, 4) });
+    }
+  }
+
   /** The first copy of a machine, if this scene has a place for it. */
   machineFocus(unit: number): ReturnType<UnitRig['firstCopy']> {
     const rig = this.rigFor(unit);
@@ -387,11 +448,25 @@ export class SceneRuntime {
   }
 
   /** A burst from the vessel when a run of clicks reaches a round number. */
-  comboBurst(power: number): void {
+  /**
+   * Every 12 clicks in a run: a ring over the heap and a few extra pops. Each tier (12, 24, 48, 96)
+   * changes the ring's color and adds sparks; the top tier's rings run through the rainbow.
+   */
+  comboBurst(power: number, tier: number, hue: number): void {
     if (!this.director) return;
     const k = this.spec.pile.k;
-    const top = this.pile.heightAt(this.spec.pile.centerX, this.spec.pile.centerZ) + 0.2 * k;
-    this.sprites.spawn({ x: 0, y: top, z: 0, sizeStart: 0.5 * k, sizeEnd: (2 + power) * k, life: 0.42, color: comboColor, alpha: 0.75, additive: 1, kind: SpriteKind.Ring });
+    const x = this.spec.pile.centerX;
+    const z = this.spec.pile.centerZ;
+    const top = this.pile.heightAt(x, z) + 0.2 * k;
+    const rings = tier >= 4 ? 3 : tier >= 3 ? 2 : 1;
+    for (let i = 0; i < rings; i += 1) {
+      this.sprites.spawn({ x, y: top, z, sizeStart: (0.5 + i * 0.3) * k, sizeEnd: (2 + power + i * 0.8) * k, life: 0.42 + i * 0.08, color: tierColor(tier, hue + i / 3, burstColor), alpha: 0.75, additive: 1, kind: SpriteKind.Ring });
+    }
+    for (let i = 0; i < (tier - 1) * 6; i += 1) {
+      const a = this.rng.range(0, Math.PI * 2);
+      const speed = this.rng.range(2.5, 5) * k;
+      this.sprites.spawn({ x, y: top, z, vx: Math.cos(a) * speed, vy: this.rng.range(3, 6) * k, vz: Math.sin(a) * speed, gravity: 12 * k, drag: 0.8, sizeStart: 0.12 * k, sizeEnd: 0.04 * k, life: this.rng.range(0.45, 0.75), color: tierColor(tier, hue + i / 7, burstColor), alpha: 1.2, additive: 1, kind: SpriteKind.Spark });
+    }
     for (let i = 0; i < 4 + power * 2; i += 1) this.popFromVessel(k);
   }
 

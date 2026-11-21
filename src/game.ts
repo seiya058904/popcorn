@@ -8,6 +8,7 @@ import { SaveManager, type LoadOutcome } from './platform/saves.ts';
 import { defaultSettings, loadSettings, saveSettings, type Settings } from './platform/settings.ts';
 import { memoryStore, openStore, type KeyValueStore } from './platform/storage.ts';
 import type { QualityTier } from './render/core/quality.ts';
+import { COMBO_PITCH } from './render/fx/combo.ts';
 import { Stage } from './render/core/stage.ts';
 import type { FinaleBeat } from './render/scenes/types.ts';
 import { World, type BreakBeat } from './render/world.ts';
@@ -15,6 +16,7 @@ import { showIntensity } from './sim/economy.ts';
 import { Simulation } from './sim/simulation.ts';
 import { FixedStepper } from './sim/stepper.ts';
 import { feedback } from './ui/feedback.ts';
+import { FlyIn } from './ui/flyin.ts';
 import { Hud } from './ui/hud.ts';
 import { ICONS } from './ui/icons.ts';
 import { setMotion } from './ui/motion.ts';
@@ -82,6 +84,8 @@ export class Game {
   readonly stage: Stage;
   readonly world: World;
   readonly hud: Hud;
+  /** Tickets flying in from the shop, and popcorn streaming into the counter. */
+  private readonly flyIn: FlyIn;
   readonly menus: Menus;
   readonly audio = new AudioEngine();
   readonly capture: boolean;
@@ -147,7 +151,12 @@ export class Game {
         this.audio.effect('pigeons');
       },
       onMachineSound: (name) => this.audio.machine(name),
-      onCombo: (count) => this.audio.effect('combo', 'small', Math.min(1.6, 0.9 + count / 150)),
+      onCombo: (_count, tier) => {
+        this.audio.effect('combo', tier >= 3 ? 'medium' : 'small', COMBO_PITCH[Math.max(0, tier - 1)]);
+        this.hud.comboGlow(tier);
+      },
+      onFlyIn: (unit, quantity, target, land) => this.flyIn.ticket(unit, quantity, target, land),
+      onIncome: (x, y, count) => this.flyIn.stream(x, y, count),
       onBreakBeat: (beat, stage) => this.onBreakBeat(beat, stage),
       // Without music yet, a steady beat at the opening tempo stands in.
       beatPhase: () => this.audio.beatPhase() ?? (this.visualTime * (MUSIC_HOME.bpm / 60)) % 1,
@@ -173,6 +182,9 @@ export class Game {
       onHover: (target) => this.hud.setHover(target),
     });
     this.world.backgroundBuilds = !options.capture;
+    this.flyIn = new FlyIn(options.uiRoot);
+    this.flyIn.onCrumb = (last) => this.hud.popCounter(last ? 1 : 0.3);
+    this.onFrame((dt) => this.flyIn.update(dt));
     feedback.connect({ sound: (name, rate) => this.audio.ui(name, rate) });
     this.menus = new Menus(options.uiRoot, {
       settings: this.settings,

@@ -66,6 +66,8 @@ export class Hud {
   private readonly slate: HTMLElement;
   /** A band of gold that sweeps across the counter after a golden kernel. */
   private readonly counterGleam: HTMLElement;
+  /** A glow round the marquee in the color of the combo tier just reached. */
+  private readonly comboRing: HTMLElement;
   /** Beside the pointer when it rests on something that can be tapped. */
   private readonly hoverTag: HTMLElement;
   /** What a found thing has to say, over where it was tapped. */
@@ -91,6 +93,7 @@ export class Hud {
     this.count = new Odometer(this.countNode);
     const rateRow = el('div', 'marquee-rate', marquee);
     this.counterGleam = el('span', 'marquee-gleam', marquee);
+    this.comboRing = el('span', 'marquee-combo', marquee);
     el('span', '', rateRow, '爆米花 · 每秒');
     this.rate = new Text(el('span', 'num', rateRow));
 
@@ -214,6 +217,15 @@ export class Hud {
       ],
       { duration: golden ? 1000 : 680, easing: 'cubic-bezier(.2,.7,.3,1)' },
     );
+  }
+
+  /** The marquee flares in the color of a combo tier (1 to 4). */
+  comboGlow(tier: number): void {
+    this.comboRing.dataset.tier = String(Math.max(1, Math.min(4, tier)));
+    this.comboRing.classList.remove('is-on');
+    void this.comboRing.offsetWidth;
+    this.comboRing.classList.add('is-on');
+    this.popCounter(0.4 + tier * 0.15);
   }
 
   popCounter(strength = 1): void {

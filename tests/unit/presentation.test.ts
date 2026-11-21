@@ -8,6 +8,7 @@ import { STAGES } from '../../src/content/stages.ts';
 import * as THREE from 'three';
 import { CALM_ENTRANCE, ENTRANCES, type Entrance, type EntrancePose } from '../../src/render/machines/entrances.ts';
 import { planetRingPath, ringPath } from '../../src/render/scenes/paths.ts';
+import { COMBO_PITCH, comboColor, comboTier, reachedTier } from '../../src/render/fx/combo.ts';
 
 const restPose = (): EntrancePose => ({ x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0, sx: 1, sy: 1, sz: 1 });
 
@@ -150,5 +151,22 @@ describe('machine sounds', () => {
 
   it('gives the four new machines a working sound', () => {
     for (const name of ['ding', 'truck-horn', 'airship-drop', 'orbital-zap']) expect(names, name).toContain(name);
+  });
+});
+
+describe('combo tiers', () => {
+  it('steps up at 12, 24, 48 and 96, and says when a click reached a new tier', () => {
+    expect([11, 12, 23, 24, 47, 48, 95, 96, 400].map(comboTier)).toEqual([0, 1, 1, 2, 2, 3, 3, 4, 4]);
+    expect([12, 24, 36, 48, 60, 96, 108].map(reachedTier)).toEqual([true, true, false, true, false, true, false]);
+  });
+
+  it('gives each tier its own light, the top one turning through the rainbow', () => {
+    const a = comboColor(4, 0, new THREE.Color());
+    const b = comboColor(4, 0.5, new THREE.Color());
+    expect(a.equals(b)).toBe(false);
+    expect(comboColor(1, 0, new THREE.Color()).equals(comboColor(2, 0, new THREE.Color()))).toBe(false);
+    expect(comboColor(2, 0, new THREE.Color()).equals(comboColor(2, 0.7, new THREE.Color()))).toBe(true);
+    // The sound climbs with every tier.
+    for (let i = 1; i < COMBO_PITCH.length; i += 1) expect(COMBO_PITCH[i]).toBeGreaterThan(COMBO_PITCH[i - 1]!);
   });
 });
