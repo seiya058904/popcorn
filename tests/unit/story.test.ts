@@ -5,7 +5,7 @@ import { bindEnvironment, PROBE_LOOKS } from '../../src/render/core/probe.ts';
 import { QUALITY } from '../../src/render/core/quality.ts';
 import { Kit, P, smoothLatheSeam } from '../../src/render/geometry/kit.ts';
 import { ambientStrength, runAmbience, type AmbientEmitter } from '../../src/render/fx/ambience.ts';
-import type { Sprites } from '../../src/render/fx/sprites.ts';
+import { SpriteKind, Sprites } from '../../src/render/fx/sprites.ts';
 import { Rng } from '../../src/motion/rng.ts';
 import { createFlakeGeometry } from '../../src/render/geometry/popcorn.ts';
 import { SetPieces } from '../../src/render/scenes/pieces.ts';
@@ -291,5 +291,34 @@ describe('ambience', () => {
     const meteor: AmbientEmitter = { look: 'meteor', center: [0, 0, 0], half: [1, 1, 1], rate: 10 };
     for (let frame = 0; frame < 60; frame += 1) runAmbience([meteor], [], 1 / 60, 0.5, 1, sprites, new Rng(3), true);
     expect(spawned).toBe(0);
+  });
+});
+
+describe('sprite uploads', () => {
+  const spawnOne = (sprites: Sprites): void =>
+    sprites.spawn({ x: 0, y: 0, z: 0, sizeStart: 1, sizeEnd: 1, life: 1, color: new THREE.Color(), alpha: 1, kind: SpriteKind.Spark });
+  const ranges = (sprites: Sprites): Array<{ start: number; count: number }> =>
+    (sprites.mesh.geometry.getAttribute('iPos') as THREE.InstancedBufferAttribute).updateRanges.map((r) => ({ ...r }));
+
+  it('uploads only what was written since the last frame, wrapping past the end of the pool', () => {
+    const sprites = new Sprites(new THREE.Group(), 8);
+    for (let i = 0; i < 3; i += 1) spawnOne(sprites);
+    sprites.flush();
+    expect(ranges(sprites)).toEqual([{ start: 0, count: 12 }]);
+    for (let i = 0; i < 7; i += 1) spawnOne(sprites);
+    sprites.flush();
+    // Slots 3..7, then 0..1 again.
+    expect(ranges(sprites)).toEqual([
+      { start: 12, count: 20 },
+      { start: 0, count: 8 },
+    ]);
+  });
+
+  it('uploads the whole pool at most, however much was written', () => {
+    const sprites = new Sprites(new THREE.Group(), 8);
+    for (let i = 0; i < 20; i += 1) spawnOne(sprites);
+    sprites.flush();
+    const total = ranges(sprites).reduce((sum, r) => sum + r.count, 0);
+    expect(total).toBe(8 * 4);
   });
 });

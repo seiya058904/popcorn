@@ -94,6 +94,9 @@ const CALM_FLASH = 0.5;
 const frenzyWarm = new THREE.Color('#ffd9a8');
 const frenzyLampColor = new THREE.Color('#ffae4a');
 const bounceLight = new THREE.Color();
+const frenzyEdge = new THREE.Color('#ff9a3c');
+/** How long the rays from a golden kernel last. */
+const FLARE_SECONDS = 0.8;
 /** The three story looks a room probe holds, by index. */
 const LOOKS = [0, 1, 2] as const;
 
@@ -226,7 +229,12 @@ export class World {
       onBurst: (position, combo, gain, manual, golden) => {
         v.copy(position);
         this.current?.root.localToWorld(v);
-        if (golden) this.flashLight(v, '#ffcf3a', 2.4, (this.current?.spec.pile.k ?? 1) * 3.4, 0.4);
+        if (golden) {
+          this.flashLight(v, '#ffcf3a', 2.4, (this.current?.spec.pile.k ?? 1) * 3.4, 0.4);
+          // Rays of gold out of the burst, for a moment.
+          this.flare.copy(v);
+          this.flareT = 0;
+        }
         v.project(this.stage.camera);
         const canvas = this.stage.renderer.domElement;
         this.hooks.onBurst((v.x * 0.5 + 0.5) * canvas.clientWidth, (0.5 - v.y * 0.5) * canvas.clientHeight, combo, gain, manual, golden);
@@ -797,6 +805,8 @@ export class World {
     if (ctx) from.parts.blast?.(ctx);
     this.impact.hit('epic');
     from.burstVessel();
+    from.blastEffects();
+    this.punch = 1;
     this.hooks.onBreakBeat('blast', tr.stage);
 
     // From here on the old scene lives inside the new one, so the camera can simply pull away.
@@ -953,6 +963,7 @@ export class World {
     if (Math.abs(this.uiInset - this.framedInset) > 0.01) this.updateFraming();
     this.frameOpen += (this.wantedOpen - this.frameOpen) * (1 - Math.exp(-dt * 1.6));
     this.updateEventLights(dt);
+    this.punch = Math.max(0, this.punch - dt / 0.9);
     this.applyView(dt);
   }
 
@@ -1120,6 +1131,16 @@ export class World {
     p.highlightTint.set(pose.grade.highlightTint);
     p.aoTint.set(pose.grade.aoTint);
     p.tilt.set(pose.tilt, 0.5, 0.2);
+    const tr = this.transition;
+    if (tr && tr.silenced && !tr.blasted) {
+      p.saturation *= 0.72;
+      p.vignette += 0.12;
+    }
+    if (this.punch > 0) {
+      p.saturation *= 1 + 0.3 * this.punch;
+      p.exposure *= 1 + 0.06 * this.punch;
+    }
+    p.edgeGlow.setRGB(0, 0, 0);
     if (this.frenzy > 0) {
       // A frenzy runs warm and bright, and the glow swells on every beat.
       const f = this.frenzy;
@@ -1128,10 +1149,17 @@ export class World {
       p.saturation *= 1 + 0.1 * f;
       p.bloom += (0.16 + 0.14 * beat) * f;
       p.highlightTint.lerp(frenzyWarm, 0.4 * f);
+      // A warm glow creeps in from the edges of the picture, swelling with the beat.
+      p.edgeGlow.copy(frenzyEdge).multiplyScalar(0.16 * f * (0.65 + 0.35 * beat));
     }
   }
 
   private shaftFade = 0;
+  /** Where a golden kernel burst, in the world, and how long ago. */
+  private readonly flare = new THREE.Vector3();
+  private flareT = FLARE_SECONDS;
+  /** The burst of colour as a vessel gives way, fading from 1. */
+  private punch = 0;
   /** The pointer's place in the window, -1 to 1, eased; the camera leans toward it. */
   private readonly lean = new THREE.Vector2();
   private readonly livePose = {} as Pose;
@@ -1211,8 +1239,20 @@ export class World {
     const shafts = spec.shafts;
     this.shaftFade += ((tr || this.transition ? 0 : 1) - this.shaftFade) * (1 - Math.exp(-dt * 3));
     post.shafts.z = 0;
-    if (!shafts || !quality.shafts || this.shaftFade < 0.01) return;
+    post.shaftRadius = 0;
     const camera = this.stage.camera;
+    if (this.flareT < FLARE_SECONDS) {
+      this.flareT += dt;
+      const u = Math.min(1, this.flareT / FLARE_SECONDS);
+      v.copy(this.flare).project(camera);
+      if (quality.shafts && Math.abs(v.x) < 1.2 && Math.abs(v.y) < 1.2 && v.z < 1) {
+        post.shafts.set(v.x * 0.5 + 0.5, v.y * 0.5 + 0.5, 0.9 * (1 - u) * (1 - u) * (this.reduceMotion ? 0.5 : 1), 0.45);
+        post.shaftThreshold = 0.95;
+        post.shaftRadius = 0.1;
+        return;
+      }
+    }
+    if (!shafts || !quality.shafts || this.shaftFade < 0.01) return;
     if (shafts.sun) {
       v.copy(globals.uSunDir.value).multiplyScalar(camera.far * 0.5).add(camera.position);
     } else if (shafts.at) {
@@ -1271,6 +1311,7 @@ export class World {
     lamp.radius = runtime.spec.spreadRadius * 0.55;
     const pulse = this.reduceMotion ? 0.5 : (1 - this.hooks.beatPhase()) ** 3;
     lamp.intensity = this.frenzy * (0.5 + 0.7 * pulse);
+    runtime.butterRain(dt, this.frenzy);
   }
 
   // QA --------------------------------------------------------------------------------

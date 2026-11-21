@@ -60,7 +60,7 @@ export function runAmbience(emitters: readonly AmbientEmitter[], due: number[], 
         // A meteor: a bright point that streaks across the sky and burns out.
         const a = rng.range(-0.6, 0.6);
         const speed = 60 * k;
-        sprites.spawn({ x, y, z, vx: Math.cos(a) * speed, vy: -Math.abs(Math.sin(a)) * speed * 0.6 - 10 * k, vz: 0, sizeStart: 0.5 * k, sizeEnd: 0.1 * k, life: 0.7, color: meteorColor, alpha: 1, additive: 1, kind: SpriteKind.Star, spin: 0 });
+        sprites.spawn({ x, y, z, vx: Math.cos(a) * speed, vy: -Math.abs(Math.sin(a)) * speed * 0.6 - 10 * k, vz: 0, sizeStart: 0.35 * k, sizeEnd: 0.1 * k, life: 0.7, color: meteorColor, alpha: 1, additive: 1, kind: SpriteKind.Spark });
       }
     }
   });

@@ -47,6 +47,7 @@ const PIGEON_EGG = 'egg-pigeons';
 const sceneRay = new THREE.Ray();
 const toScene = new THREE.Matrix4();
 const emberColor = new THREE.Color(2.8, 1.05, 0.25);
+const butterColor = new THREE.Color('#ffd25a').multiplyScalar(1.3);
 
 export interface RuntimeHooks {
   onBurst(position: THREE.Vector3, combo: number, gain: number, manual: boolean, golden: boolean): void;
@@ -97,6 +98,7 @@ export class SceneRuntime {
   private readonly ambientDue: number[] = [];
   /** Seconds until the next flake tumbles down the heap. */
   private tumbleIn = 2;
+  private butterDue = 0;
   private fountainBudget = 0;
   private live: boolean;
 
@@ -199,7 +201,7 @@ export class SceneRuntime {
       },
       ember: (x, y, z, size) => {
         for (let i = 0; i < 5; i += 1) {
-          this.sprites.spawn({ x, y, z, vx: rng.range(-1, 1) * size, vy: rng.range(1.6, 3.6) * size, vz: rng.range(-1, 1) * size, gravity: 4 * size, sizeStart: 0.1 * size, sizeEnd: 0.02 * size, life: rng.range(0.5, 0.9), color: emberColor, alpha: 1, additive: 1, kind: SpriteKind.Drop });
+          this.sprites.spawn({ x, y, z, vx: rng.range(-1, 1) * size, vy: rng.range(1.6, 3.6) * size, vz: rng.range(-1, 1) * size, gravity: 4 * size, sizeStart: 0.07 * size, sizeEnd: 0.02 * size, life: rng.range(0.5, 0.9), color: emberColor, alpha: 1, additive: 1, kind: SpriteKind.Spark });
         }
       },
       dust: (x, y, z, size) => {
@@ -408,6 +410,27 @@ export class SceneRuntime {
     this.cracks?.hide();
   }
 
+  /** As the vessel bursts: hot sparks flung out, and a ring of dust racing along the ground. */
+  blastEffects(): void {
+    const { pile, sprites, rng } = this;
+    const shape = pile.shape;
+    const k = shape.k;
+    const x = shape.centerX;
+    const z = shape.centerZ;
+    const top = pile.heightAt(x, z);
+    const floor = shape.floor(x + (this.spec.homeRadius / 0.72) * 1.4, z);
+    for (let i = 0; i < 26; i += 1) {
+      const a = rng.range(0, Math.PI * 2);
+      const speed = rng.range(4, 9) * k;
+      sprites.spawn({ x, y: top, z, vx: Math.cos(a) * speed, vy: rng.range(4, 10) * k, vz: Math.sin(a) * speed, gravity: 16 * k, drag: 0.6, sizeStart: 0.14 * k, sizeEnd: 0.05 * k, life: rng.range(0.6, 1.1), color: emberColor, alpha: 1, additive: 1, kind: SpriteKind.Spark });
+    }
+    for (let i = 0; i < 26; i += 1) {
+      const a = (i / 26) * Math.PI * 2 + rng.range(-0.1, 0.1);
+      const speed = rng.range(5, 8) * k;
+      sprites.spawn({ x: x + Math.cos(a) * 0.6 * k, y: floor + 0.15 * k, z: z + Math.sin(a) * 0.6 * k, vx: Math.cos(a) * speed, vy: rng.range(0.1, 0.6) * k, vz: Math.sin(a) * speed, drag: 2.4, sizeStart: 0.5 * k, sizeEnd: rng.range(1.6, 2.4) * k, life: rng.range(0.8, 1.3), color: dustColor, alpha: 0.4, kind: SpriteKind.Puff, spin: rng.range(-1, 1) });
+    }
+  }
+
   /** Machines drop in one after another as the camera arrives. */
   dropInMachines(): void {
     let delay = 0.05;
@@ -492,6 +515,24 @@ export class SceneRuntime {
     const x = shape.centerX + Math.cos(a) * r;
     const z = shape.centerZ + Math.sin(a) * r;
     this.director.launch(x, this.pile.heightAt(x, z) + 0.04 * shape.k, z, { flight: this.rng.range(0.35, 0.5), scale: this.rng.range(0.32, 0.42), reach: 1.05, silent: true });
+  }
+
+  /** Flecks of butter drifting down over the heap during a frenzy, thicker as it builds. */
+  butterRain(dt: number, amount: number): void {
+    if (amount < 0.05 || this.calmEntrances) return;
+    this.butterDue -= dt * amount * 14;
+    const shape = this.pile.shape;
+    const k = shape.k;
+    const reach = shape.landingRadius(this.pile.currentLevel) * 0.9;
+    while (this.butterDue <= 0) {
+      this.butterDue += this.rng.range(0.5, 1.5);
+      const a = this.rng.range(0, Math.PI * 2);
+      const r = Math.sqrt(this.rng.next()) * reach;
+      const x = shape.centerX + Math.cos(a) * r;
+      const z = shape.centerZ + Math.sin(a) * r;
+      const y = this.pile.heightAt(shape.centerX, shape.centerZ) + this.rng.range(1.5, 3) * k;
+      this.sprites.spawn({ x, y, z, vx: this.rng.range(-0.3, 0.3) * k, vy: -0.4 * k, vz: this.rng.range(-0.3, 0.3) * k, gravity: 0.5 * k, drag: 1.2, sizeStart: 0.075 * k, sizeEnd: 0.05 * k, life: this.rng.range(1.6, 2.4), color: butterColor, alpha: 1, additive: 0.5, kind: SpriteKind.Fleck, spin: this.rng.range(-8, 8) });
+    }
   }
 
   /**

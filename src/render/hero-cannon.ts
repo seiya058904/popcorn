@@ -114,6 +114,11 @@ export class HeroCannon {
         spin: rng.range(-1, 1),
       });
     }
+    // Hot sparks streak out along the barrel.
+    for (let i = 0; i < (perfect ? 18 : 10); i += 1) {
+      const speed = rng.range(6, 14) * s;
+      sprites.spawn({ x, y, z, vx: dir.x * speed + rng.range(-2, 2) * s, vy: dir.y * speed + rng.range(-1, 3) * s, vz: dir.z * speed + rng.range(-2, 2) * s, gravity: 10 * s, drag: 1.2, sizeStart: 0.14 * s, sizeEnd: 0.05 * s, life: rng.range(0.3, 0.6), color: emberColor, alpha: 1.3, additive: 1, kind: SpriteKind.Spark });
+    }
     const count = perfect ? 30 : 18;
     for (let i = 0; i < count; i += 1) {
       this.director.launch(x, y, z, { flight: rng.range(0.75, 1.15), scale: rng.range(0.32, 0.5), reach: 1.25, quiet: i > 3 });

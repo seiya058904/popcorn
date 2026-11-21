@@ -77,6 +77,36 @@ const arrivals = Object.fromEntries(
 
 export const filmScenarios: Record<string, FilmScenario> = {
   ...arrivals,
+  /** A golden kernel from the click to the ring on the heap, every other frame. */
+  golden: {
+    clip: { x: 200, y: 60, width: 880, height: 600 },
+    frames: 24,
+    columns: 6,
+    setup: async (page) => {
+      await qa(page, (api, total: number) => {
+        api.set({ stage: 1, totalEarned: total, popcorn: 1e9, upgrades: ['golden1'] });
+        (api.game.sim as unknown as { derived: { goldenChance: number } }).derived.goldenChance = 1;
+        api.advance(2);
+      }, totalAt(1, 0.4));
+    },
+    beforeFrame: async (page, frame) => {
+      if (frame === 1) await click(page, 640, 400);
+    },
+    step: (page) => advance(page, FRAME * 2),
+  },
+  /** A frenzy: the warm wash and the glow pulsing in from the edges. */
+  frenzy: {
+    clip: { x: 0, y: 0, width: 1280, height: 720 },
+    frames: 12,
+    columns: 4,
+    setup: async (page) => {
+      await qa(page, (api, total: number) => {
+        api.set({ stage: 2, totalEarned: total, popcorn: 1e12, frenzy: 30 });
+        api.advance(2);
+      }, totalAt(2, 0.5));
+    },
+    step: (page) => advance(page, 0.12),
+  },
   /** The town at night, a quarter second apart: trees in the wind, fireflies, flakes tumbling down the heap. */
   'town-life': {
     clip: { x: 200, y: 150, width: 880, height: 520 },

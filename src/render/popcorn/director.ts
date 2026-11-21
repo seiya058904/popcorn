@@ -327,7 +327,7 @@ export class PopDirector {
     for (let i = 0; i < 10; i += 1) {
       const a = (i / 10) * 6.28 + rng.range(-0.2, 0.2);
       const speed = rng.range(2.4, 4.4) * k;
-      this.sprites.spawn({ x, y, z, vx: Math.cos(a) * speed, vy: rng.range(2.6, 5.2) * k, vz: Math.sin(a) * speed, gravity: 14 * k, drag: 0.8, sizeStart: 0.2 * k, sizeEnd: 0.03 * k, life: rng.range(0.5, 0.8), color: gold, alpha: 1, additive: 1, kind: SpriteKind.Star, spin: rng.range(-5, 5) });
+      this.sprites.spawn({ x, y, z, vx: Math.cos(a) * speed, vy: rng.range(2.6, 5.2) * k, vz: Math.sin(a) * speed, gravity: 14 * k, drag: 0.8, sizeStart: 0.12 * k, sizeEnd: 0.03 * k, life: rng.range(0.5, 0.8), color: gold, alpha: 1, additive: 1, kind: i % 3 === 0 ? SpriteKind.Star : SpriteKind.Spark, spin: rng.range(-5, 5) });
     }
   }
 

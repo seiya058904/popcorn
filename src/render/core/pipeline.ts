@@ -40,6 +40,10 @@ export interface PostParams {
   shafts: THREE.Vector4;
   /** How bright a pixel has to be to send out a shaft. */
   shaftThreshold: number;
+  /** Only light within this distance of the source (in picture heights) sends out shafts; 0 is no limit. */
+  shaftRadius: number;
+  /** Light added round the edges of the picture, as during a frenzy. Black adds nothing. */
+  edgeGlow: THREE.Color;
 }
 
 export function defaultPostParams(): PostParams {
@@ -67,6 +71,8 @@ export function defaultPostParams(): PostParams {
     motion: 0,
     shafts: new THREE.Vector4(0.5, 0.5, 0, 0.6),
     shaftThreshold: 0.9,
+    shaftRadius: 0,
+    edgeGlow: new THREE.Color(0, 0, 0),
   };
 }
 
@@ -276,7 +282,7 @@ void main() {
 const shaftsFragment = /* glsl */ `
 uniform sampler2D tColor;
 uniform vec3 uShafts;
-uniform float uThreshold;
+uniform float uThreshold, uRadius, uAspect;
 varying vec2 vUv;
 const int STEPS = 20;
 void main() {
@@ -290,7 +296,8 @@ void main() {
     if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) break;
     vec3 c = min(textureLod(tColor, uv, 0.0).rgb, vec3(6.0));
     float luma = max(c.r, max(c.g, c.b));
-    sum += c * (max(luma - uThreshold, 0.0) / max(luma, 1e-3)) * weight;
+    float near = uRadius > 0.0 ? smoothstep(uRadius, uRadius * 0.4, length((uv - uShafts.xy) * vec2(uAspect, 1.0))) : 1.0;
+    sum += c * (max(luma - uThreshold, 0.0) / max(luma, 1e-3)) * weight * near;
     weight *= 0.92;
     uv += toward;
   }
@@ -358,7 +365,7 @@ uniform float uExposure, uContrast, uSaturation, uVignette, uGrain, uBloom, uTim
 uniform float uHasBlur, uHasAo, uHasReflect, uMotion;
 uniform mat4 uReproject;
 uniform vec2 uMirrorPixel, uAoSize;
-uniform vec3 uShadowTint, uHighlightTint, uFlashColor, uAoTint;
+uniform vec3 uShadowTint, uHighlightTint, uFlashColor, uAoTint, uEdgeGlow;
 uniform vec4 uShock;
 varying vec2 vUv;
 
@@ -468,6 +475,7 @@ void main() {
   vec2 v = (vUv - 0.5) * vec2(uAspect * 0.72, 1.0);
   float vig = smoothstep(0.32, 0.92, length(v));
   col *= 1.0 - vig * uVignette * vec3(0.92, 1.0, 0.94);
+  col += uEdgeGlow * vig;
   col = mix(col, uFlashColor, uFlash);
 
   col = toSrgb(max(col, vec3(0.0)));
@@ -524,7 +532,7 @@ export class PostPipeline {
     true,
   );
   private readonly reflectMat = this.pass(reflectFragment, { tColor: { value: null }, uRange: { value: 6 }, uUp: { value: new THREE.Vector3(0, 1, 0) } }, true);
-  private readonly shaftsMat = this.pass(shaftsFragment, { tColor: { value: null }, uShafts: { value: new THREE.Vector3() }, uThreshold: { value: 0.9 } });
+  private readonly shaftsMat = this.pass(shaftsFragment, { tColor: { value: null }, uShafts: { value: new THREE.Vector3() }, uThreshold: { value: 0.9 }, uRadius: { value: 0 }, uAspect: { value: 1 } });
   private readonly prefilterMat = this.pass(prefilterFragment, { tSource: { value: null }, uPixel: { value: new THREE.Vector2() } });
   private readonly downMat = this.pass(downFragment, { tSource: { value: null }, uPixel: { value: new THREE.Vector2() } });
   private readonly upMat = this.pass(upFragment, { tSource: { value: null }, uPixel: { value: new THREE.Vector2() } }, false, true);
@@ -563,6 +571,7 @@ export class PostPipeline {
       uHighlightTint: { value: new THREE.Color() },
       uFlashColor: { value: new THREE.Color() },
       uAoTint: { value: new THREE.Color() },
+      uEdgeGlow: { value: new THREE.Color() },
       uShock: { value: new THREE.Vector4() },
     },
     true,
@@ -683,6 +692,8 @@ export class PostPipeline {
       u.tColor!.value = color;
       u.uShafts!.value.set(p.shafts.x, p.shafts.y, p.shafts.w);
       u.uThreshold!.value = p.shaftThreshold;
+      u.uRadius!.value = p.shaftRadius;
+      u.uAspect!.value = this.shaftTarget.width / Math.max(1, this.shaftTarget.height);
       this.draw(this.shaftsMat, this.shaftTarget);
     }
 
@@ -717,6 +728,7 @@ export class PostPipeline {
     c.uHighlightTint!.value.copy(p.highlightTint);
     c.uFlashColor!.value.copy(p.flashColor);
     c.uAoTint!.value.copy(p.aoTint);
+    c.uEdgeGlow!.value.copy(p.edgeGlow);
     c.uShock!.value.copy(p.shock);
     // Last frame's view and projection, applied to this frame's view space.
     (c.uReproject!.value as THREE.Matrix4).multiplyMatrices(this.lastViewProjection, camera.matrixWorld);
