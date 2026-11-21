@@ -69,7 +69,8 @@ function microwaveBody(): THREE.BufferGeometry {
   kit.add(P.box(0.34, 0.15, 0.012, 0.004, 1), { color: '#6fe6b6', emissive: 0.95, outline: 0, fixedColor: true, matrix: at(0.77, 1.05, 0.586) });
   kit.add(P.puck(0.11, 0.1, 0.05, 20, 0.012), { ...M.chrome, pattern: Pattern.Knurl, matrix: at(0.77, 0.8, 0.585, [Math.PI / 2, 0, 0]) });
   // A perforated grille on the side wall, and a paper note taped on top.
-  kit.add(P.box(0.012, 0.5, 0.62, 0.006, 1), { ...M.darkIron, pattern: Pattern.Perforated + 0.2, outline: 0, detail: 1, matrix: at(1.053, 0.82, -0.12) });
+  kit.add(P.box(0.012, 0.5, 0.62, 0.006, 1), { color: '#9aa0a8', gloss: 0.3, metal: 0.5, pattern: Pattern.Perforated + 0.55, outline: 0, fixedColor: true, detail: 1, matrix: at(1.053, 0.82, -0.12) });
+  kit.add(P.box(0.02, 0.56, 0.68, 0.01, 1), { ...M.chrome, outline: 0, detail: 1, matrix: at(1.049, 0.82, -0.12) });
   kit.add(P.box(0.32, 0.006, 0.22, 0.01, 1), { ...LABEL, detail: 1, matrix: at(-0.62, 1.292, 0.28, [0, 0.22, 0]) });
   kit.add(P.box(0.12, 0.008, 0.05, 0.004, 1), { color: '#f3e7b0', gloss: 0.5, outline: 0, fixedColor: true, detail: 2, matrix: at(-0.62, 1.295, 0.18, [0, 0.22, 0]) });
   kit.add(P.box(0.018, 0.09, 0.012, 0.004, 1), { ...M.red, outline: 0, matrix: at(0.77, 0.84, 0.64) });
@@ -99,8 +100,10 @@ function microwaveTray(): THREE.BufferGeometry {
   const kit = new Kit();
   kit.add(P.puck(0.46, 0.46, 0.022, 30, 0.008), { color: '#d9ecf2', gloss: 1, coat: 0.6, outline: 0, fixedColor: true, matrix: at(0, -0.35, 0) });
   // A paper bag puffing up like a pillow, with popcorn forcing the seam open.
-  kit.add(P.box(0.62, 0.3, 0.46, 0.14, 4), { color: '#fff2d8', gloss: 0.16, emissive: 0.22, pattern: Pattern.Fabric, outline: 0.35, fixedColor: true, matrix: at(0, -0.17, 0) });
-  kit.add(P.box(0.2, 0.31, 0.47, 0.04, 2), { ...M.red, gloss: 0.3, outline: 0, matrix: at(0, -0.17, 0) });
+  // The print runs round the paper itself: red bands at both ends, cream in the middle.
+  const print = new THREE.Color('#d62f38');
+  kit.add(P.box(0.62, 0.3, 0.46, 0.14, 4), { color: '#fff2d8', gloss: 0.2, emissive: 0.18, pattern: Pattern.Paper, outline: 0.35, fixedColor: true, matrix: at(0, -0.17, 0), colorFn: (p, _n, out) => { if (Math.abs(p.x) > 0.19) out.copy(print); } });
+  kit.add(P.box(0.2, 0.012, 0.16, 0.006, 1), { color: '#ffc63f', gloss: 0.4, pattern: Pattern.Paper, outline: 0, fixedColor: true, detail: 1, matrix: at(0, -0.018, 0) });
   puffs(kit, 0, 0, 0, 0.2, 0.12, 5, 0.075, 8);
   return kit.build();
 }

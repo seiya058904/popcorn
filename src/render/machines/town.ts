@@ -75,6 +75,14 @@ function truckBody(): THREE.BufferGeometry {
   kit.add(P.box(1.74, 0.72, 0.02, 0.01, 1), { color: '#ffd28d', emissive: 0.6, outline: 0, fixedColor: true, matrix: at(-0.45, 1.78, 0.872) });
   puffs(kit, -0.45, 1.46, 0.92, 0.72, 0.06, 7, 0.11, 4);
   kit.add(P.box(2.06, 0.06, 0.26, 0.02, 1), { ...M.steel, matrix: at(-0.45, 1.34, 1) });
+  // The far side: a menu board in a cream frame, and brass trims on the corners.
+  kit.add(P.box(1.9, 0.9, 0.04, 0.03, 2), { ...M.cream, matrix: at(-0.5, 1.7, -0.875) });
+  kit.add(P.box(1.74, 0.74, 0.03, 0.015, 1), { color: '#2a1a22', gloss: 0.4, outline: 0, fixedColor: true, matrix: at(-0.5, 1.7, -0.89) });
+  for (let line = 0; line < 4; line += 1) {
+    kit.add(P.box(0.9 - (line % 2) * 0.3, 0.06, 0.01, 0.01, 1), { color: line === 0 ? '#ffc63f' : '#fff2d8', emissive: 0.15, outline: 0, fixedColor: true, detail: 1, matrix: at(-0.82 + (line % 2) * 0.15, 1.92 - line * 0.15, -0.905) });
+    kit.add(P.box(0.22, 0.06, 0.01, 0.01, 1), { color: '#ff8a7a', outline: 0, fixedColor: true, detail: 1, matrix: at(0.06, 1.92 - line * 0.15, -0.905) });
+  }
+  for (const x of [-2.3, 1.3]) for (const z of [-0.87, 0.87]) kit.add(P.box(0.08, 1.8, 0.08, 0.03, 1), { ...M.brass, outline: 0, matrix: at(x, 1.66, z) });
   // Striped drop-down awning over the hatch.
   for (let i = 0; i < 7; i += 1) kit.add(P.box(0.3, 0.03, 0.64, 0.01, 1), { ...(i % 2 ? M.canvasCream : M.canvasRed), outline: 0.3, matrix: at(-1.35 + i * 0.3, 2.34, 1.15, [0.46, 0, 0]) });
   // Rounded cab with real windows.

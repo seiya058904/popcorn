@@ -173,7 +173,8 @@ export const M = {
   windowPane: { color: '#2b3d58', gloss: 0.95, coat: 0.9, metal: 0.25, outline: 0, fixedColor: true },
   glass: { color: '#c6ecf6', glass: true, thickness: 0.07 },
   glassWarm: { color: '#ffe3b4', glass: true, thickness: 0.07 },
-  popcorn: { color: '#fff4d8', gloss: 0.1, emissive: 0.42, outline: 0.2, fixedColor: true },
+  // No ink: a dark line round every little puff turned whole piles grey.
+  popcorn: { color: '#fff4d8', gloss: 0.1, emissive: 0.42, outline: 0, fixedColor: true },
   bulb: { color: '#fff0c2', emissive: 1, outline: 0, fixedColor: true },
   glow: { color: '#ffd691', emissive: 0.75, outline: 0, fixedColor: true },
   coal: { color: '#ff7a2a', emissive: 0.95, outline: 0, fixedColor: true },
