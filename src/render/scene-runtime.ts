@@ -274,6 +274,11 @@ export class SceneRuntime {
     }, immediate);
   }
 
+  /** After a capture step on the scene that is on screen: back to its own story look at once. */
+  resnapStory(): void {
+    this.snapStory = true;
+  }
+
   get isLive(): boolean {
     return this.live;
   }

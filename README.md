@@ -217,7 +217,7 @@ docs                               Design, plan, balance report and credits
 - Edge has not been tested; Chromium and Chrome pass, and Edge shares their engine.
 - Performance was measured on one desktop with a Radeon RX 7900 XT. Integrated graphics and laptops have not been tested on real hardware; the automatic quality setting lowers resolution and then detail when frames run long.
 - A breakout can drop one frame at 60 FPS. While the scenes are built in the background, a few build steps take longer than one frame (the little train up to about 38 ms).
-- On the laptop above, a first visit on a simulated 10 Mbps connection shows the title in 3.2–3.6 s, most of it compiling shaders; the version before the visual overhaul took the same there.
+- On the laptop above, a first visit on a simulated 10 Mbps connection shows the title in about 3.8 s, about half a second more than before the visual overhaul (3.25 s there), spent compiling the richer shaders.
 - Soft shadow edges on small objects show a fine cross-hatch grain, and the Earth's snow and cloud edges step slightly at 1080p.
 - Game feel, sound and art direction have been checked with frame captures and loudness analysis, not yet by a group of human players. Pacing was tuned with simulated players: about 2.5 hours for an active player and about 3.3 hours for one who never clicks.
 - Simplified Chinese is the only language.

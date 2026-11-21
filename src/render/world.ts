@@ -213,6 +213,10 @@ export class World {
   private level = 0;
   private time = 0;
   private cameraLocked = false;
+  /** The first scene's reflection capture, taken a face per frame once it is on screen. */
+  private bootProbe: { runtime: SceneRuntime; steps: Generator<void, void, void> } | null = null;
+  /** How far the captured reflections have faded in; 1 unless the first capture was put off. */
+  private envFade = 1;
   /** Where photo mode left the camera, while it glides back to the usual shot. */
   private returnFrom: { position: THREE.Vector3; target: THREE.Vector3; t: number } | null = null;
   private intensity = 0;
@@ -349,8 +353,15 @@ export class World {
     releaseSharedShapes();
     // Only a scene that is played in needs its room for reflections; a nested one is too small.
     if (live) {
-      const probe = runtime.captureProbe(true);
-      while (probe.next().done !== true);
+      if (this.backgroundBuilds) {
+        // Taken here, before the title, the capture held up a first visit by two and a half
+        // seconds. Instead it runs a face per frame behind the title, and reflections fade in.
+        this.bootProbe = { runtime, steps: runtime.captureProbe(false) };
+        this.envFade = 0;
+      } else {
+        const probe = runtime.captureProbe(true);
+        while (probe.next().done !== true);
+      }
     }
     this.runtimes[index] = runtime;
     return runtime;
@@ -367,6 +378,16 @@ export class World {
     const runtime = new SceneRuntime(this.stage, SCENES[next]!, this.rng, this.runtimeHooks, true);
     this.job = { index: next, runtime, steps: runtime.construct(), phase: 'build', pending: [], probe: null, longestStepMs: 0, longestProbeStepMs: 0 };
     if (!this.backgroundBuilds) this.finishJob();
+  }
+
+  /**
+   * One step of the first scene's reflection capture. It runs before the scene's own update and
+   * lighting, which put back the scene's own look before anything is drawn.
+   */
+  private stepBootProbe(): void {
+    const { runtime, steps } = this.bootProbe!;
+    if (runtime !== this.current || steps.next().done === true) this.bootProbe = null;
+    runtime.resnapStory();
   }
 
   /** Works on the background build for about `budgetMs` milliseconds. */
@@ -951,7 +972,8 @@ export class World {
     if (tr) this.updateTransition(dt);
     const active = this.transition;
     // Shows get the whole frame; the next scene is built in the quiet in between.
-    if (!active && this.finaleTime < 0) this.advanceJob(BUILD_BUDGET_MS);
+    if (this.bootProbe) this.stepBootProbe();
+    else if (!active && this.finaleTime < 0) this.advanceJob(BUILD_BUDGET_MS);
     this.updateHover();
     this.updateWink(dt);
 
@@ -1260,8 +1282,9 @@ export class World {
     const runtime = this.current;
     if (!runtime) return;
     const quality = this.stage.quality;
-    const on = quality.probes ? 1 : 0;
     const probe = runtime.probe;
+    if (probe.maps.every((map) => map !== null)) this.envFade = Math.min(1, this.envFade + dt * 2);
+    const on = quality.probes ? this.envFade : 0;
     if (tr && blend >= 0) {
       const old = tr.from.probe;
       bindEnvironment(old.maps[2], probe.maps[0], blend, on, old.ambient[2], probe.ambient[0]);
