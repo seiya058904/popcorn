@@ -21,6 +21,7 @@ import { Hud } from './ui/hud.ts';
 import { ICONS } from './ui/icons.ts';
 import { setMotion } from './ui/motion.ts';
 import { Menus } from './ui/menu.ts';
+import { PhotoMode, photoFileName } from './ui/photo.ts';
 
 export interface GameOptions {
   canvas: HTMLCanvasElement;
@@ -86,6 +87,9 @@ export class Game {
   readonly hud: Hud;
   /** Tickets flying in from the shop, and popcorn streaming into the counter. */
   private readonly flyIn: FlyIn;
+  private readonly photo: PhotoMode;
+  /** In photo mode, whether the scene goes on moving while the economy is held. */
+  private photoAnimate = false;
   readonly menus: Menus;
   readonly audio = new AudioEngine();
   readonly capture: boolean;
@@ -202,11 +206,35 @@ export class Game {
       },
       reload: () => location.reload(),
       unlockAudio: () => this.audio.unlock(),
+      enterPhoto: () => this.photo.enter(),
+    });
+    this.photo = new PhotoMode(options.uiRoot, {
+      canvas: options.canvas,
+      camera: this.stage.camera,
+      post: this.stage.post.params,
+      canEnter: () => !this.attract && !this.paused && !this.menus.isOpen && !this.hud.sheetOpen && !this.world.inTransition && !options.uiRoot.classList.contains('is-cinematic'),
+      begin: () => {
+        this.photoAnimate = false;
+        this.hold = null;
+        return this.world.holdCamera();
+      },
+      end: (position, target) => this.world.releaseCamera(position, target),
+      setAnimate: (on) => (this.photoAnimate = on),
+      distanceAt: (x, y) => this.world.distanceAt(x, y),
+      setViewShift: (shift) => (this.stage.viewShiftX = shift),
+      viewShift: () => this.stage.viewShiftX,
+      snapshot: () => {
+        // Drawn and read in the same task, while the canvas still holds the picture.
+        this.stage.render(this.visualTime);
+        return new Promise((resolve) => options.canvas.toBlob(resolve, 'image/png'));
+      },
+      fileName: () => photoFileName(this.sim.state.stage, new Date()),
+      shutterSound: () => this.audio.ui('ui-shutter'),
     });
     this.wireSounds();
 
     options.canvas.addEventListener('pointerdown', (event) => {
-      if (event.button !== 0 || this.paused || this.attract) return;
+      if (event.button !== 0 || this.paused || this.attract || this.photo.active) return;
       event.preventDefault();
       this.audio.unlock();
       this.world.click(event.clientX, event.clientY);
@@ -214,7 +242,7 @@ export class Game {
     });
     // Machines and hidden things answer to the pointer resting on them.
     options.canvas.addEventListener('pointermove', (event) => {
-      if (event.pointerType === 'touch') return;
+      if (event.pointerType === 'touch' || this.photo.active) return;
       this.world.hover(event.clientX, event.clientY);
       this.hud.moveHover(event.clientX, event.clientY);
     });
@@ -440,7 +468,10 @@ export class Game {
   /** Runs one presentation frame. Capture mode calls this directly with a fixed delta. */
   frame(deltaSeconds: number): void {
     const startedAt = performance.now();
-    const delta = this.paused ? 0 : Math.min(deltaSeconds, MAX_FRAME_SECONDS);
+    // Photo mode holds the economy; the scene goes on moving only if the player asks for it.
+    const photo = this.photo.active;
+    const delta = this.paused || photo ? 0 : Math.min(deltaSeconds, MAX_FRAME_SECONDS);
+    const viewDelta = photo && this.photoAnimate && !this.paused ? Math.min(deltaSeconds, MAX_FRAME_SECONDS) : delta;
     if (!this.attract) {
       this.stepper.advance(delta, (step) => {
         this.sim.step(step);
@@ -450,8 +481,8 @@ export class Game {
       this.stepHold(delta);
     }
 
-    const visualDelta = delta * this.impact.timeScale(delta);
-    this.impact.update(delta);
+    const visualDelta = viewDelta * this.impact.timeScale(viewDelta);
+    this.impact.update(viewDelta);
     this.visualTime += visualDelta;
     // Sprites read the shared clock while spawning, so it must advance first.
     this.stage.setTime(this.visualTime);
@@ -461,6 +492,7 @@ export class Game {
     this.hud.update(delta, this.world.pendingGain);
     this.clickActivity = Math.max(0, this.clickActivity - delta * 0.12);
     this.audio.update(showIntensity(this.sim.perSecond), this.clickActivity);
+    this.photo.update();
     // A paused world does not change, so the last picture stays on screen and the GPU rests.
     // A resize clears the canvas, so that still gets one new frame.
     if (!this.paused || this.pausedFrames < 1 || this.stage.needsResize()) this.stage.render(this.visualTime);

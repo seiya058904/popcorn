@@ -16,7 +16,7 @@ import { ICONS, UNIT_ICONS } from './icons.ts';
 import { flip, MOTION, play } from './motion.ts';
 import { Odometer } from './odometer.ts';
 import { pressable } from './press.ts';
-import { closeSheet, openSheet } from './sheet.ts';
+import { closeSheet, isSheetOpen, openSheet } from './sheet.ts';
 import { Shop } from './shop.ts';
 
 /** What holds the kernels in each scene, for the first hint. */
@@ -166,6 +166,11 @@ export class Hud {
       this.toast(ICONS.unit, def.breakLine, def.rewardText);
     });
     this.shown = sim.state.popcorn;
+  }
+
+  /** Whether one of the interface's own sheets (achievements, offline report) is up. */
+  get sheetOpen(): boolean {
+    return isSheetOpen(this.veil);
   }
 
   /** Fraction of the window width covered by the shop, used to center the action. */

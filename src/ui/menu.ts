@@ -18,6 +18,8 @@ export interface MenuHost {
   wipeSave(): Promise<void>;
   reload(): void;
   unlockAudio(): void;
+  /** Hands the screen over to photo mode. */
+  enterPhoto(): void;
 }
 
 const LOAD_ERRORS: Record<LoadError, string> = {
@@ -211,6 +213,10 @@ export class Menus {
         // A row darkens under the finger rather than shrinking, as list rows do.
         pressable(item, { scale: 1, action });
       };
+      add('拍照模式', () => {
+        this.close();
+        this.host.enterPhoto();
+      });
       add('成就', () => {
         this.close();
         this.host.showAchievements();

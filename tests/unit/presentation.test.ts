@@ -9,6 +9,7 @@ import * as THREE from 'three';
 import { CALM_ENTRANCE, ENTRANCES, type Entrance, type EntrancePose } from '../../src/render/machines/entrances.ts';
 import { planetRingPath, ringPath } from '../../src/render/scenes/paths.ts';
 import { COMBO_PITCH, comboColor, comboTier, reachedTier } from '../../src/render/fx/combo.ts';
+import { photoFileName } from '../../src/ui/photo.ts';
 
 const restPose = (): EntrancePose => ({ x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0, sx: 1, sy: 1, sz: 1 });
 
@@ -168,5 +169,20 @@ describe('combo tiers', () => {
     expect(comboColor(2, 0, new THREE.Color()).equals(comboColor(2, 0.7, new THREE.Color()))).toBe(true);
     // The sound climbs with every tier.
     for (let i = 1; i < COMBO_PITCH.length; i += 1) expect(COMBO_PITCH[i]).toBeGreaterThan(COMBO_PITCH[i - 1]!);
+  });
+});
+
+describe('photo mode', () => {
+  it('names a photo after its scene and the moment it was taken', () => {
+    const at = new Date(2026, 10, 22, 9, 5, 7);
+    expect(photoFileName(0, at)).toBe('popcorn-stove-20261122-090507.png');
+    expect(photoFileName(4, at)).toBe('popcorn-earth-20261122-090507.png');
+    // Past the last scene (the ending) it stays the planet.
+    expect(photoFileName(9, at)).toBe('popcorn-earth-20261122-090507.png');
+  });
+
+  it('has a shutter sound', () => {
+    expect(SOUND_RECIPES['ui-shutter'], 'ui-shutter').toBeTypeOf('function');
+    expect(SOUND_RECIPES['ui-shutter']!().length).toBeGreaterThan(0);
   });
 });

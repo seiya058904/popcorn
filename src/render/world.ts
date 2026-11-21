@@ -72,6 +72,8 @@ const BREAKOUT_BLUR = 0.75;
 const PRESSURE_FROM = 0.955;
 const PRESSURE_SHARE = 0.5;
 const COMBO_STEP = 12;
+/** Seconds the camera takes to glide home after photo mode. */
+const PHOTO_RETURN = 0.8;
 /** How long the ring of light from a click takes to run out over the heap. */
 const RIPPLE_SECONDS = 0.55;
 const screenScratch = new THREE.Vector3();
@@ -211,6 +213,8 @@ export class World {
   private level = 0;
   private time = 0;
   private cameraLocked = false;
+  /** Where photo mode left the camera, while it glides back to the usual shot. */
+  private returnFrom: { position: THREE.Vector3; target: THREE.Vector3; t: number } | null = null;
   private intensity = 0;
   private shownInset = 0.2;
   /** How far the camera has opened to keep the machines in view, 0 close to 1 wide. */
@@ -1082,6 +1086,14 @@ export class World {
       const offset = pose.position.clone().sub(pose.target).applyAxisAngle(up.set(0, 1, 0), angle);
       pose = { ...pose, position: pose.target.clone().add(offset) };
     }
+    if (this.returnFrom) {
+      // Back from photo mode: from wherever the camera was left to the usual shot.
+      const back = this.returnFrom;
+      back.t = Math.min(1, back.t + dt / PHOTO_RETURN);
+      const e = easeInOutCubic(back.t);
+      pose = { ...pose, position: back.position.clone().lerp(pose.position, e), target: back.target.clone().lerp(pose.target, e) };
+      if (back.t >= 1) this.returnFrom = null;
+    }
     this.applyPose(pose);
     this.applyRoomLight(tr && tr.blasted ? tr : null, roomBlend, dt);
 
@@ -1374,6 +1386,37 @@ export class World {
     const pulse = this.reduceMotion ? 0.5 : (1 - this.hooks.beatPhase()) ** 3;
     lamp.intensity = this.frenzy * (0.5 + 0.7 * pulse);
     runtime.butterRain(dt, this.frenzy);
+  }
+
+  // Photo mode -------------------------------------------------------------------------
+
+  /** Hands the camera over to photo mode; says where it was looking and from how far. */
+  holdCamera(): { target: THREE.Vector3; distance: number } {
+    this.cameraLocked = true;
+    this.spotlight = null;
+    this.returnFrom = null;
+    this.unhover();
+    const target = this.cameraTarget.clone();
+    return { target, distance: this.stage.camera.position.distanceTo(target) };
+  }
+
+  /** Takes the camera back from photo mode, gliding from where it was left to the usual shot. */
+  releaseCamera(position: THREE.Vector3, target: THREE.Vector3): void {
+    this.cameraLocked = false;
+    // Photo mode centered the picture; it slides back beside the shop with the camera.
+    this.shownInset = 0;
+    this.returnFrom = this.reduceMotion ? null : { position: position.clone(), target: target.clone(), t: 0 };
+  }
+
+  /** How far from the camera the machine or heap under this point on screen is; null over neither. */
+  distanceAt(clientX: number, clientY: number): number | null {
+    const runtime = this.current;
+    if (!runtime) return null;
+    const ray = this.rayAt(clientX, clientY);
+    const machine = runtime.pickMachine(ray);
+    const heap = runtime.heapHit(ray, v);
+    const distances = [machine?.distance, heap ? heap.distanceTo(ray.origin) : undefined].filter((d): d is number => d !== undefined);
+    return distances.length > 0 ? Math.min(...distances) : null;
   }
 
   // QA --------------------------------------------------------------------------------

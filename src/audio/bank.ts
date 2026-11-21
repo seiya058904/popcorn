@@ -541,6 +541,14 @@ export const SOUND_RECIPES: Record<string, () => Float32Array> = {
     mixIn(out, tone(0.1, bell(1175, 0.035, 0.5)), 0.055);
     return fadeEdges(normalizePeak(out, 0.2), 0, 0.02);
   },
+  'ui-shutter': () => {
+    const out = seconds(0.2);
+    // A camera shutter: the blade's snap, a breath of air, and the mirror settling back.
+    mixIn(out, knock(2200, 0.008, 91, 0.06), 0);
+    mixIn(out, burstNoise(0.05, 92, new Biquad('band', 4200, 1.4), (t) => Math.exp(-t / 0.012)), 0.004, 0.5);
+    mixIn(out, knock(1500, 0.01, 93, 0.05), 0.075);
+    return fadeEdges(normalizePeak(out, 0.24), 0, 0.02);
+  },
   'ui-tick': () => fadeEdges(normalizePeak(burstNoise(0.018, 86, new Biquad('band', 3200, 2.2), (t) => Math.exp(-t / 0.0035)), 0.12), 0, 0.004),
   'ui-open': () => {
     const out = seconds(0.32);

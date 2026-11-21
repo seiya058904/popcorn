@@ -1879,3 +1879,118 @@
     radial-gradient(circle at 50% 50%, #d9a04a 0 31%, transparent 33%),
     radial-gradient(closest-side, rgb(255 200 110 / 70%), transparent);
 }
+
+/* Photo mode ------------------------------------------------------------------ */
+
+/* The interface steps aside for one glass toolbar and its hint. */
+#ui.is-photo > *:not(.photo-bar, .photo-hint, .photo-flash, .photo-focus) {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+.photo-bar,
+.photo-hint {
+  opacity: 0;
+  pointer-events: none;
+}
+
+#ui.is-photo .photo-bar {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+#ui.is-photo .photo-hint {
+  opacity: 1;
+}
+
+/* H hides even the toolbar, for a clean look at the picture. */
+#ui.is-photo-bare .photo-bar,
+#ui.is-photo-bare .photo-hint {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+.photo-bar {
+  position: absolute;
+  left: 50%;
+  bottom: var(--edge);
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-2) var(--s-2) var(--s-2) var(--s-3);
+  border-radius: var(--r-pill);
+  transform: translateX(-50%);
+}
+
+.photo-tool {
+  height: 4.4rem;
+  padding: 0 var(--s-4);
+  border-radius: var(--r-pill);
+  background: rgb(255 240 214 / 10%);
+  color: var(--on-dark);
+  font-size: 1.9rem;
+  white-space: nowrap;
+  box-shadow: inset 0 0 0 0.1rem var(--glass-edge);
+  transition: background-color var(--dur-fade, 190ms) var(--ease-fade, ease-out), color var(--dur-fade, 190ms) var(--ease-fade, ease-out);
+}
+
+.photo-tool.is-on {
+  background: rgb(255 214 120 / 88%);
+  color: #3a1a10;
+  box-shadow: none;
+}
+
+.photo-exposure {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  color: var(--on-dark);
+  font-size: 1.8rem;
+  white-space: nowrap;
+}
+
+.photo-slider {
+  width: 14rem;
+  accent-color: #ffd26a;
+}
+
+/* The shutter: a white disc in a ring, like a phone camera's. */
+.photo-shutter {
+  flex: none;
+  width: 6.4rem;
+  height: 6.4rem;
+  border-radius: 50%;
+  background: radial-gradient(circle, #fffaf0 0 56%, transparent 58%), rgb(255 255 255 / 18%);
+  box-shadow: inset 0 0 0 0.32rem #fffaf0, 0 0.3rem 1rem rgb(0 0 0 / 30%);
+}
+
+.photo-hint {
+  position: absolute;
+  left: 50%;
+  bottom: calc(var(--edge) + 9.4rem);
+  transform: translateX(-50%);
+  color: var(--on-dark);
+  font-size: 1.7rem;
+  white-space: nowrap;
+  text-shadow: 0 0.1rem 0.4rem rgb(0 0 0 / 65%);
+}
+
+.photo-flash {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  background: #fffaf0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.photo-focus {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 9rem;
+  height: 9rem;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 0.25rem #ffe3a0, 0 0 0 0.1rem rgb(0 0 0 / 30%);
+  pointer-events: none;
+}
