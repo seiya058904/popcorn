@@ -19,6 +19,8 @@ export interface QualitySettings {
   probes: boolean;
   /** Rays of light in the air toward windows, projectors and the sun. */
   shafts: boolean;
+  /** Contrast-adaptive sharpening of what is in focus. */
+  sharpen: boolean;
   /** How many local lights are evaluated per pixel. */
   lamps: number;
   /** Model detail: 0 main shapes, 1 medium parts, 2 everything. */
@@ -42,6 +44,7 @@ export const QUALITY: Record<QualityTier, QualitySettings> = {
     dispersion: false,
     probes: false,
     shafts: false,
+    sharpen: false,
     lamps: 3,
     detail: 0,
     bloomLevels: 3,
@@ -61,6 +64,7 @@ export const QUALITY: Record<QualityTier, QualitySettings> = {
     dispersion: false,
     probes: true,
     shafts: false,
+    sharpen: true,
     lamps: 6,
     detail: 1,
     bloomLevels: 4,
@@ -80,6 +84,7 @@ export const QUALITY: Record<QualityTier, QualitySettings> = {
     dispersion: false,
     probes: true,
     shafts: true,
+    sharpen: true,
     lamps: 12,
     detail: 2,
     bloomLevels: 5,
@@ -99,6 +104,7 @@ export const QUALITY: Record<QualityTier, QualitySettings> = {
     dispersion: true,
     probes: true,
     shafts: true,
+    sharpen: true,
     lamps: 12,
     detail: 2,
     bloomLevels: 5,

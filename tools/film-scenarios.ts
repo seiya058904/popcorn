@@ -129,6 +129,35 @@ export const filmScenarios: Record<string, FilmScenario> = {
     },
     step: (page) => advance(page, FRAME * 3),
   },
+  /** From the title screen into the game, the way a player starts. */
+  start: {
+    query: 'title',
+    clip: { x: 0, y: 0, width: 1280, height: 720 },
+    frames: 24,
+    columns: 6,
+    setup: async (page) => {
+      await page.waitForFunction(() => document.querySelector('.title-start'));
+      await advance(page, 1);
+    },
+    beforeFrame: async (page, frame) => {
+      // The button keeps breathing on the title screen, so it never counts as still.
+      if (frame === 1) await page.locator('.title-start').click({ force: true });
+    },
+    step: (page) => advance(page, FRAME * 5),
+  },
+  /** The last second of a frenzy and the way back to the scene's own look. */
+  'frenzy-end': {
+    clip: { x: 0, y: 0, width: 1280, height: 720 },
+    frames: 12,
+    columns: 6,
+    setup: async (page) => {
+      await qa(page, (api, total: number) => {
+        api.set({ stage: 2, totalEarned: total, popcorn: 1e12, frenzy: 1 });
+        api.advance(0.6);
+      }, totalAt(2, 0.5));
+    },
+    step: (page) => advance(page, 0.2),
+  },
   /** A frenzy: the warm wash and the glow pulsing in from the edges. */
   frenzy: {
     clip: { x: 0, y: 0, width: 1280, height: 720 },

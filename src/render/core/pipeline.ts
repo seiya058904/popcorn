@@ -44,6 +44,10 @@ export interface PostParams {
   shaftRadius: number;
   /** Light added round the edges of the picture, as during a frenzy. Black adds nothing. */
   edgeGlow: THREE.Color;
+  /** Contrast-adaptive sharpening where the picture is in focus, 0 to 1. */
+  sharpen: number;
+  /** Film halation: a warm red fringe the bloom leaves round bright things. */
+  halation: number;
 }
 
 export function defaultPostParams(): PostParams {
@@ -73,6 +77,8 @@ export function defaultPostParams(): PostParams {
     shaftThreshold: 0.9,
     shaftRadius: 0,
     edgeGlow: new THREE.Color(0, 0, 0),
+    sharpen: 0.4,
+    halation: 0.05,
   };
 }
 
@@ -362,7 +368,8 @@ ${focusHelpers}
 uniform sampler2D tColor, tBloom, tAo, tBlur, tReflect, tShafts;
 uniform float uShaftStrength;
 uniform float uExposure, uContrast, uSaturation, uVignette, uGrain, uBloom, uTime, uFlash, uChroma, uAoStrength, uAspect;
-uniform float uHasBlur, uHasAo, uHasReflect, uMotion;
+uniform float uHasBlur, uHasAo, uHasReflect, uMotion, uSharpen, uHalation;
+uniform vec2 uScenePixel;
 uniform mat4 uReproject;
 uniform vec2 uMirrorPixel, uAoSize;
 uniform vec3 uShadowTint, uHighlightTint, uFlashColor, uAoTint, uEdgeGlow;
@@ -409,6 +416,27 @@ vec3 toSrgb(vec3 c) {
   return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c));
 }
 
+// Contrast-adaptive sharpening (after AMD's CAS): crisper edges, held back where the neighbors
+// already differ a lot, so nothing rings. It works on a compressed copy of the HDR values, or
+// bright highlights would swamp it.
+vec3 casSharpen(vec3 c, vec2 uv) {
+  vec3 n = texture2D(tColor, uv + vec2(0.0, uScenePixel.y)).rgb;
+  vec3 s = texture2D(tColor, uv - vec2(0.0, uScenePixel.y)).rgb;
+  vec3 e = texture2D(tColor, uv + vec2(uScenePixel.x, 0.0)).rgb;
+  vec3 w = texture2D(tColor, uv - vec2(uScenePixel.x, 0.0)).rgb;
+  c = c / (1.0 + c);
+  n = n / (1.0 + n);
+  s = s / (1.0 + s);
+  e = e / (1.0 + e);
+  w = w / (1.0 + w);
+  vec3 mn = min(c, min(min(n, s), min(e, w)));
+  vec3 mx = max(c, max(max(n, s), max(e, w)));
+  vec3 amp = sqrt(clamp(min(mn, 1.0 - mx) / max(mx, vec3(1e-4)), 0.0, 1.0));
+  vec3 weight = -amp / mix(8.0, 5.0, uSharpen);
+  vec3 t = clamp((c + (n + s + e + w) * weight) / (1.0 + 4.0 * weight), 0.0, 0.998);
+  return t / (1.0 - t);
+}
+
 vec3 sampleScene(vec2 uv) {
   vec4 scene = texture2D(tColor, uv);
   vec3 col = scene.rgb;
@@ -447,6 +475,12 @@ void main() {
     col = vec3(sampleScene(uv + off).r, sampleScene(uv).g, sampleScene(uv - off).b);
   } else {
     col = sampleScene(uv);
+    if (uSharpen > 0.0) {
+      // Only what is in focus: sharpening the blur would bring back the edges it took away.
+      float focus = uHasBlur > 0.5 ? 1.0 - smoothstep(0.02, 0.2, cocAt(linearDepth(uv), uv)) : 1.0;
+      vec4 scene = texture2D(tColor, uv);
+      if (focus > 0.01 && scene.a <= 1.0) col = mix(col, casSharpen(scene.rgb, uv), focus);
+    }
   }
   if (uHasReflect > 0.5) {
     // A small blur turns the reflection into a soft sheen on polished tile.
@@ -462,7 +496,10 @@ void main() {
     float ao = mix(1.0, aoAt(uv), uAoStrength);
     col *= mix(uAoTint * 2.2, vec3(1.0), ao);
   }
-  col += texture2D(tBloom, uv).rgb * uBloom;
+  vec3 glow = texture2D(tBloom, uv).rgb;
+  col += glow * uBloom;
+  // Halation: on film, light spreading through the emulsion leaves a warm red fringe round bright things.
+  if (uHalation > 0.0) col += vec3(1.0, 0.32, 0.12) * dot(glow, vec3(0.3, 0.59, 0.11)) * uHalation;
   if (uShaftStrength > 0.0) col += texture2D(tShafts, uv).rgb * uShaftStrength;
   col *= uExposure;
   col = neutral(col);
@@ -572,6 +609,9 @@ export class PostPipeline {
       uFlashColor: { value: new THREE.Color() },
       uAoTint: { value: new THREE.Color() },
       uEdgeGlow: { value: new THREE.Color() },
+      uSharpen: { value: 0 },
+      uHalation: { value: 0 },
+      uScenePixel: { value: new THREE.Vector2() },
       uShock: { value: new THREE.Vector4() },
     },
     true,
@@ -729,6 +769,9 @@ export class PostPipeline {
     c.uFlashColor!.value.copy(p.flashColor);
     c.uAoTint!.value.copy(p.aoTint);
     c.uEdgeGlow!.value.copy(p.edgeGlow);
+    c.uSharpen!.value = this.quality.sharpen ? p.sharpen : 0;
+    c.uHalation!.value = p.halation;
+    c.uScenePixel!.value.set(1 / this.width, 1 / this.height);
     c.uShock!.value.copy(p.shock);
     // Last frame's view and projection, applied to this frame's view space.
     (c.uReproject!.value as THREE.Matrix4).multiplyMatrices(this.lastViewProjection, camera.matrixWorld);

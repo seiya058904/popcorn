@@ -170,6 +170,8 @@ export class World {
   reduceMotion = false;
   /** Behind the title screen the camera drifts and the pot pops on its own. */
   attract = false;
+  /** How much of the title's drift is still in the camera, easing to 0 once play begins. */
+  private attractWeight = 0;
   /** Off for captures, which must come out the same every time: they build scenes in one go. */
   backgroundBuilds = true;
   /** The scene being built in the background, if any. */
@@ -1072,9 +1074,11 @@ export class World {
     if (this.spotlight && !tr && this.finaleTime === -1) pose = this.spotlightPose(rest);
     // A held camera is never quite still, and it leans a little toward wherever the pointer is.
     if (!tr && this.finaleTime === -1 && !this.spotlight) pose = this.livelyPose(pose, dt);
-    if (this.attract) {
-      // A slow drift around the pot while the title is up.
-      const angle = Math.sin(this.time * 0.13) * 0.16;
+    // A slow drift around the pot while the title is up. It eases out as play begins: dropped at
+    // once, the picture swung round the moment the title left.
+    this.attractWeight += ((this.attract ? 1 : 0) - this.attractWeight) * (1 - Math.exp(-dt * 2.2));
+    if (this.attractWeight > 0.001) {
+      const angle = Math.sin(this.time * 0.13) * 0.16 * this.attractWeight;
       const offset = pose.position.clone().sub(pose.target).applyAxisAngle(up.set(0, 1, 0), angle);
       pose = { ...pose, position: pose.target.clone().add(offset) };
     }
