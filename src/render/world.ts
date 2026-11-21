@@ -1022,6 +1022,8 @@ export class World {
       }
     }
     if (this.spotlight && !tr && this.finaleTime === -1) pose = this.spotlightPose(rest);
+    // A held camera is never quite still, and it leans a little toward wherever the pointer is.
+    if (!tr && this.finaleTime === -1 && !this.spotlight) pose = this.livelyPose(pose, dt);
     if (this.attract) {
       // A slow drift around the pot while the title is up.
       const angle = Math.sin(this.time * 0.13) * 0.16;
@@ -1130,6 +1132,41 @@ export class World {
   }
 
   private shaftFade = 0;
+  /** The pointer's place in the window, -1 to 1, eased; the camera leans toward it. */
+  private readonly lean = new THREE.Vector2();
+  private readonly livePose = {} as Pose;
+
+  /**
+   * A slow handheld breath and a lean toward the pointer, a fraction of a degree each, so the
+   * miniature feels looked at rather than rendered. None of it with reduced camera motion. Captures
+   * have no pointer and step the clock themselves, so they still come out the same every time.
+   */
+  private livelyPose(pose: Pose, dt: number): Pose {
+    if (this.reduceMotion) return pose;
+    const canvas = this.stage.renderer.domElement;
+    const at = this.hoverAt;
+    const wantX = at ? (at.x / Math.max(1, canvas.clientWidth)) * 2 - 1 : 0;
+    const wantY = at ? (at.y / Math.max(1, canvas.clientHeight)) * 2 - 1 : 0;
+    const ease = 1 - Math.exp(-dt * 2.2);
+    this.lean.x += (wantX - this.lean.x) * ease;
+    this.lean.y += (wantY - this.lean.y) * ease;
+    const t = this.time;
+    const breath = this.attract ? 0 : 1;
+    const yaw = (Math.sin(t * 0.23) * 0.6 + Math.sin(t * 0.37 + 1.3) * 0.4) * 0.004 * breath - this.lean.x * 0.008;
+    const pitch = (Math.sin(t * 0.29 + 0.7) * 0.6 + Math.sin(t * 0.41) * 0.4) * 0.003 * breath + this.lean.y * 0.005;
+    if (yaw === 0 && pitch === 0) return pose;
+    const live = this.livePose;
+    Object.assign(live, pose);
+    const toCam = v.copy(pose.position).sub(pose.target).applyAxisAngle(up.set(0, 1, 0), yaw);
+    right.crossVectors(up, toCam).normalize();
+    toCam.applyAxisAngle(right, pitch);
+    live.position = this.livePosition.copy(pose.target).add(toCam);
+    live.target = this.liveTarget.copy(pose.target);
+    return live;
+  }
+
+  private readonly livePosition = new THREE.Vector3();
+  private readonly liveTarget = new THREE.Vector3();
 
   /**
    * Light that belongs to the room rather than to the camera: what shiny things reflect, the glow
@@ -1150,6 +1187,7 @@ export class World {
     }
     globals.uEnvGain.value = runtime.spec.envGain ?? 1;
     globals.uEnvDiffuse.value = runtime.spec.envDiffuse ?? 0.6;
+    globals.uWind.value = this.reduceMotion ? (runtime.spec.wind ?? 0.06) * 0.35 : (runtime.spec.wind ?? 0.06);
 
     // The heap fills what stands around it, more as it grows, and only as much as it is lit itself.
     const { pile, spec } = runtime;

@@ -77,6 +77,19 @@ const arrivals = Object.fromEntries(
 
 export const filmScenarios: Record<string, FilmScenario> = {
   ...arrivals,
+  /** The town at night, a quarter second apart: trees in the wind, fireflies, flakes tumbling down the heap. */
+  'town-life': {
+    clip: { x: 200, y: 150, width: 880, height: 520 },
+    frames: 16,
+    columns: 4,
+    setup: async (page) => {
+      await qa(page, (api, total: number) => {
+        api.set({ stage: 3, totalEarned: total, popcorn: 1e24, flavors: 6 });
+        api.advance(3);
+      }, totalAt(3, 0.9));
+    },
+    step: (page) => advance(page, 0.25),
+  },
   /** Every frame of one pop, from press to the flake settling into the heap. */
   click: {
     clip: POT_CLIP,

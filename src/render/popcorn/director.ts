@@ -51,6 +51,8 @@ export interface LaunchOptions {
   /** Aim this far beyond the normal landing zone. */
   reach?: number;
   quiet?: boolean;
+  /** Only for show, like a flake tumbling down the heap: no burst, no sound, nothing reported. */
+  silent?: boolean;
 }
 
 // All of these are in stove units and multiplied by the scene's k.
@@ -311,9 +313,9 @@ export class PopDirector {
     );
     piece.axis.set(rng.range(-1, 1), rng.range(-1, 1), rng.range(-1, 1)).normalize();
     piece.spin = rng.range(7, 15) * rng.sign();
-    if (!options.quiet) this.burstEffects(piece, manual);
+    if (!options.quiet && !options.silent) this.burstEffects(piece, manual);
     if (piece.golden) this.goldenEffects(piece);
-    this.hooks.onBurst(piece.pos, this.combo, piece.gain, manual, piece.golden);
+    if (!options.silent) this.hooks.onBurst(piece.pos, this.combo, piece.gain, manual, piece.golden);
   }
 
   /** A ring of gold and a spray of sparks as it bursts. */

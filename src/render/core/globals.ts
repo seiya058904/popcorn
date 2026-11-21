@@ -66,6 +66,8 @@ export const globals = {
   uEnvGain: { value: 1 },
   /** How much of the soft fill light comes from the captured room instead of the painted gradient. */
   uEnvDiffuse: { value: 0.6 },
+  /** How far swaying parts move in the wind, in their own units, at full sway. */
+  uWind: { value: 0.06 },
   /** The room's soft light from +x, -x, +y, -y, +z and -z, blended like the captures. */
   uAmbientCube: { value: Array.from({ length: 6 }, () => new THREE.Color(0, 0, 0)) },
   /** Light thrown back off the heap: xyz where it comes from, w how far it reaches. */

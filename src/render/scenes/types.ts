@@ -7,6 +7,7 @@ import type { Sprites } from '../fx/sprites.ts';
 import type { PopDirector } from '../popcorn/director.ts';
 import type { PileShape } from '../popcorn/pile.ts';
 import type { Story } from './story.ts';
+import type { AmbientEmitter } from '../fx/ambience.ts';
 
 export interface Grade {
   exposure: number;
@@ -142,6 +143,10 @@ export interface SceneSpec {
    * point in the scene (a window, a projector) or the sun itself.
    */
   shafts?: { at?: THREE.Vector3; sun?: boolean; strength: number; length?: number; threshold?: number };
+  /** Life in the air: dust in a beam, insects at night, meteors (fx/ambience.ts). */
+  ambience?: AmbientEmitter[];
+  /** How far swaying parts move in the wind, in the scene's own units. */
+  wind?: number;
   grade: Grade;
   camera: CameraPose;
   /** Opening framing, easing to `camera` as the heap needs room. */

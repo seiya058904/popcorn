@@ -4,6 +4,9 @@ import { applyLamps, globals, LIGHT_GROUPS, lightGroup, type Lamp } from '../../
 import { bindEnvironment, PROBE_LOOKS } from '../../src/render/core/probe.ts';
 import { QUALITY } from '../../src/render/core/quality.ts';
 import { Kit, P, smoothLatheSeam } from '../../src/render/geometry/kit.ts';
+import { ambientStrength, runAmbience, type AmbientEmitter } from '../../src/render/fx/ambience.ts';
+import type { Sprites } from '../../src/render/fx/sprites.ts';
+import { Rng } from '../../src/motion/rng.ts';
 import { createFlakeGeometry } from '../../src/render/geometry/popcorn.ts';
 import { SetPieces } from '../../src/render/scenes/pieces.ts';
 import { alongStory, LightBank, mixRig, moodScratch, storyMood, storyWeights, type Story } from '../../src/render/scenes/story.ts';
@@ -264,5 +267,29 @@ describe('lathe seams', () => {
       expect(first.distanceTo(last)).toBeLessThan(1e-6);
       expect(first.length()).toBeCloseTo(1, 5);
     }
+  });
+});
+
+describe('ambience', () => {
+  const mote: AmbientEmitter = { look: 'mote', center: [0, 0, 0], half: [1, 1, 1], rate: 4, story: [0.2, 0.4, 0.7, 0.9] };
+
+  it('fades in and out over its part of the story', () => {
+    expect(ambientStrength(mote, 0)).toBe(0);
+    expect(ambientStrength(mote, 0.55)).toBe(1);
+    expect(ambientStrength(mote, 1)).toBe(0);
+    expect(ambientStrength({ ...mote, story: undefined }, 0)).toBe(1);
+  });
+
+  it('sends out particles at its rate, and meteors stop with reduced motion', () => {
+    let spawned = 0;
+    const sprites = { spawn: () => (spawned += 1) } as unknown as Sprites;
+    const due: number[] = [];
+    for (let frame = 0; frame < 120; frame += 1) runAmbience([mote], due, 1 / 60, 0.55, 1, sprites, new Rng(3), false);
+    expect(spawned).toBeGreaterThanOrEqual(7);
+    expect(spawned).toBeLessThanOrEqual(9);
+    spawned = 0;
+    const meteor: AmbientEmitter = { look: 'meteor', center: [0, 0, 0], half: [1, 1, 1], rate: 10 };
+    for (let frame = 0; frame < 60; frame += 1) runAmbience([meteor], [], 1 / 60, 0.5, 1, sprites, new Rng(3), true);
+    expect(spawned).toBe(0);
   });
 });

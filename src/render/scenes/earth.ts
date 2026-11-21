@@ -1135,6 +1135,8 @@ export const earthSpec: SceneSpec = {
   focusPoint: new THREE.Vector3(0, 0, 8),
   focusRange: 70,
   aoRadius: 2,
+  // Now and then a meteor across the stars.
+  ambience: [{ look: 'meteor', center: [0, 70, -120], half: [140, 30, 10], rate: 0.25 }],
   // One capture above the crater sees the bright planet below it, which is wrong for its far sides.
   envDiffuse: 0.15,
   shadow: { center: new THREE.Vector3(0, -12, 0), radius: 60 },

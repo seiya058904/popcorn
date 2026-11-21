@@ -10,6 +10,7 @@ import { Flock } from './fx/flock.ts';
 import { Shovel } from './fx/shovel.ts';
 import { SpriteKind, Sprites } from './fx/sprites.ts';
 import { Stirrer } from './fx/stirrer.ts';
+import { runAmbience } from './fx/ambience.ts';
 import { HeroCannon } from './hero-cannon.ts';
 import { isInk } from './materials/toy.ts';
 import { PieceBatches } from './popcorn/batches.ts';
@@ -92,6 +93,10 @@ export class SceneRuntime {
   /** The set seen from above the heap in each story look, for reflections (core/probe.ts). */
   readonly probe = new SceneProbe();
   private launchBudget = 0;
+  /** Seconds until each ambient emitter sends out its next particle. */
+  private readonly ambientDue: number[] = [];
+  /** Seconds until the next flake tumbles down the heap. */
+  private tumbleIn = 2;
   private fountainBudget = 0;
   private live: boolean;
 
@@ -465,9 +470,28 @@ export class SceneRuntime {
       this.parts.progress?.(Math.min(1, ctx.level), dt, this.snapStory, this.calmEntrances);
       this.snapStory = false;
       this.parts.update(dt, full);
+      if (this.spec.ambience && !ctx.attract) runAmbience(this.spec.ambience, this.ambientDue, dt, Math.min(1, ctx.level), this.spec.pile.k, this.sprites, this.rng, this.calmEntrances);
+      this.tumble(dt, ctx.intensity, ctx.attract);
     }
     this.pile.update(dt);
     this.sprites.flush();
+  }
+
+  /**
+   * A busy heap is never quite still: now and then a flake near the top slips and tumbles down the
+   * slope. Only for show, so nothing is earned or heard.
+   */
+  private tumble(dt: number, intensity: number, attract: boolean): void {
+    if (attract || this.holdLaunches || !this.director || this.pile.currentLevel < 0.08) return;
+    this.tumbleIn -= dt * Math.min(2.5, 0.4 + intensity * 0.3);
+    if (this.tumbleIn > 0) return;
+    this.tumbleIn = this.rng.range(1.2, 3);
+    const shape = this.pile.shape;
+    const a = this.rng.range(0, Math.PI * 2);
+    const r = this.rng.range(0.1, 0.45) * shape.landingRadius(this.pile.currentLevel);
+    const x = shape.centerX + Math.cos(a) * r;
+    const z = shape.centerZ + Math.sin(a) * r;
+    this.director.launch(x, this.pile.heightAt(x, z) + 0.04 * shape.k, z, { flight: this.rng.range(0.35, 0.5), scale: this.rng.range(0.32, 0.42), reach: 1.05, silent: true });
   }
 
   /**

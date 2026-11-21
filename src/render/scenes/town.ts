@@ -700,6 +700,9 @@ export const townSpec: SceneSpec = {
   focusPoint: new THREE.Vector3(0, 2, 2),
   focusRange: 60,
   aoRadius: 3,
+  // Fireflies over the plaza and the gardens once night falls; the trees sway in the breeze.
+  ambience: [{ look: 'firefly', center: [0, 2.5, 0], half: [45, 2, 45], rate: 18, story: [0.6, 0.85, 2, 3] }],
+  wind: 0.12,
   shadow: { center: new THREE.Vector3(-6, 5, 0), radius: 96 },
   pile: vesselPile({
     k: 4.5,

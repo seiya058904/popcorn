@@ -2,15 +2,29 @@ import * as THREE from 'three';
 import { globals } from '../core/globals.ts';
 import { GLSL_INSTANCE_WORLD, GLSL_LIGHT_PARS, GLSL_RIG_SKIP, GLSL_UTIL, SHADOW_DEPTH_FRAGMENT } from './glsl.ts';
 
+const GLSL_SWAY = /* glsl */ `
+uniform float uTime, uWind;
+// Parts marked to sway (leaves, flags) are pushed about by a slow, gusting wind. The same push is
+// applied in every pass, so outlines and shadows move with them.
+vec3 swayed(vec3 p, float amount) {
+  if (amount <= 0.0) return p;
+  float t = uTime;
+  float x = sin(t * 1.3 + p.x * 0.35 + p.z * 0.2) + 0.5 * sin(t * 2.9 + p.z * 0.7 + p.y * 0.3);
+  float z = cos(t * 1.05 + p.z * 0.3 + p.x * 0.15) * 0.6;
+  return p + vec3(x, 0.0, z) * amount * uWind;
+}
+`;
+
 const toyVertex = /* glsl */ `
 attribute vec4 aMat, aMat2, aMat3;
 attribute float aTint;
 varying vec3 vWorld, vNormal, vColor, vLocal;
 varying vec4 vMat, vMat2, vMat3;
 ${GLSL_INSTANCE_WORLD}
+${GLSL_SWAY}
 void main() {
   mat4 world = worldMatrixOf();
-  vec4 wp = world * vec4(position, 1.0);
+  vec4 wp = world * vec4(swayed(position, aMat3.x), 1.0);
   vWorld = wp.xyz;
   vLocal = position;
   vNormal = normalize(transpose(inverse(mat3(world))) * normal);
@@ -228,7 +242,7 @@ void main() {
 `;
 
 const outlineVertex = /* glsl */ `
-attribute vec4 aMat;
+attribute vec4 aMat, aMat3;
 attribute float aTint;
 uniform vec2 uResolution;
 uniform float uOutlinePx, uOutlineRefDist;
@@ -236,9 +250,10 @@ varying vec3 vColor;
 varying float vDist;
 ${GLSL_INSTANCE_WORLD}
 ${GLSL_RIG_SKIP}
+${GLSL_SWAY}
 void main() {
   mat4 world = worldMatrixOf();
-  vec4 wp = world * vec4(position, 1.0);
+  vec4 wp = world * vec4(swayed(position, aMat3.x), 1.0);
   vec3 wn = normalize(transpose(inverse(mat3(world))) * normal);
   vec4 clip = projectionMatrix * viewMatrix * wp;
   vec2 dir = (projectionMatrix * viewMatrix * vec4(wn, 0.0)).xy;
@@ -272,10 +287,12 @@ void main() {
 `;
 
 const depthVertex = /* glsl */ `
+attribute vec4 aMat3;
 ${GLSL_INSTANCE_WORLD}
 ${GLSL_RIG_SKIP}
+${GLSL_SWAY}
 void main() {
-  gl_Position = projectionMatrix * viewMatrix * worldMatrixOf() * vec4(position, 1.0);
+  gl_Position = projectionMatrix * viewMatrix * worldMatrixOf() * vec4(swayed(position, aMat3.x), 1.0);
   RIG_SKIP(aPart.z)
 }
 `;
@@ -513,7 +530,7 @@ function makeToyMaterials(extra: Record<string, THREE.IUniform>, defines: Record
       vertexShader: depthVertex,
       // The depth also goes into a color copy that the soft shadows read without comparing.
       fragmentShader: SHADOW_DEPTH_FRAGMENT,
-      uniforms: extra,
+      uniforms: { ...extra, uTime: globals.uTime, uWind: globals.uWind },
       defines,
       // Back faces in the shadow map remove self-shadow streaks on grazing walls.
       side: THREE.BackSide,

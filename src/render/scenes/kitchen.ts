@@ -792,6 +792,8 @@ export const kitchenSpec: SceneSpec = {
   focusPoint: new THREE.Vector3(0, 0.6, 2),
   focusRange: 15,
   aoRadius: 1.1,
+  // Dust in the afternoon sun from the window.
+  ambience: [{ look: 'mote', center: [5.5, 2.5, -10], half: [2.5, 3, 3.5], rate: 3, story: [-1, 0, 0.55, 0.8] }],
   // Afternoon sun through the window over the sink.
   shafts: { at: new THREE.Vector3(10, 7.2, -16.9), strength: 0.35, length: 0.7, threshold: 0.9 },
   shadow: { center: new THREE.Vector3(-1, 1, -3), radius: 30 },

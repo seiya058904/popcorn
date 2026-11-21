@@ -835,6 +835,8 @@ export const stoveSpec: SceneSpec = {
   focusPoint: new THREE.Vector3(0, 1, 0),
   focusRange: 3.8,
   aoRadius: 0.42,
+  // Dust turning in the slanting window light, gone once it is dark.
+  ambience: [{ look: 'mote', center: [-2.4, 2.2, -1.1], half: [0.9, 1.0, 1.0], rate: 2.5, story: [-1, 0, 0.6, 0.85] }],
   // The window: dusk light slanting into the room.
   shafts: { at: new THREE.Vector3(-3.95, 3.72, -3.3), strength: 0.55, length: 0.7, threshold: 0.85 },
   shadow: { center: new THREE.Vector3(0, 0.8, -0.3), radius: 8.2 },

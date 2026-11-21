@@ -914,6 +914,8 @@ export const cinemaSpec: SceneSpec = {
   focusPoint: new THREE.Vector3(0, 2, 3),
   focusRange: 30,
   aoRadius: 2,
+  // Dust in the projector's beam, showing more as the house lights go down.
+  ambience: [{ look: 'mote', center: [0, 26, 20], half: [6, 5, 35], rate: 12, story: [0.1, 0.4, 2, 3] }],
   // The picture throws its light back through the dusty air of the hall.
   shafts: { at: new THREE.Vector3(0, 16, -44.6), strength: 0.35, length: 0.55, threshold: 1.0 },
   shadow: { center: new THREE.Vector3(-3, 3, 4), radius: 58 },
