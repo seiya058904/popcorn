@@ -1,0 +1,113 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="480" viewBox="0 0 1440 480" role="img" aria-labelledby="title desc">
+  <title id="title">Pop! The Popcorn Got Out of Hand — 3D Toy-Miniature Incremental Game</title>
+  <desc id="desc">Original 1950s retro-kitchen vector illustration with a mint stove, a red enamel pot overflowing with golden popcorn kernels, and a crescent moon above.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0C2927"/>
+      <stop offset="0.52" stop-color="#113C38"/>
+      <stop offset="1" stop-color="#16524B"/>
+    </linearGradient>
+    <radialGradient id="warmGlow" cx="76%" cy="46%" r="44%">
+      <stop offset="0" stop-color="#FBBF24" stop-opacity="0.28"/>
+      <stop offset="0.55" stop-color="#EF4444" stop-opacity="0.12"/>
+      <stop offset="1" stop-color="#0C2927" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="potRed" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#F43F5E"/>
+      <stop offset="0.55" stop-color="#DC2626"/>
+      <stop offset="1" stop-color="#991B1B"/>
+    </linearGradient>
+    <linearGradient id="goldPop" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FEF3C7"/>
+      <stop offset="0.55" stop-color="#FDE047"/>
+      <stop offset="1" stop-color="#F59E0B"/>
+    </linearGradient>
+    <pattern id="tiles" width="44" height="44" patternUnits="userSpaceOnUse">
+      <path d="M44 0H0V44" fill="none" stroke="#5EEAD4" stroke-opacity="0.08" stroke-width="1.2"/>
+    </pattern>
+    <filter id="sh" x="-15%" y="-15%" width="135%" height="140%">
+      <feDropShadow dx="0" dy="16" stdDeviation="16" flood-color="#041211" flood-opacity="0.52"/>
+    </filter>
+  </defs>
+
+  <rect width="1440" height="480" rx="20" fill="url(#bg)"/>
+  <rect width="1440" height="480" rx="20" fill="url(#warmGlow)"/>
+  <rect width="1440" height="480" rx="20" fill="url(#tiles)"/>
+  <rect x="16" y="16" width="1408" height="448" rx="14" fill="none" stroke="#5EEAD4" stroke-opacity="0.22"/>
+
+  <!-- Left editorial column -->
+  <rect x="76" y="64" width="66" height="5" rx="2.5" fill="#FDE047"/>
+  <g font-family="Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif">
+    <text x="76" y="106" fill="#5EEAD4" font-family="Consolas, monospace" font-size="14" font-weight="700" letter-spacing="3.2">3D TOY-MINIATURE INCREMENTAL · 砰！爆米花失控了</text>
+    <text x="72" y="206" fill="#FEF9C3" font-size="88" font-weight="900" letter-spacing="-2.5">POP!</text>
+    <text x="76" y="262" fill="#FDE047" font-size="30" font-weight="800" letter-spacing="-0.4">The Popcorn Got Out of Hand</text>
+    <text x="76" y="308" fill="#CCFBF1" font-size="20">One kernel on the stove. Fifteen machines. Five nested worlds.</text>
+    <path d="M76 346H666" stroke="#2DD4BF" stroke-opacity="0.35"/>
+    <text x="76" y="388" fill="#FDE68A" font-family="Consolas, monospace" font-size="13.5" font-weight="700" letter-spacing="2">15 MACHINES · 5 SCENES · 120 UPGRADES · 12 FLAVORS</text>
+    <text x="76" y="424" fill="#5EEAD4" font-family="Consolas, monospace" font-size="12" letter-spacing="1.6" opacity="0.82">THREE.JS · WEBGL 2 · 100% PROCEDURAL MODELS, TEXTURES &amp; AUDIO</text>
+  </g>
+
+  <!-- Right toy-miniature artwork: Moon, bursting popcorn cloud, red enamel pot on mint burner -->
+  <!-- Starry crescent moon at top-right (pure path, no cutout mismatch) -->
+  <g transform="translate(1276, 102)">
+    <path d="M18-32 A36 36 0 1 0 32 22 A28 28 0 1 1 18-32 Z" fill="#FEF08A" opacity="0.94"/>
+    <g fill="#FEF08A" opacity="0.85">
+      <circle cx="-64" cy="-22" r="3"/><circle cx="52" cy="30" r="2.5"/><circle cx="-48" cy="48" r="2"/>
+    </g>
+  </g>
+
+  <!-- Mint stove surface strip -->
+  <ellipse cx="1058" cy="396" rx="220" ry="32" fill="#08201E" opacity="0.65"/>
+  <ellipse cx="1058" cy="382" rx="194" ry="26" fill="#1E293B" stroke="#475569" stroke-width="2"/>
+
+  <!-- Flying golden popcorn kernels bursting upward -->
+  <g fill="url(#goldPop)" stroke="#B45309" stroke-width="1.5">
+    <!-- Burst rays -->
+    <path d="M936 164l-16-22M1056 118v-28M1174 156l20-20M988 134l-8-24M1126 128l10-24" fill="none" stroke="#FDE047" stroke-width="3" stroke-linecap="round" opacity="0.75"/>
+    <!-- Floating popped puffs -->
+    <g transform="translate(920, 194)">
+      <circle cx="0" cy="0" r="14"/><circle cx="12" cy="-6" r="12"/><circle cx="-10" cy="-7" r="11"/><circle cx="3" cy="-14" r="11"/>
+    </g>
+    <g transform="translate(1042, 148)">
+      <circle cx="0" cy="0" r="16"/><circle cx="14" cy="-6" r="13"/><circle cx="-12" cy="-5" r="12"/><circle cx="2" cy="-16" r="12"/>
+    </g>
+    <g transform="translate(1168, 184)">
+      <circle cx="0" cy="0" r="13"/><circle cx="11" cy="-5" r="11"/><circle cx="-9" cy="-6" r="10"/>
+    </g>
+    <!-- Glowing golden kernel -->
+    <circle cx="1136" cy="112" r="10" fill="#FACC15" stroke="#FEF9C3" stroke-width="2.5"/>
+    <!-- Pile overflowing the pot rim -->
+    <g transform="translate(980, 232)">
+      <circle cx="0" cy="0" r="24"/><circle cx="32" cy="-14" r="28"/><circle cx="68" cy="-18" r="30"/><circle cx="106" cy="-14" r="27"/><circle cx="140" cy="0" r="24"/>
+      <circle cx="20" cy="14" r="22"/><circle cx="56" cy="12" r="26"/><circle cx="94" cy="12" r="26"/><circle cx="126" cy="14" r="22"/>
+    </g>
+  </g>
+
+  <!-- Red enamel pot with cream rim & stripes -->
+  <g filter="url(#sh)">
+    <!-- Handles -->
+    <path d="M926 278c-22 0-22 30 0 30" fill="none" stroke="#FEF3C7" stroke-width="9" stroke-linecap="round"/>
+    <path d="M1190 278c22 0 22 30 0 30" fill="none" stroke="#FEF3C7" stroke-width="9" stroke-linecap="round"/>
+    <!-- Pot body -->
+    <path d="M926 246 H1190 V346 C1190 374 1130 390 1058 390 C986 390 926 374 926 346 Z" fill="url(#potRed)"/>
+    <!-- Cream retro band -->
+    <path d="M926 294 C968 308 1148 308 1190 294 V312 C1148 326 968 326 926 312 Z" fill="#FEF3C7" opacity="0.92"/>
+    <!-- Cream top rim -->
+    <ellipse cx="1058" cy="246" rx="134" ry="26" fill="none" stroke="#FEF3C7" stroke-width="10"/>
+    <!-- Glossy enamel highlight -->
+    <path d="M956 274v76" stroke="#FFFFFF" stroke-opacity="0.28" stroke-width="8" stroke-linecap="round"/>
+  </g>
+
+  <!-- Five nested scene progress pills at bottom-right -->
+  <g transform="translate(838, 418)" font-family="Consolas, monospace" font-size="11" font-weight="700">
+    <text x="0" y="14" fill="#FDE047">01 STOVE</text>
+    <text x="72" y="14" fill="#5EEAD4">→</text>
+    <text x="92" y="14" fill="#FEF3C7">02 KITCHEN</text>
+    <text x="178" y="14" fill="#5EEAD4">→</text>
+    <text x="198" y="14" fill="#FEF3C7">03 CINEMA</text>
+    <text x="278" y="14" fill="#5EEAD4">→</text>
+    <text x="298" y="14" fill="#FEF3C7">04 TOWN</text>
+    <text x="364" y="14" fill="#5EEAD4">→</text>
+    <text x="384" y="14" fill="#FDE047">05 EARTH</text>
+  </g>
+</svg>

@@ -1,3 +1,9 @@
+<p align="center">
+  <a href="https://seiya058904.github.io/popcorn/">
+    <img src="docs/media/readme-cover.svg" width="100%" alt="Pop! The Popcorn Got Out of Hand — illustrated 1950s retro-kitchen banner with a red enamel pot overflowing with popcorn under a crescent moon" />
+  </a>
+</p>
+
 <h1 align="center">🍿 POP! THE POPCORN GOT OUT OF HAND</h1>
 
 <p align="center"><sub>砰！爆米花失控了</sub></p>
