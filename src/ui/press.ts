@@ -147,7 +147,7 @@ export function pressable(node: HTMLElement, options: PressOptions): void {
   };
 
   node.addEventListener('pointerdown', (event) => {
-    if (event.button !== 0 || pointer !== null) return;
+    if (event.button !== 0 || pointer !== null || (node as HTMLButtonElement).disabled) return;
     pointer = event.pointerId;
     startX = event.clientX;
     startY = event.clientY;
@@ -181,7 +181,7 @@ export function pressable(node: HTMLElement, options: PressOptions): void {
 
   // Enter and Space on a focused button arrive as a click with no pointer behind it.
   node.addEventListener('click', (event) => {
-    if (event.detail !== 0) return;
+    if (event.detail !== 0 || (node as HTMLButtonElement).disabled) return;
     if (options.holdMs) return;
     bounce(node, scale);
     run();
@@ -190,8 +190,13 @@ export function pressable(node: HTMLElement, options: PressOptions): void {
   // A hold-to-confirm button is held with the keyboard the same way.
   if (options.holdMs) {
     let keyHeld = false;
+    const releaseKey = (): void => {
+      if (!keyHeld) return;
+      keyHeld = false;
+      end();
+    };
     node.addEventListener('keydown', (event) => {
-      if ((event.key !== 'Enter' && event.key !== ' ') || event.repeat || keyHeld) return;
+      if ((event.key !== 'Enter' && event.key !== ' ') || event.repeat || keyHeld || (node as HTMLButtonElement).disabled) return;
       event.preventDefault();
       keyHeld = true;
       repeated = false;
@@ -200,8 +205,8 @@ export function pressable(node: HTMLElement, options: PressOptions): void {
     });
     node.addEventListener('keyup', (event) => {
       if (event.key !== 'Enter' && event.key !== ' ') return;
-      keyHeld = false;
-      end();
+      releaseKey();
     });
+    node.addEventListener('blur', releaseKey);
   }
 }

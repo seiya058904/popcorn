@@ -46,6 +46,7 @@ export class FlyIn {
   private readonly layer: HTMLElement;
   private readonly tickets: Ticket[] = [];
   private readonly crumbs: Crumb[] = [];
+  private counterEl: HTMLElement | null = null;
   private seed = 7;
   /** Called as each streamed piece reaches the counter; `last` for the final one. */
   onCrumb: ((last: boolean) => void) | null = null;
@@ -100,10 +101,17 @@ export class FlyIn {
     return FLY_SECONDS;
   }
 
+  private counterTarget(): ScreenPoint | null {
+    if (!this.counterEl?.isConnected) this.counterEl = this.root.querySelector<HTMLElement>('[data-counter="popcorn"]');
+    if (!this.counterEl) return null;
+    const rect = this.counterEl.getBoundingClientRect();
+    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+  }
+
   /** A handful of popcorn from a point on screen into the counter. */
   stream(fromX: number, fromY: number, count: number): void {
-    const counter = this.root.querySelector<HTMLElement>('[data-counter="popcorn"]');
-    if (motionPrefs.reduced || !counter || this.root.classList.contains('is-cinematic')) {
+    const to = this.counterTarget();
+    if (motionPrefs.reduced || !to || this.root.classList.contains('is-cinematic')) {
       this.onCrumb?.(true);
       return;
     }
@@ -122,7 +130,7 @@ export class FlyIn {
         last: i === n - 1,
       };
       this.crumbs.push(crumb);
-      this.placeCrumb(crumb, counter);
+      this.placeCrumb(crumb, to);
     }
   }
 
@@ -140,17 +148,17 @@ export class FlyIn {
       this.placeTicket(flight);
     }
     if (this.crumbs.length === 0) return;
-    const counter = this.root.querySelector<HTMLElement>('[data-counter="popcorn"]');
+    const to = this.counterTarget();
     for (let i = this.crumbs.length - 1; i >= 0; i -= 1) {
       const crumb = this.crumbs[i]!;
       crumb.t += dt;
-      if (crumb.t >= crumb.duration || !counter) {
+      if (crumb.t >= crumb.duration || !to) {
         crumb.node.remove();
         this.crumbs.splice(i, 1);
         this.onCrumb?.(crumb.last);
         continue;
       }
-      this.placeCrumb(crumb, counter);
+      this.placeCrumb(crumb, to);
     }
   }
 
@@ -177,9 +185,7 @@ export class FlyIn {
     node.style.opacity = String(1 - clamp01((u - 0.88) / 0.12));
   }
 
-  private placeCrumb(crumb: Crumb, counter: HTMLElement): void {
-    const rect = counter.getBoundingClientRect();
-    const to = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+  private placeCrumb(crumb: Crumb, to: ScreenPoint): void {
     const u = clamp01(crumb.t / crumb.duration);
     if (crumb.t < 0) {
       crumb.node.style.opacity = '0';

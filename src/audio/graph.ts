@@ -52,6 +52,8 @@ export class MixGraph {
   /** Interface sounds: dry and close, outside the room and the heap's ducking. */
   readonly ui: GainNode;
   private readonly master: GainNode;
+  /** Everything from the game world (sfx, music, bed, room), muted independently when paused. */
+  private readonly world: GainNode;
   private readonly bedBus: GainNode;
   private readonly bedDuck: GainNode;
   private readonly musicTrim: GainNode;
@@ -70,6 +72,7 @@ export class MixGraph {
     compressor.attack.value = 0.003;
     compressor.release.value = 0.16;
     this.master = context.createGain();
+    this.world = context.createGain();
     this.sfx = context.createGain();
     this.music = context.createGain();
     this.ui = context.createGain();
@@ -81,14 +84,15 @@ export class MixGraph {
     this.musicBass.frequency.value = 190;
     this.roomSend = context.createGain();
 
-    this.sfx.connect(this.master);
+    this.world.connect(this.master);
+    this.sfx.connect(this.world);
     this.ui.connect(this.master);
     this.sfx.connect(this.roomSend);
-    this.music.connect(this.musicBass).connect(this.musicTrim).connect(this.master);
+    this.music.connect(this.musicBass).connect(this.musicTrim).connect(this.world);
     this.musicTrim.connect(this.roomSend);
     const bedTrim = context.createGain();
     bedTrim.gain.value = BED_TRIM;
-    this.bedDuck.connect(bedTrim).connect(this.bedBus).connect(this.master);
+    this.bedDuck.connect(bedTrim).connect(this.bedBus).connect(this.world);
     const bedRoom = context.createGain();
     bedRoom.gain.value = BED_ROOM_SEND;
     this.bedDuck.connect(bedRoom).connect(this.roomSend);
@@ -103,6 +107,11 @@ export class MixGraph {
     this.ui.gain.setTargetAtTime(levels.ui, time, 0.02);
     this.bedBus.gain.setTargetAtTime(levels.effects, time, 0.02);
     if (!musicDucked) this.music.gain.setTargetAtTime(levels.music, time, 0.02);
+  }
+
+  /** Smoothly quiets world audio while paused without silencing live settings/menu UI sounds. */
+  setWorldPaused(paused: boolean, time = this.context.currentTime): void {
+    this.world.gain.setTargetAtTime(paused ? 0 : 1, time, paused ? 0.025 : 0.06);
   }
 
   /** Everything but the effects drops away, for the held breath before a blast. */
@@ -166,7 +175,7 @@ export class MixGraph {
     input.gain.value = 0;
     const output = context.createGain();
     output.gain.value = space.send;
-    this.roomSend.connect(input).connect(convolver).connect(output).connect(this.master);
+    this.roomSend.connect(input).connect(convolver).connect(output).connect(this.world);
     this.spaces.set(index, { input });
   }
 

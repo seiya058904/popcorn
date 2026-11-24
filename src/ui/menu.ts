@@ -13,6 +13,8 @@ export interface MenuHost {
   settingsChanged(): void;
   setPaused(paused: boolean): void;
   showAchievements(): void;
+  /** Closes an open HUD dialog (achievements, offline report, notice, credits) if any. */
+  closeOverlay?(): boolean;
   exportSave(): string;
   importSave(text: string): Promise<LoadError | null>;
   wipeSave(): Promise<void>;
@@ -51,6 +53,7 @@ export class Menus {
   private readonly veil: HTMLElement;
   private readonly panel: HTMLElement;
   private playing = false;
+  private heightAnimation: Animation | null = null;
 
   constructor(root: HTMLElement, host: MenuHost) {
     this.host = host;
@@ -64,6 +67,8 @@ export class Menus {
       if (this.isOpen) {
         event.preventDefault();
         this.close();
+      } else if (this.host.closeOverlay?.()) {
+        event.preventDefault();
       } else if (this.playing) {
         event.preventDefault();
         this.showPause();
@@ -149,6 +154,8 @@ export class Menus {
   private page(direction: Direction, build: () => void): void {
     const wasOpen = this.isOpen;
     const before = wasOpen ? this.panel.getBoundingClientRect().height : 0;
+    this.heightAnimation?.cancel();
+    this.heightAnimation = null;
     this.panel.replaceChildren();
     build();
     openSheet(this.veil, this.panel);
@@ -161,7 +168,16 @@ export class Menus {
     }
     const after = this.panel.getBoundingClientRect().height;
     if (Math.abs(after - before) > 1) {
-      this.panel.animate([{ height: `${before}px`, overflow: 'hidden' }, { height: `${after}px`, overflow: 'hidden' }], { duration: MOTION.slide.duration, easing: MOTION.slide.easing });
+      const animation = this.panel.animate(
+        [{ height: `${before}px`, overflow: 'hidden' }, { height: `${after}px`, overflow: 'hidden' }],
+        { duration: MOTION.slide.duration, easing: MOTION.slide.easing },
+      );
+      this.heightAnimation = animation;
+      const clear = (): void => {
+        if (this.heightAnimation === animation) this.heightAnimation = null;
+      };
+      animation.onfinish = clear;
+      animation.oncancel = clear;
     }
     const shift = direction === 'push' ? 4 : -4;
     for (const child of this.panel.children) {
@@ -170,6 +186,8 @@ export class Menus {
   }
 
   close(): void {
+    this.heightAnimation?.cancel();
+    this.heightAnimation = null;
     closeSheet(this.veil, this.panel);
     if (this.playing) this.host.setPaused(false);
   }

@@ -78,10 +78,14 @@ export class CannonGauge {
     window.addEventListener('pointercancel', () => this.cancel());
     window.addEventListener('blur', () => this.cancel());
     window.addEventListener('keydown', (event) => {
-      if (event.code === 'Space' && !event.repeat) {
-        event.preventDefault();
-        this.begin();
-      }
+      if (event.code !== 'Space' || event.repeat) return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('button, input, textarea, select, [contenteditable]')) return;
+      const ui = this.root.closest('#ui');
+      if (ui && (ui.classList.contains('is-title') || ui.classList.contains('is-cinematic') || ui.classList.contains('is-photo'))) return;
+      if (document.querySelector('.dialog-veil.is-open')) return;
+      event.preventDefault();
+      this.begin();
     });
     window.addEventListener('keyup', (event) => {
       if (event.code === 'Space') this.release();
@@ -95,7 +99,7 @@ export class CannonGauge {
     this.held = 0;
   }
 
-  private cancel(): void {
+  cancel(): void {
     if (!this.charging) return;
     this.charging = false;
     this.sim.cannonHeld = false;

@@ -173,10 +173,20 @@ export class Hud {
     return isSheetOpen(this.veil);
   }
 
+  /** Cached shop inset fraction, invalidated only when the window changes size. */
+  private cachedShopInset: number | null = null;
+
   /** Fraction of the window width covered by the shop, used to center the action. */
   get shopInset(): number {
     if (this.cinematic) return 0;
-    return (this.shop.root.offsetWidth + 16) / Math.max(1, window.innerWidth);
+    if (this.cachedShopInset === null) {
+      const width = this.shop.root.offsetWidth;
+      const value = (width + 16) / Math.max(1, window.innerWidth);
+      if (width === 0) return value;
+      this.cachedShopInset = value;
+      window.addEventListener('resize', () => (this.cachedShopInset = null), { once: true });
+    }
+    return this.cachedShopInset;
   }
 
   /**

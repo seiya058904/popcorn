@@ -1,6 +1,6 @@
 import { el, setClass } from './dom.ts';
 import { feedback } from './feedback.ts';
-import { glide } from './motion.ts';
+import { glide, stopMotion } from './motion.ts';
 import { pressable } from './press.ts';
 
 /**
@@ -41,7 +41,10 @@ export class Segmented {
     this.index = index;
     const move = (): void => this.root.style.setProperty('--index', String(index));
     if (animate) glide(this.thumb, move);
-    else move();
+    else {
+      stopMotion(this.thumb);
+      move();
+    }
     this.items.forEach((item, i) => setClass(item, 'is-active', i === index));
   }
 }

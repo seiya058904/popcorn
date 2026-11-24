@@ -124,3 +124,61 @@ test('with reduced motion, dialogs fade in without moving', async ({ page }) => 
   );
   expect(moved).toBe(false);
 });
+
+test('rapidly interrupting tabs, switches and sections never freezes the thumb or hides content', async ({ page }) => {
+  await open(page);
+  const tabs = page.locator('.shop-tabs .seg-item');
+
+  // Interrupt mid-flight repeatedly across all three tabs.
+  await tabs.nth(1).click();
+  await page.waitForTimeout(45);
+  await tabs.nth(2).click();
+  await page.waitForTimeout(45);
+  await tabs.nth(0).click();
+  await page.waitForTimeout(45);
+  await tabs.nth(2).click();
+  await page.waitForTimeout(450);
+
+  const tabState = await page.evaluate(() => {
+    const t = document.querySelector<HTMLElement>('.shop-tabs .seg-thumb')!;
+    const active = document.querySelector<HTMLElement>('.shop-body > section.is-active')!;
+    const tab2 = document.querySelectorAll<HTMLElement>('.shop-tabs .seg-item')[2]!;
+    return {
+      inlineTransform: t.style.transform,
+      thumbLeft: Math.round(t.getBoundingClientRect().left),
+      tab2Left: Math.round(tab2.getBoundingClientRect().left),
+      sectionOpacity: getComputedStyle(active).opacity,
+      sectionInlineStyle: active.getAttribute('style') ?? '',
+    };
+  });
+  expect(tabState.inlineTransform).toBe('');
+  expect(Math.abs(tabState.thumbLeft - tabState.tab2Left)).toBeLessThanOrEqual(2);
+  expect(tabState.sectionOpacity).toBe('1');
+  expect(tabState.sectionInlineStyle).toBe('');
+
+  // Rapidly toggle a switch in settings and ensure its thumb is not frozen inline.
+  await page.keyboard.press('Escape');
+  await page.locator('.menu-list .menu-item', { hasText: '设置' }).click();
+  const shake = page.locator('.menu-row', { hasText: '屏幕震动' }).locator('.switch');
+  await shake.click();
+  await page.waitForTimeout(40);
+  await shake.click();
+  await page.waitForTimeout(450);
+  const switchInline = await shake.locator('.switch-thumb').evaluate((node) => (node as HTMLElement).style.transform);
+  expect(switchInline).toBe('');
+});
+
+test('Escape closes HUD dialogs before opening pause, and Space activates focused buttons', async ({ page }) => {
+  await open(page);
+  await page.locator('.corner button').click();
+  await expect(page.locator('.dialog h2').first()).toHaveText('成就');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.dialog.menu')).toBeHidden();
+  await expect(page.locator('.dialog-veil:not(.menu-veil)')).not.toHaveClass(/is-open/);
+
+  // Space on a focused shop tab switches the tab instead of being swallowed by the cannon gauge.
+  const flavorTab = page.locator('.shop-tab', { hasText: '口味' });
+  await flavorTab.focus();
+  await page.keyboard.press('Space');
+  await expect(page.locator('[data-flavor="next"]')).toBeVisible();
+});

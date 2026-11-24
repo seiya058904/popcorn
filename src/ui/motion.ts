@@ -73,19 +73,13 @@ export function setMotion(root: HTMLElement, reduced: boolean): void {
 }
 
 const running = new WeakMap<Element, Animation>();
+const flips = new WeakMap<Element, Animation>();
 
-/** Stops this element's managed animation where it is, keeping what it shows. */
-function settle(node: Element): void {
+/** Cancels this element's managed animation without committing mid-flight values into inline styles. */
+export function stopMotion(node: Element): void {
   const previous = running.get(node);
   if (!previous) return;
   running.delete(node);
-  if (previous.playState === 'running') {
-    try {
-      previous.commitStyles();
-    } catch {
-      // Not rendered: nothing to keep.
-    }
-  }
   previous.cancel();
 }
 
@@ -109,7 +103,7 @@ function calm(frames: Keyframe[]): Keyframe[] | null {
  */
 export function animateTo(node: HTMLElement | SVGElement, to: Keyframe, curve: Curve): Animation | null {
   const from = current(node, Object.keys(to));
-  settle(node);
+  stopMotion(node);
   const frames = calm([from, to]);
   if (!frames) {
     Object.assign(node.style, to);
@@ -131,14 +125,16 @@ export function animateTo(node: HTMLElement | SVGElement, to: Keyframe, curve: C
  * stylesheet is in charge again afterwards. For entrances, bounces and shakes.
  */
 export function play(node: HTMLElement | SVGElement, frames: Keyframe[], curve: Curve): Animation | null {
-  settle(node);
+  stopMotion(node);
   const calmed = calm(frames);
   if (!calmed) return null;
   const animation = node.animate(calmed, { duration: curve.duration, easing: curve.easing });
   running.set(node, animation);
-  animation.onfinish = () => {
+  const clear = (): void => {
     if (running.get(node) === animation) running.delete(node);
   };
+  animation.onfinish = clear;
+  animation.oncancel = clear;
   return animation;
 }
 
@@ -148,12 +144,17 @@ export function play(node: HTMLElement | SVGElement, frames: Keyframe[], curve: 
  */
 export function glide(node: HTMLElement | SVGElement, change: () => void, curve: Curve = MOTION.slide): void {
   const before = getComputedStyle(node).transform;
-  settle(node);
+  stopMotion(node);
   change();
   const after = getComputedStyle(node).transform;
   if (before === after || motionPrefs.reduced) return;
   const animation = node.animate([{ transform: before }, { transform: after }], { duration: curve.duration, easing: curve.easing });
   running.set(node, animation);
+  const clear = (): void => {
+    if (running.get(node) === animation) running.delete(node);
+  };
+  animation.onfinish = clear;
+  animation.oncancel = clear;
 }
 
 /**
@@ -162,6 +163,13 @@ export function glide(node: HTMLElement | SVGElement, change: () => void, curve:
  */
 export function flip(items: readonly HTMLElement[], change: () => void, curve: Curve = MOTION.slide): void {
   const before = new Map(items.map((item) => [item, item.getBoundingClientRect()]));
+  for (const item of items) {
+    const previous = flips.get(item);
+    if (previous) {
+      flips.delete(item);
+      previous.cancel();
+    }
+  }
   change();
   if (motionPrefs.reduced) return;
   for (const item of items) {
@@ -170,6 +178,12 @@ export function flip(items: readonly HTMLElement[], change: () => void, curve: C
     const now = item.getBoundingClientRect();
     const dy = old.top - now.top;
     if (Math.abs(dy) < 0.5) continue;
-    item.animate([{ transform: `translateY(${dy}px)` }, { transform: 'none' }], { duration: curve.duration, easing: curve.easing });
+    const animation = item.animate([{ transform: `translateY(${dy}px)` }, { transform: 'none' }], { duration: curve.duration, easing: curve.easing });
+    flips.set(item, animation);
+    const clear = (): void => {
+      if (flips.get(item) === animation) flips.delete(item);
+    };
+    animation.onfinish = clear;
+    animation.oncancel = clear;
   }
 }

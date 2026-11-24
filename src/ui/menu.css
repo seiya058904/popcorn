@@ -71,14 +71,23 @@
   color: var(--ink-2);
 }
 
-/* A group: one raised card, rows split by hairlines. */
+/* A group: one raised card, rows split by hairlines. Keep overflow visible so slider value bubbles and focus rings are never clipped. */
 .menu-group {
   display: flex;
   flex-direction: column;
   border-radius: var(--r-m);
   background: var(--paper-raised);
   box-shadow: inset 0 0 0 0.1rem rgb(255 255 255 / 60%), var(--e1);
-  overflow: hidden;
+}
+
+.menu-group > .menu-item:first-child {
+  border-top-left-radius: var(--r-m);
+  border-top-right-radius: var(--r-m);
+}
+
+.menu-group > .menu-item:last-child {
+  border-bottom-left-radius: var(--r-m);
+  border-bottom-right-radius: var(--r-m);
 }
 
 .menu-group > * + * {

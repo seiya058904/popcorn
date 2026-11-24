@@ -375,8 +375,13 @@
   justify-content: center;
   gap: var(--s-1);
   height: 4.8rem;
+  border-radius: calc(var(--r-m) - var(--inset));
   color: var(--ink-2);
   font-size: 2.1rem;
+}
+
+.seg-item:focus-visible {
+  outline-offset: 0.1rem;
 }
 
 .seg-item.is-active {
@@ -395,6 +400,7 @@
 .seg.is-small .seg-item {
   height: 3.6rem;
   min-width: 6.2rem;
+  border-radius: calc(var(--r-s) - var(--inset));
   font-size: 1.7rem;
 }
 
@@ -663,6 +669,7 @@
    */
   border-radius: var(--r-m);
   box-shadow: 0 0.1rem 0.15rem rgb(90 50 30 / 22%), 0 0.4rem 0.8rem rgb(90 50 30 / 12%);
+  transition: translate 0.14s ease-out, box-shadow 0.16s ease-out;
 }
 
 .ticket-paper {
@@ -727,7 +734,7 @@
 .ticket-main {
   position: relative;
   min-width: 0;
-  padding: var(--s-2) var(--s-3) var(--s-3);
+  padding: var(--s-2) var(--s-3) var(--s-4);
 }
 
 .ticket-name {
@@ -748,13 +755,6 @@
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-}
-
-.ticket.is-unit .ticket-blurb {
-  display: block;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
 }
 
 .ticket-stub {
@@ -803,15 +803,20 @@
   color: var(--ink);
 }
 
-.ticket.is-ready:hover {
-  transform: translateY(-0.15rem);
+@media (hover: hover) {
+  /* Uses standalone `translate` so hover lift composes cleanly with pressable's `transform: scale()`. */
+  .ticket.is-ready:hover:not(.is-pressed) {
+    translate: 0 -0.15rem;
+    box-shadow: 0 0.25rem 0.4rem rgb(90 50 30 / 22%), 0 0.6rem 1.2rem rgb(90 50 30 / 16%);
+  }
 }
 
 .ticket.is-next::after {
   content: '点这里！';
   position: absolute;
   right: var(--s-3);
-  top: -1.3rem;
+  top: -0.95rem;
+  z-index: 2;
   padding: 0.2rem var(--s-3);
   border-radius: var(--r-pill);
   background: var(--accent);
@@ -822,7 +827,7 @@
 }
 
 @keyframes nudge {
-  to { transform: translateY(-0.4rem); }
+  to { transform: translateY(-0.28rem); }
 }
 
 .ticket.is-locked {
@@ -1689,6 +1694,10 @@
   will-change: transform;
 }
 
+:root[data-motion='reduced'] .odo-strip {
+  transition: none;
+}
+
 .odo-char {
   display: inline-block;
   line-height: 1;
@@ -1764,12 +1773,14 @@
  * element with transitions of its own (buttons, callouts) keeps them.
  */
 :where(#ui) > * {
-  transition: opacity 0.9s ease;
+  transition: opacity 0.9s ease, visibility 0s;
 }
 
 #ui.is-cinematic > *:not(.skip, .dialog-veil, .slate) {
   opacity: 0 !important;
+  visibility: hidden !important;
   pointer-events: none !important;
+  transition: opacity 0.9s ease, visibility 0s linear 0.9s;
 }
 
 #ui.is-cinematic .skip {
@@ -1778,7 +1789,9 @@
 
 #ui.is-title > *:not(.title, .menu-veil, .handheld) {
   opacity: 0 !important;
+  visibility: hidden !important;
   pointer-events: none !important;
+  transition: opacity 0.9s ease, visibility 0s linear 0.9s;
 }
 
 /* Combo tiers: the marquee flares in the tier's color ----------------------- */
@@ -1885,28 +1898,37 @@
 /* The interface steps aside for one glass toolbar and its hint. */
 #ui.is-photo > *:not(.photo-bar, .photo-hint, .photo-flash, .photo-focus) {
   opacity: 0 !important;
+  visibility: hidden !important;
   pointer-events: none !important;
+  transition: opacity 0.9s ease, visibility 0s linear 0.9s;
 }
 
 .photo-bar,
 .photo-hint {
   opacity: 0;
+  visibility: hidden;
   pointer-events: none;
+  transition: opacity 0.35s ease, visibility 0s linear 0.35s;
 }
 
 #ui.is-photo .photo-bar {
   opacity: 1;
+  visibility: visible;
   pointer-events: auto;
+  transition: opacity 0.35s ease, visibility 0s;
 }
 
 #ui.is-photo .photo-hint {
   opacity: 1;
+  visibility: visible;
+  transition: opacity 0.35s ease, visibility 0s;
 }
 
 /* H hides even the toolbar, for a clean look at the picture. */
 #ui.is-photo-bare .photo-bar,
 #ui.is-photo-bare .photo-hint {
   opacity: 0 !important;
+  visibility: hidden !important;
   pointer-events: none !important;
 }
 
@@ -1920,6 +1942,35 @@
   padding: var(--s-2) var(--s-2) var(--s-2) var(--s-3);
   border-radius: var(--r-pill);
   transform: translateX(-50%);
+}
+
+/* Dark frosted-glass segmented filter control to match the photo toolbar. */
+.photo-filters {
+  --inset: 0.35rem;
+  border-radius: var(--r-pill);
+  background: rgb(255 240 214 / 10%);
+  box-shadow: inset 0 0 0 0.1rem var(--glass-edge);
+}
+
+.photo-filters .seg-thumb {
+  border-radius: var(--r-pill);
+  background: rgb(255 214 120 / 92%);
+  box-shadow: 0 0.1rem 0.4rem rgb(0 0 0 / 28%);
+}
+
+.photo-filters .seg-item {
+  border-radius: var(--r-pill);
+  color: var(--on-dark-2);
+}
+
+.photo-filters .seg-item.is-active {
+  color: #3a1a10;
+}
+
+@media (hover: hover) {
+  .photo-filters .seg-item:not(.is-active):hover {
+    color: var(--on-dark);
+  }
 }
 
 .photo-tool {
@@ -1969,10 +2020,15 @@
   left: 50%;
   bottom: calc(var(--edge) + 9.4rem);
   transform: translateX(-50%);
+  padding: 0.45rem var(--s-4);
+  border-radius: var(--r-pill);
+  background: rgb(24 10 18 / 58%);
+  backdrop-filter: blur(0.8rem);
+  box-shadow: inset 0 0 0 0.1rem var(--glass-edge);
   color: var(--on-dark);
   font-size: 1.7rem;
   white-space: nowrap;
-  text-shadow: 0 0.1rem 0.4rem rgb(0 0 0 / 65%);
+  text-shadow: 0 0.1rem 0.3rem rgb(0 0 0 / 45%);
 }
 
 .photo-flash {

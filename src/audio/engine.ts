@@ -255,8 +255,10 @@ export class AudioEngine {
   }
 
   setPaused(paused: boolean): void {
-    if (!this.context) return;
-    void (paused ? this.context.suspend() : this.context.resume());
+    if (paused) this.setCharge(0, false);
+    if (!this.context || !this.graph) return;
+    if (!paused && this.context.state === 'suspended') void this.context.resume();
+    this.graph.setWorldPaused(paused);
   }
 
   /** Everything drops away for the silent beat before a breakout. */

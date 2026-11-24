@@ -198,6 +198,11 @@ export class Game {
       },
       setPaused: (paused) => this.setPaused(paused),
       showAchievements: () => this.hud.showAchievements(),
+      closeOverlay: () => {
+        if (!this.hud.sheetOpen) return false;
+        this.hud.closeDialog();
+        return true;
+      },
       exportSave: () => this.saves.exportText(),
       importSave: (text) => this.saves.importText(text),
       wipeSave: async () => {
@@ -435,6 +440,10 @@ export class Game {
 
   setPaused(paused: boolean): void {
     this.paused = paused;
+    if (paused) {
+      this.hold = null;
+      this.hud.gauge.cancel();
+    }
     this.audio.setPaused(paused);
     this.lastTimestamp = 0;
     if (paused) void this.saves?.save();

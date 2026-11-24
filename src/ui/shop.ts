@@ -145,6 +145,7 @@ export class Shop {
   private cascade = 0;
   /** The scene for which old groups were last folded away; -1 before the first refresh. */
   private foldedAt = -1;
+  private heightAnimation: Animation | null = null;
 
   constructor(parent: HTMLElement, sim: Simulation) {
     this.sim = sim;
@@ -264,9 +265,10 @@ export class Shop {
     for (const animation of body.getAnimations()) animation.cancel();
     body.style.display = '';
     const to = collapsed ? 0 : body.scrollHeight;
-    if (!animate || motionPrefs.reduced) {
+    if (!animate || motionPrefs.reduced || Math.abs(to - from) < 0.5) {
+      body.style.overflow = '';
       body.style.display = collapsed ? 'none' : '';
-      if (animate) play(body, [{ opacity: 0 }, { opacity: 1 }], MOTION.fade);
+      if (animate && !collapsed && motionPrefs.reduced) play(body, [{ opacity: 0 }, { opacity: 1 }], MOTION.fade);
       return;
     }
     const curve = collapsed ? MOTION.exit : MOTION.slide;
@@ -313,10 +315,18 @@ export class Shop {
    */
   private showSection(index: number, previous: number): void {
     const before = this.root.getBoundingClientRect().height;
+    this.heightAnimation?.cancel();
+    this.heightAnimation = null;
     this.tabs.forEach((tab, i) => setClass(tab.section, 'is-active', i === index));
     const after = this.root.getBoundingClientRect().height;
     if (!motionPrefs.reduced && Math.abs(after - before) > 1) {
-      this.root.animate([{ height: `${before}px` }, { height: `${after}px` }], { duration: MOTION.slide.duration, easing: MOTION.slide.easing });
+      const animation = this.root.animate([{ height: `${before}px` }, { height: `${after}px` }], { duration: MOTION.slide.duration, easing: MOTION.slide.easing });
+      this.heightAnimation = animation;
+      const clear = (): void => {
+        if (this.heightAnimation === animation) this.heightAnimation = null;
+      };
+      animation.onfinish = clear;
+      animation.oncancel = clear;
     }
     const shift = index > previous ? 1.6 : -1.6;
     play(this.tabs[index]!.section, [{ opacity: 0, transform: `translateX(${shift}rem)` }, { opacity: 1, transform: 'none' }], MOTION.fade);
