@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { Spring } from '../../motion/ease.ts';
 import type { Rng } from '../../motion/rng.ts';
 import { at, Kit, P, Pattern, type Paint } from '../geometry/kit.ts';
+import { createFlakeGeometry } from '../geometry/popcorn.ts';
 import type { SignStyle } from '../materials/sign.ts';
 
 export { at, Kit, P, Pattern };
@@ -90,6 +91,8 @@ export interface UnitDef {
   badge?: { at: [number, number, number]; size: number; ry?: number; rx?: number };
   /** For machines on a path: the track, in pieces laid one after another when the first arrives. */
   track?(path: import('../scenes/types.ts').UnitPath): THREE.BufferGeometry[];
+  /** Chunked generator form of `track`, yielding periodically so background builds never stall. */
+  trackSteps?(path: import('../scenes/types.ts').UnitPath): Generator<void, THREE.BufferGeometry[], void>;
   pose(st: UnitState, time: number, index: number, tier: number, base: THREE.Matrix4, put: PutPart): void;
   fire?(st: UnitState, host: UnitHost, x: number, y: number, z: number, scale: number): void;
 }
@@ -174,7 +177,7 @@ export const M = {
   glass: { color: '#c6ecf6', glass: true, thickness: 0.07 },
   glassWarm: { color: '#ffe3b4', glass: true, thickness: 0.07 },
   // No ink: a dark line round every little puff turned whole piles grey.
-  popcorn: { color: '#fff4d8', gloss: 0.1, emissive: 0.42, outline: 0, fixedColor: true },
+  popcorn: { color: '#ffefc2', gloss: 0.08, emissive: 0.56, soft: 0.55, outline: 0, fixedColor: true },
   bulb: { color: '#fff0c2', emissive: 1, outline: 0, fixedColor: true },
   glow: { color: '#ffd691', emissive: 0.75, outline: 0, fixedColor: true },
   coal: { color: '#ff7a2a', emissive: 0.95, outline: 0, fixedColor: true },
@@ -188,7 +191,28 @@ export function rod(kit: Kit, a: THREE.Vector3, b: THREE.Vector3, radius: number
   kit.add(P.tube([a, b], radius, 1, radial), material);
 }
 
-/** Scattered popcorn, each piece a few fused puffs so it never reads as a ball. */
+/** Three miniature sculpted popcorn prototypes (2 butterfly + 1 mushroom, 180 tris each). */
+const MINI_FLAKE_SHAPES = [0, 1, 3] as const;
+const miniFlakeCache: Array<{ geometry: THREE.BufferGeometry; shade: Float32Array }> = [];
+
+function miniFlake(variant: number): { geometry: THREE.BufferGeometry; shade: Float32Array } {
+  const idx = ((variant % MINI_FLAKE_SHAPES.length) + MINI_FLAKE_SHAPES.length) % MINI_FLAKE_SHAPES.length;
+  let cached = miniFlakeCache[idx];
+  if (!cached) {
+    const geometry = createFlakeGeometry(MINI_FLAKE_SHAPES[idx]!, 2);
+    const shade = (geometry.getAttribute('aShade') as THREE.BufferAttribute).array as Float32Array;
+    cached = { geometry, shade };
+    miniFlakeCache[idx] = cached;
+  }
+  return cached;
+}
+
+const puffCreamHi = new THREE.Color('#fff9e4');
+const puffButter = new THREE.Color('#f7cc76');
+const puffCrease = new THREE.Color('#df902a');
+const puffHull = new THREE.Color('#9e5420');
+
+/** Scattered sculpted popcorn pieces with baked crease warmth, toasted hull spots and crevice AO. */
 export function puffs(kit: Kit, x: number, y: number, z: number, spreadX: number, spreadZ: number, count: number, size: number, seed = 1, material: Paint = M.popcorn): void {
   let s = seed * 9301 + 49297;
   const next = (): number => {
@@ -200,13 +224,44 @@ export function puffs(kit: Kit, x: number, y: number, z: number, spreadX: number
     const r = Math.sqrt(next());
     const cx = x + Math.cos(a) * r * spreadX;
     const cz = z + Math.sin(a) * r * spreadZ;
-    const cy = y + (1 - r) * size * 2.2 + next() * size * 0.5;
-    for (let lobe = 0; lobe < 4; lobe += 1) {
-      const b = next() * Math.PI * 2;
-      const radius = size * (0.34 + next() * 0.28);
-      const flat = 0.72 + next() * 0.35;
-      kit.add(P.sphere(radius, 7, 5), { ...material, matrix: at(cx + Math.cos(b) * size * 0.5, cy + (next() - 0.4) * size * 0.6, cz + Math.sin(b) * size * 0.5, [next() * 3, next() * 3, 0], [1, flat, 1.1 - flat * 0.2]) });
-    }
+    const cy = y + (1 - r) * size * 2.1 + next() * size * 0.45;
+    const proto = miniFlake(i + seed);
+    const shadeArr = proto.shade;
+    const scale = size * (0.94 + next() * 0.34);
+    const rx = next() * Math.PI * 2;
+    const ry = next() * Math.PI * 2;
+    const rz = next() * Math.PI * 2;
+    const sx = scale * (0.92 + next() * 0.16);
+    const sy = scale * (0.86 + next() * 0.22);
+    const sz = scale * (0.92 + next() * 0.16);
+    const warmth = (next() - 0.38) * 0.24;
+    const pieceAo = count <= 2 ? 0.98 : 0.9 + 0.1 * (1 - r * 0.5);
+    let ci = 0;
+    let ai = 0;
+    kit.add(proto.geometry, {
+      ...material,
+      outline: material.outline ?? 0,
+      matrix: at(cx, cy, cz, [rx, ry, rz], [sx, sy, sz]),
+      colorFn: (_p, n, out) => {
+        const o = ci * 4;
+        ci += 1;
+        const crease = shadeArr[o]!;
+        const core = shadeArr[o + 1]!;
+        if (warmth > 0) out.lerp(puffButter, warmth);
+        else out.lerp(puffCreamHi, -warmth * 0.7);
+        const top = smooth(-0.45, 0.75, n.y);
+        out.lerp(puffButter, (1 - top) * 0.26);
+        out.lerp(puffCrease, Math.pow(crease, 1.25) * 0.5);
+        out.lerp(puffHull, smooth(0.42, 0.88, core) * 0.58);
+      },
+      ao: (_p, n) => {
+        const o = ai * 4;
+        ai += 1;
+        const crease = shadeArr[o]!;
+        const topAo = 0.91 + 0.09 * smooth(-0.5, 0.6, n.y);
+        return pieceAo * topAo * (1 - crease * 0.14);
+      },
+    });
   }
 }
 

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { globals } from '../core/globals.ts';
-import { GLSL_INSTANCE_WORLD, GLSL_LIGHT_PARS, GLSL_RIG_SKIP, GLSL_UTIL, SHADOW_DEPTH_FRAGMENT } from './glsl.ts';
+import { GLSL_ENV, GLSL_FOG, GLSL_INSTANCE_WORLD, GLSL_LAMPS, GLSL_LIGHT_PARS, GLSL_NORMAL_MAT, GLSL_SUN, GLSL_UTIL, SHADOW_DEPTH_FRAGMENT } from './glsl.ts';
 
 const GLSL_SWAY = /* glsl */ `
 uniform float uTime, uWind;
@@ -32,15 +32,22 @@ attribute float aTint;
 varying vec3 vWorld, vNormal, vColor, vLocal;
 varying vec4 vMat, vMat2, vMat3;
 ${GLSL_INSTANCE_WORLD}
+${GLSL_NORMAL_MAT}
 ${GLSL_SWAY}
 ${GLSL_HOVER}
 void main() {
   mat4 world = worldMatrixOf();
+  #ifdef USE_PART_RIG
+    if (dot(world[0].xyz, world[0].xyz) < 1e-10) {
+      gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
+      return;
+    }
+  #endif
   vec4 wp = world * vec4(swayed(position, aMat3.x), 1.0);
   SET_HOVER
   vWorld = wp.xyz;
   vLocal = position;
-  vNormal = normalize(transpose(inverse(mat3(world))) * normal);
+  vNormal = normalize(adjugate3(mat3(world)) * normal);
   vColor = color;
   #ifdef USE_INSTANCING_COLOR
     vColor *= mix(vec3(1.0), instanceColor, aTint);
@@ -229,7 +236,7 @@ void main() {
     albedo *= 1.0 - smudge * print * 0.05;
   }
 
-  float shadow = sunShadow(vWorld, N);
+  float shadow = emissive >= 0.99 ? 1.0 : sunShadow(vWorld, N);
   vec3 col = surfaceLight(albedo, N, V, vWorld, gloss, ao, shadow, metal, coat);
   float ndv = sat(dot(N, V));
   if (velvet > 0.0) {
@@ -269,14 +276,26 @@ uniform float uOutlinePx, uOutlineRefDist;
 varying vec3 vColor;
 varying float vDist;
 ${GLSL_INSTANCE_WORLD}
-${GLSL_RIG_SKIP}
+${GLSL_NORMAL_MAT}
 ${GLSL_SWAY}
 ${GLSL_HOVER}
 void main() {
+  #ifdef USE_PART_RIG
+    if (aPart.y < 0.5) {
+      gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
+      return;
+    }
+  #endif
   mat4 world = worldMatrixOf();
+  #ifdef USE_PART_RIG
+    if (dot(world[0].xyz, world[0].xyz) < 1e-10) {
+      gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
+      return;
+    }
+  #endif
   vec4 wp = world * vec4(swayed(position, aMat3.x), 1.0);
   SET_HOVER
-  vec3 wn = normalize(transpose(inverse(mat3(world))) * normal);
+  vec3 wn = normalize(adjugate3(mat3(world)) * normal);
   vec4 clip = projectionMatrix * viewMatrix * wp;
   vec2 dir = (projectionMatrix * viewMatrix * vec4(wn, 0.0)).xy;
   float len = length(dir);
@@ -291,7 +310,6 @@ void main() {
   #endif
   vDist = distance(cameraPosition, wp.xyz);
   gl_Position = clip;
-  RIG_SKIP(aPart.y)
 }
 `;
 
@@ -318,11 +336,22 @@ void main() {
 const depthVertex = /* glsl */ `
 attribute vec4 aMat3;
 ${GLSL_INSTANCE_WORLD}
-${GLSL_RIG_SKIP}
 ${GLSL_SWAY}
 void main() {
-  gl_Position = projectionMatrix * viewMatrix * worldMatrixOf() * vec4(swayed(position, aMat3.x), 1.0);
-  RIG_SKIP(aPart.z)
+  #ifdef USE_PART_RIG
+    if (aPart.z < 0.5) {
+      gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
+      return;
+    }
+  #endif
+  mat4 world = worldMatrixOf();
+  #ifdef USE_PART_RIG
+    if (dot(world[0].xyz, world[0].xyz) < 1e-10) {
+      gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
+      return;
+    }
+  #endif
+  gl_Position = projectionMatrix * viewMatrix * world * vec4(swayed(position, aMat3.x), 1.0);
 }
 `;
 
@@ -331,12 +360,19 @@ attribute vec4 aMat, aMat2;
 varying vec3 vWorld, vNormal, vColor, vLocal;
 varying float vThickness, vLens, vViewDepth;
 ${GLSL_INSTANCE_WORLD}
+${GLSL_NORMAL_MAT}
 void main() {
   mat4 world = worldMatrixOf();
+  #ifdef USE_PART_RIG
+    if (dot(world[0].xyz, world[0].xyz) < 1e-10) {
+      gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
+      return;
+    }
+  #endif
   vec4 wp = world * vec4(position, 1.0);
   vWorld = wp.xyz;
   vLocal = position;
-  vNormal = normalize(transpose(inverse(mat3(world))) * normal);
+  vNormal = normalize(adjugate3(mat3(world)) * normal);
   vColor = color;
   vThickness = aMat.x * length(world[1].xyz);
   vLens = aMat2.x;
@@ -354,7 +390,10 @@ varying float vThickness, vLens, vViewDepth;
 /** The simple glass of the lower quality tiers: reflections over a slight veil, in one draw. */
 const glassFragment = /* glsl */ `
 ${GLSL_UTIL}
-${GLSL_LIGHT_PARS}
+${GLSL_FOG}
+${GLSL_SUN}
+${GLSL_ENV}
+${GLSL_LAMPS}
 ${glassVaryings}
 void main() {
   vec3 N = normalize(vNormal);
@@ -395,6 +434,18 @@ ${refractionPars}
 ${glassVaryings}
 const float IOR = 1.5;
 
+// Precomputed 8-tap Vogel disk offsets for depth-aware blur through glass.
+const vec2 GLASS_DISK[8] = vec2[8](
+  vec2(-0.2607,  0.2388),
+  vec2( 0.0441, -0.4981),
+  vec2( 0.3911,  0.4969),
+  vec2(-0.6928, -0.1429),
+  vec2( 0.6542, -0.4679),
+  vec2(-0.2305,  0.8469),
+  vec2(-0.3765, -0.8602),
+  vec2( 0.9038,  0.4279)
+);
+
 // Follows one ray through the glass and returns where on screen it comes out.
 vec2 throughGlass(vec3 N, vec3 I, float eta, float gap, vec2 here) {
   vec3 T = refract(I, N, eta);
@@ -423,18 +474,35 @@ vec3 sceneAt(vec2 uv) {
   float coc = blurAmount(z);
   float radius = coc * smoothstep(0.02, 0.4, coc) * uBlurPx;
   vec3 sum = texel(uv);
+  if (radius < 0.5) return sum;
   float weight = 1.0;
-  if (radius >= 0.5) {
-    for (int i = 1; i <= 8; i++) {
-      float t = sqrt(float(i) / 8.0);
-      float a = float(i) * 2.39996323;
-      vec2 q = uv + vec2(cos(a), sin(a)) * t * radius / uSceneSize;
-      // Something sharp in front must not bleed into the soft background behind it.
-      float nearer = sceneDepth(q);
-      float w = nearer < z - 0.15 ? blurAmount(nearer) : 1.0;
-      sum += texel(q) * w;
-      weight += w;
-    }
+  vec2 scale = radius / uSceneSize;
+  for (int i = 0; i < 8; i++) {
+    vec2 q = uv + GLASS_DISK[i] * scale;
+    // Something sharp in front must not bleed into the soft background behind it.
+    float nearer = sceneDepth(q);
+    float w = nearer < z - 0.15 ? blurAmount(nearer) : 1.0;
+    sum += texel(q) * w;
+    weight += w;
+  }
+  return sum / weight;
+}
+
+// Dispersion shares one 8-tap depth-weighted blur loop instead of running three full passes.
+vec3 sceneDispersed(vec2 uvR, vec2 uvG, vec2 uvB) {
+  float z = sceneDepth(uvG);
+  float coc = blurAmount(z);
+  float radius = coc * smoothstep(0.02, 0.4, coc) * uBlurPx;
+  vec3 sum = vec3(texel(uvR).r, texel(uvG).g, texel(uvB).b);
+  if (radius < 0.5) return sum;
+  float weight = 1.0;
+  vec2 scale = radius / uSceneSize;
+  for (int i = 0; i < 8; i++) {
+    vec2 off = GLASS_DISK[i] * scale;
+    float nearer = sceneDepth(uvG + off);
+    float w = nearer < z - 0.15 ? blurAmount(nearer) : 1.0;
+    sum += vec3(texel(uvR + off).r, texel(uvG + off).g, texel(uvB + off).b) * w;
+    weight += w;
   }
   return sum / weight;
 }
@@ -453,10 +521,10 @@ void main() {
   float eta = 1.0 / IOR;
   vec3 through;
   if (uDispersion > 0.5) {
-    through = vec3(
-      sceneAt(throughGlass(bent, I, eta * 1.012, gap, here)).r,
-      sceneAt(throughGlass(bent, I, eta, gap, here)).g,
-      sceneAt(throughGlass(bent, I, eta * 0.988, gap, here)).b
+    through = sceneDispersed(
+      throughGlass(bent, I, eta * 1.012, gap, here),
+      throughGlass(bent, I, eta, gap, here),
+      throughGlass(bent, I, eta * 0.988, gap, here)
     );
   } else {
     through = sceneAt(throughGlass(bent, I, eta, gap, here));
@@ -472,7 +540,10 @@ void main() {
 /** Reflections off every pane, near and far, added over what the glass let through. */
 const glassSurfaceFragment = /* glsl */ `
 ${GLSL_UTIL}
-${GLSL_LIGHT_PARS}
+${GLSL_FOG}
+${GLSL_SUN}
+${GLSL_ENV}
+${GLSL_LAMPS}
 ${refractionPars}
 ${glassVaryings}
 void main() {

@@ -22,6 +22,8 @@ export class ShadowPass {
   readonly camera = new THREE.OrthographicCamera(-8, 8, 8, -8, 0.5, 40);
   private target: THREE.WebGLRenderTarget | null = null;
   private readonly casters = new Map<THREE.Mesh, THREE.Material>();
+  private readonly savedMeshes: THREE.Mesh[] = [];
+  private readonly savedMats: Array<THREE.Material | THREE.Material[]> = [];
   private readonly center = new THREE.Vector3();
   private radius = 8;
 
@@ -115,10 +117,14 @@ export class ShadowPass {
       .multiply(cam.projectionMatrix)
       .multiply(cam.matrixWorldInverse);
 
-    const originals: Array<[THREE.Mesh, THREE.Material | THREE.Material[]]> = [];
+    const meshes = this.savedMeshes;
+    const mats = this.savedMats;
+    let count = 0;
     for (const [mesh, depth] of this.casters) {
-      originals.push([mesh, mesh.material]);
+      meshes[count] = mesh;
+      mats[count] = mesh.material;
       mesh.material = depth;
+      count += 1;
     }
     renderer.setRenderTarget(this.target);
     // The automatic clear fills the color copy with the far plane, where nothing blocks the light.
@@ -127,6 +133,10 @@ export class ShadowPass {
     renderer.setClearColor(white, 1);
     renderer.render(scene, cam);
     renderer.setClearColor(savedClear, alpha);
-    for (const [mesh, material] of originals) mesh.material = material;
+    for (let i = 0; i < count; i += 1) {
+      meshes[i]!.material = mats[i]!;
+    }
+    meshes.length = 0;
+    mats.length = 0;
   }
 }

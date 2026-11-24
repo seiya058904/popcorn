@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { Stage } from '../core/stage.ts';
 import { createFlakeGeometry, FLAKE_DETAIL_HIGH, FLAKE_DETAIL_LOW, FLAKE_SHAPES } from '../geometry/popcorn.ts';
-import { pieceAtlas, pieceMaterials } from '../materials/popcorn.ts';
+import { pieceAtlas, pieceMaterials, pieceShadowAtlas } from '../materials/popcorn.ts';
 
 const heroCache: THREE.BufferGeometry[] = [];
 const lowCache: THREE.BufferGeometry[] = [];
@@ -68,6 +68,7 @@ export class PieceBatches {
   readonly capacityPerShape: number;
   readonly group = new THREE.Group();
   private readonly mesh: THREE.InstancedMesh;
+  private readonly shadowMesh: THREE.InstancedMesh;
   private readonly state: THREE.InstancedBufferAttribute;
   private readonly capacity: number;
   private count = 0;
@@ -93,7 +94,22 @@ export class PieceBatches {
     this.mesh.frustumCulled = false;
     this.mesh.count = 0;
     this.group.add(this.mesh);
-    stage.shadow.add(this.mesh, materials.pieceDepth);
+
+    // Shadow-only proxy sharing instanceMatrix + iState zero-copy with cached FLAKE_DETAIL_LOW (500 tris, 4.84x lighter).
+    const shadowAtlas = flakeAtlas(FLAKE_DETAIL_LOW);
+    pieceShadowAtlas.value = shadowAtlas.texture;
+    const shadowGeo = new THREE.BufferGeometry();
+    shadowGeo.index = shadowAtlas.index;
+    shadowGeo.setAttribute('position', shadowAtlas.position);
+    shadowGeo.setAttribute('iState', this.state);
+    shadowGeo.boundingSphere = geometry.boundingSphere;
+    this.shadowMesh = new THREE.InstancedMesh(shadowGeo, materials.pieceDepth, this.capacity);
+    this.shadowMesh.instanceMatrix = this.mesh.instanceMatrix;
+    this.shadowMesh.frustumCulled = false;
+    this.shadowMesh.count = 0;
+    this.shadowMesh.layers.disable(0);
+    this.group.add(this.shadowMesh);
+    stage.shadow.add(this.shadowMesh, materials.pieceDepth);
   }
 
   begin(): void {
@@ -110,6 +126,7 @@ export class PieceBatches {
 
   end(): void {
     this.mesh.count = this.count;
+    this.shadowMesh.count = this.count;
     this.mesh.instanceMatrix.needsUpdate = true;
     this.state.needsUpdate = true;
   }

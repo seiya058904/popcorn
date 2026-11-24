@@ -129,6 +129,8 @@ export class SceneRuntime {
     yield* this.pile.build(stage);
     tagNew('pile');
     this.sprites = new Sprites(this.root);
+    // Miniature (non-live) scenes have no sprites to emit; hide immediately so they do not leak a draw call.
+    this.sprites.mesh.visible = live;
     tagNew('sprites');
     yield;
     if (!live) {
@@ -551,12 +553,22 @@ export class SceneRuntime {
   }
 
   private readonly ground = (x: number, z: number): number => this.pile.heightAt(x, z);
+  private fullCtx: SceneContext | null = null;
 
   update(dt: number, ctx: Omit<SceneContext, 'sprites' | 'director' | 'rng' | 'ground'>, cooling: boolean): void {
     this.clock += dt;
     const director = this.director;
     if (director) {
-      const full: SceneContext = { ...ctx, sprites: this.sprites, director, rng: this.rng, ground: this.ground };
+      let full = this.fullCtx;
+      if (!full) {
+        full = { time: ctx.time, level: ctx.level, intensity: ctx.intensity, attract: ctx.attract, sprites: this.sprites, director, rng: this.rng, ground: this.ground };
+        this.fullCtx = full;
+      } else {
+        full.time = ctx.time;
+        full.level = ctx.level;
+        full.intensity = ctx.intensity;
+        full.attract = ctx.attract;
+      }
       this.launchBudget = Math.min(4, this.launchBudget + dt * MACHINE_LAUNCHES_PER_SECOND);
       this.pile.setLevel(ctx.level);
       director.update(dt);
@@ -566,7 +578,7 @@ export class SceneRuntime {
       this.heroCannon?.update(dt, cooling);
       this.stirrer?.update(dt, this.pile.heightAt(this.spec.pile.centerX, this.spec.pile.centerZ));
       this.debris?.update(dt);
-      if (this.parcel?.update(dt, (x, z) => this.pile.heightAt(x, z))) this.parts.kick?.(0.5);
+      if (this.parcel?.update(dt, this.ground)) this.parts.kick?.(0.5);
       this.flock?.update(dt);
       const tempo = 1 + Math.min(1.6, ctx.intensity * 0.28);
       for (const rig of this.rigs.values()) rig.update(dt, ctx.time, tempo);

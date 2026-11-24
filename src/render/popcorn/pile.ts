@@ -287,8 +287,7 @@ export class Pile {
     }
     const dirty = this.dirty;
     if (dirty) {
-      this.refreshFills();
-      this.writeCliffs();
+      if (this.refreshFills()) this.writeCliffs();
     }
     if (moved || dirty) this.writeTexture();
   }
@@ -334,9 +333,10 @@ export class Pile {
 
   /**
    * The mound shape is the expensive part, so small level changes refresh a quarter of the
-   * rows per frame. The level moves slowly enough that the interlacing cannot be seen.
+   * rows per frame. Returns true when a full refresh or complete interlace cycle finished,
+   * avoiding redundant 180x180 cliff recomputations on intermediate rows.
    */
-  private refreshFills(): void {
+  private refreshFills(): boolean {
     const { res: r, fills, lumps, wobble, shape } = this;
     const level = Math.max(0, this.level);
     const full = Math.abs(level - this.filledLevel) > 0.02 || this.filledLevel < 0;
@@ -352,13 +352,15 @@ export class Pile {
       this.filledLevel = level;
       this.rowPhase = 0;
       this.dirty = false;
-      return;
+      return true;
     }
     this.rowPhase = (this.rowPhase + 1) % ROW_INTERLACE;
     if (this.rowPhase === 0) {
       this.dirty = this.filledLevel !== level;
       this.filledLevel = level;
+      return true;
     }
+    return false;
   }
 
   private writeTexture(): void {

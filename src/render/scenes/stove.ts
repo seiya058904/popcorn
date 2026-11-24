@@ -71,11 +71,11 @@ const MICROWAVE_SLOTS: UnitSlot[] = [
   { x: 1.9, y: PAN_Y_TOP, z: -2.65, rotation: -0.08, scale: 0.92 },
 ];
 
-/** On the enamel at the back, clear of the burners. */
+/** On the enamel at the back, clear of the leaning pot lid (rest/rattle/blast), back guard and burners. */
 const TOASTER_SLOTS: UnitSlot[] = [
-  { x: 4.85, y: PAN_Y_TOP, z: -2.65, rotation: -0.12, scale: 0.9 },
-  { x: 6.85, y: PAN_Y_TOP, z: -2.35, rotation: -0.4, scale: 0.9 },
-  { x: -6.85, y: PAN_Y_TOP, z: 1.25, rotation: 0.55, scale: 0.9 },
+  { x: 5.55, y: PAN_Y_TOP, z: -2.48, rotation: -0.06, scale: 0.85 },
+  { x: 6.72, y: PAN_Y_TOP, z: -1.12, rotation: -1.32, scale: 0.85 },
+  { x: -6.85, y: PAN_Y_TOP, z: 1.25, rotation: 0.55, scale: 0.88 },
 ];
 
 const BURNERS: THREE.Vector3Tuple[] = [

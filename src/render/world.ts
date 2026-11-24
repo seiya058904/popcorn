@@ -239,6 +239,8 @@ export class World {
   /** 0 to 1, easing in and out with a frenzy. */
   private frenzy = 0;
   private readonly mood = moodScratch();
+  private readonly sharedCtx = { time: 0, level: 0, intensity: 0, attract: false };
+  private readonly breakCtx = { time: 0, level: 1, intensity: 0, attract: false };
 
   constructor(stage: Stage, sim: Simulation, bus: EventBus<GameEvents>, impact: ImpactDirector, hooks: WorldHooks) {
     this.stage = stage;
@@ -995,13 +997,22 @@ export class World {
 
     const current = this.current!;
     const cooling = this.sim.state.cannonCooldown > 0;
-    const shared = { time: this.time, level: this.level, intensity: this.intensity, attract: this.attract };
+    const shared = this.sharedCtx;
+    shared.time = this.time;
+    shared.level = this.level;
+    shared.intensity = this.intensity;
+    shared.attract = this.attract;
     if (active && !active.blasted) {
       const u = clamp01(active.t / STRAIN_END);
       // Carries straight on from the pressure that was already building.
       active.from.strain(PRESSURE_SHARE + (1 - PRESSURE_SHARE) * u, active.from.context(this.time, 1, this.intensity));
       active.from.pile.setLevel(1 + u * 0.05);
-      active.from.update(sceneDt, { ...shared, level: 1 + u * 0.05 }, cooling);
+      const bctx = this.breakCtx;
+      bctx.time = this.time;
+      bctx.level = 1 + u * 0.05;
+      bctx.intensity = this.intensity;
+      bctx.attract = this.attract;
+      active.from.update(sceneDt, bctx, cooling);
     } else {
       if (!active && !this.attract && this.finaleTime === -1 && this.sim.state.stage < SCENES.length) {
         const pressure = smoothstep(this.targetLevel(), PRESSURE_FROM, 1);
@@ -1015,7 +1026,12 @@ export class World {
         const ctx = active.from.context(this.time, 1, this.intensity);
         if (ctx) {
           active.from.parts.afterBlast?.(dt, ctx);
-          active.from.update(dt, { ...shared, level: 1 }, cooling);
+          const bctx = this.breakCtx;
+          bctx.time = this.time;
+          bctx.level = 1;
+          bctx.intensity = this.intensity;
+          bctx.attract = this.attract;
+          active.from.update(dt, bctx, cooling);
         }
       }
     }
@@ -1196,7 +1212,8 @@ export class World {
     p.focusDistance = pose.focusDistance;
     p.focusRange = pose.focusRange;
     p.aoRadius = pose.aoRadius;
-    p.reflectionRange = pose.aoRadius * REFLECTION_REACH;
+    const allowReflect = this.transition !== null || this.current?.spec.reflections !== false;
+    p.reflectionRange = allowReflect ? pose.aoRadius * REFLECTION_REACH : 0;
     p.exposure = pose.grade.exposure;
     p.contrast = pose.grade.contrast;
     p.saturation = pose.grade.saturation;

@@ -127,15 +127,30 @@ export class UnitRig {
 
   /** Builds the machine one part per step, so it can be made in the background. */
   static *create(stage: Stage, parent: THREE.Object3D, kind: UnitKindName, slots: UnitSlot[], host: UnitHost, path: UnitPath | null = null): Generator<void, UnitRig, void> {
+    const def = UNIT_DEFS[kind];
     const geometries: THREE.BufferGeometry[] = [];
-    for (const make of UNIT_DEFS[kind].parts) {
+    for (const make of def.parts) {
       geometries.push(make());
       yield;
     }
-    return new UnitRig(stage, parent, kind, slots, host, geometries, path);
+    let trackPieces: THREE.BufferGeometry[] | undefined;
+    if (path && def.trackSteps) {
+      trackPieces = yield* def.trackSteps(path);
+      yield;
+    }
+    return new UnitRig(stage, parent, kind, slots, host, geometries, path, trackPieces);
   }
 
-  constructor(stage: Stage, parent: THREE.Object3D, kind: UnitKindName, slots: UnitSlot[], host: UnitHost, geometries?: THREE.BufferGeometry[], path: UnitPath | null = null) {
+  constructor(
+    stage: Stage,
+    parent: THREE.Object3D,
+    kind: UnitKindName,
+    slots: UnitSlot[],
+    host: UnitHost,
+    geometries?: THREE.BufferGeometry[],
+    path: UnitPath | null = null,
+    trackPieces?: THREE.BufferGeometry[],
+  ) {
     this.def = UNIT_DEFS[kind];
     this.entrance = ENTRANCES[kind];
     this.path = path;
@@ -165,7 +180,8 @@ export class UnitRig {
     this.reach = reach;
     this.radius = radius;
     this.rig = new PartRig(stage, parent, parts, this.slots.length);
-    this.track = path && this.def.track ? new Track(stage, parent, this.def.track(path)) : null;
+    const builtTrack = trackPieces ?? (path && this.def.track ? this.def.track(path) : null);
+    this.track = builtTrack ? new Track(stage, parent, builtTrack) : null;
     this.signs = (this.def.signs ?? []).map((sign) => {
       const mesh = new THREE.InstancedMesh(
         signGeometry(sign.width, sign.height, sign.matrix, sign.part ?? 0),

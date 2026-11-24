@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { globals } from '../core/globals.ts';
-import { GLSL_LIGHT_PARS, GLSL_UTIL } from './glsl.ts';
+import { GLSL_FOG, GLSL_UTIL } from './glsl.ts';
 
 /**
  * A painted sky that can change with the time of day: the view out of a window, or the dome over
@@ -37,7 +37,7 @@ void main() {
 
 const fragment = /* glsl */ `
 ${GLSL_UTIL}
-${GLSL_LIGHT_PARS}
+${GLSL_FOG}
 uniform vec3 uTop, uHorizon, uGlow, uCloudColor, uDiscColor;
 uniform vec4 uGlowAt, uDisc;
 uniform float uStars, uClouds, uCraters, uBrightness;

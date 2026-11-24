@@ -145,6 +145,8 @@ export interface SceneSpec {
   shafts?: { at?: THREE.Vector3; sun?: boolean; strength: number; length?: number; threshold?: number };
   /** Life in the air: dust in a beam, insects at night, meteors (fx/ambience.ts). */
   ambience?: AmbientEmitter[];
+  /** Set false on scenes without reflective floors (e.g. space/Earth) to skip SSR entirely. */
+  reflections?: boolean;
   /** How far swaying parts move in the wind, in the scene's own units. */
   wind?: number;
   grade: Grade;

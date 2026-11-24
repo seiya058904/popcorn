@@ -139,27 +139,30 @@ export function createFlakeGeometry(shape: number, detail: number): THREE.Buffer
     radius *= 1 - (mushroom ? 0.18 : 0.34) * smooth(0.6, 0.98, hullDot);
     pos.setXYZ(i, dir.x * radius, dir.y * radius, dir.z * radius);
 
-    // Folds between lobes and low valleys both toast darker.
-    const fold = 1 - smooth(0, 0.16, best - second);
+    // Folds between lobes and low valleys both toast darker; butterfly wings get slightly deeper crease contrast.
+    const fold = 1 - smooth(0, mushroom ? 0.16 : 0.195, best - second);
     const valley = 1 - smooth(0.22, 0.62, field);
-    shade[i * 4] = Math.min(1, Math.max(fold * smooth(0.1, 0.5, best) * 0.82, valley * 0.92));
+    shade[i * 4] = Math.min(1, Math.max(fold * smooth(0.1, 0.5, best) * (mushroom ? 0.82 : 0.88), valley * 0.92));
     shade[i * 4 + 1] = core;
     shade[i * 4 + 2] = field;
     // Where along the kernel this point lies, crown 0 to tip 1, for the kernel's own colouring.
     shade[i * 4 + 3] = (hullDot + 1) * 0.5;
 
-    // Kernel: a flat teardrop, like a real kernel. Broad and round at the crown, narrowing to a
-    // short point at the hull end, and thinner front to back than side to side.
+    // Kernel: a plump, smooth popping-corn grain — rounded broad crown tapering gently to a short
+    // blunt tip cap without a pinched lightbulb neck, fuller front-to-back with a faint embryo dimple.
     const axial = hullDot;
     const across = dot(dir, side);
     const through = dot(dir, face);
-    const width = 0.5 * (1 - 0.46 * smooth(-0.35, 1, axial));
-    const ellipse = 1 / Math.sqrt((axial * axial) / (0.62 * 0.62) + (across * across) / (width * width) + (through * through) / (width * width * 0.5));
-    const tip = 0.1 * Math.pow(Math.max(0, axial), 9);
-    // The crown is a little flattened, with the faint dent of a dried kernel.
-    const crown = 1 - 0.07 * smooth(-0.82, -1, axial);
-    const dent = 0.015 * Math.sin(dir.x * 7 + seed) * Math.sin(dir.z * 6);
-    const kernelRadius = ellipse * crown + tip + dent;
+    const taper = smooth(-0.62, 0.96, axial);
+    const width = 0.525 * (1 - 0.34 * taper);
+    const depth = width * (0.82 - 0.08 * taper);
+    const ellipse = 1 / Math.sqrt((axial * axial) / (0.61 * 0.61) + (across * across) / (width * width) + (through * through) / (depth * depth));
+    const tip = 0.052 * Math.pow(Math.max(0, axial), 5);
+    // Slightly flattened crown with a subtle dried-kernel crown dimple and a gentle germ groove on one face.
+    const crown = 1 - 0.06 * smooth(-0.76, -1, axial);
+    const germ = 0.032 * smooth(0.25, 0.85, through) * smooth(-0.35, 0.2, axial) * (1 - smooth(0.25, 0.78, axial)) * (1 - smooth(0.15, 0.6, Math.abs(across)));
+    const dent = 0.01 * Math.sin(dir.x * 7 + seed) * Math.sin(dir.z * 6);
+    const kernelRadius = ellipse * crown + tip - germ + dent;
     kernel[i * 3] = dir.x * kernelRadius;
     kernel[i * 3 + 1] = dir.y * kernelRadius;
     kernel[i * 3 + 2] = dir.z * kernelRadius;

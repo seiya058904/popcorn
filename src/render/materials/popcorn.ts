@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { globals } from '../core/globals.ts';
-import { GLSL_LIGHT_PARS, GLSL_UTIL, SHADOW_DEPTH_FRAGMENT } from './glsl.ts';
+import { GLSL_LIGHT_PARS, GLSL_NORMAL_MAT, GLSL_UTIL, SHADOW_DEPTH_FRAGMENT } from './glsl.ts';
 
 /** Values a flavor controls. Linear colors, swapped live by flavor upgrades. */
 export const popcornUniforms = {
@@ -100,22 +100,36 @@ void flavorEffect(float kind, inout vec3 base, vec3 N, vec3 V, vec3 P, float ban
   }
 }
 
-float noise3(vec3 p) {
+// Analytic gradient of 3D value noise: 8 corner hashes instead of 4 finite-difference evaluations.
+vec3 noise3Grad(vec3 p) {
   vec3 i = floor(p), f = fract(p);
   vec3 u = f * f * (3.0 - 2.0 * f);
-  float a = mix(mix(hash31(i), hash31(i + vec3(1, 0, 0)), u.x), mix(hash31(i + vec3(0, 1, 0)), hash31(i + vec3(1, 1, 0)), u.x), u.y);
-  float b = mix(mix(hash31(i + vec3(0, 0, 1)), hash31(i + vec3(1, 0, 1)), u.x), mix(hash31(i + vec3(0, 1, 1)), hash31(i + vec3(1, 1, 1)), u.x), u.y);
-  return mix(a, b, u.z);
+  vec3 du = 6.0 * f * (1.0 - f);
+  float a  = hash31(i);
+  float b  = hash31(i + vec3(1.0, 0.0, 0.0));
+  float c  = hash31(i + vec3(0.0, 1.0, 0.0));
+  float d  = hash31(i + vec3(1.0, 1.0, 0.0));
+  float e  = hash31(i + vec3(0.0, 0.0, 1.0));
+  float f1 = hash31(i + vec3(1.0, 0.0, 1.0));
+  float g  = hash31(i + vec3(0.0, 1.0, 1.0));
+  float h  = hash31(i + vec3(1.0, 1.0, 1.0));
+  float k1 = b - a;
+  float k2 = c - a;
+  float k3 = e - a;
+  float k4 = a - b - c + d;
+  float k5 = a - c - e + g;
+  float k6 = a - b - e + f1;
+  float k7 = -a + b + c - d + e - f1 - g + h;
+  return du * vec3(
+    k1 + k4 * u.y + k6 * u.z + k7 * u.y * u.z,
+    k2 + k5 * u.z + k4 * u.x + k7 * u.z * u.x,
+    k3 + k6 * u.x + k5 * u.y + k7 * u.x * u.y
+  );
 }
 
-// Foamy puffed-starch surface, added per pixel so flakes hold up in close-up.
+// Foamy puffed-starch surface, added per pixel so flakes hold up in close-up (16 hashes vs 64).
 vec3 puffGradient(vec3 p) {
-  const float e = 0.04;
-  float n = noise3(p) + noise3(p * 2.3) * 0.45;
-  float x = noise3(p + vec3(e, 0, 0)) + noise3((p + vec3(e, 0, 0)) * 2.3) * 0.45;
-  float y = noise3(p + vec3(0, e, 0)) + noise3((p + vec3(0, e, 0)) * 2.3) * 0.45;
-  float z = noise3(p + vec3(0, 0, e)) + noise3((p + vec3(0, 0, e)) * 2.3) * 0.45;
-  return (vec3(x, y, z) - n) / e;
+  return noise3Grad(p) + noise3Grad(p * 2.3) * 1.035;
 }
 
 /**
@@ -221,6 +235,7 @@ float flakeAxial(int shape) { return texelFetch(tFlakes, ivec2(gl_VertexID, shap
 
 const pieceVertex = /* glsl */ `
 ${flakeAtlas}
+${GLSL_NORMAL_MAT}
 attribute vec4 iState;
 varying vec3 vWorld, vNormal, vShade, vObject;
 varying vec2 vPop;
@@ -237,7 +252,7 @@ void main() {
   mat4 world = modelMatrix * instanceMatrix;
   vec4 wp = world * vec4(p, 1.0);
   vWorld = wp.xyz;
-  mat3 normalMat = transpose(inverse(mat3(world)));
+  mat3 normalMat = adjugate3(mat3(world));
   vNormal = normalize(normalMat * n);
   vRotation = normalMat;
   vObject = flakePos;
@@ -322,16 +337,22 @@ vec3 rotateQ(vec4 q, vec3 v) { return v + 2.0 * cross(q.xyz, cross(q.xyz, v) + q
 void main() {
   vec2 uv = pileUv(iPlace.xy);
   vec4 h = textureLod(uPileTex, uv, 0.0);
+  float depth = h.r - h.b;
+  float cliff = pileCliff(uv);
+  // Early-out buried, unrevealed or cliff-culled flakes before gradient fetches and atlas reads.
+  if (depth <= 0.0 || h.a <= 0.001 || cliff >= 2.6) {
+    gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
+    return;
+  }
   float e = uPileTexel * 2.0;
   float dx = textureLod(uPileTex, uv + vec2(e, 0.0), 0.0).r - textureLod(uPileTex, uv - vec2(e, 0.0), 0.0).r;
   float dz = textureLod(uPileTex, uv + vec2(0.0, e), 0.0).r - textureLod(uPileTex, uv - vec2(0.0, e), 0.0).r;
   vPileNormal = normalize(vec3(-dx, uPileSize * e * 2.0, -dz));
-  float depth = h.r - h.b;
   vDepth = depth;
   vTone = fract(iPlace.x * 13.7 + iPlace.y * 7.3);
   float reveal = smoothstep(0.0, 0.1 * uPieceK, depth);
   float jiggle = h.g;
-  float scale = iPlace.w * reveal * h.a * (1.0 + jiggle * 0.5) * (1.0 - smoothstep(2.0, 2.6, pileCliff(uv)));
+  float scale = iPlace.w * reveal * h.a * (1.0 + jiggle * 0.5) * (1.0 - smoothstep(2.0, 2.6, cliff));
   vec4 q = normalize(iQuat + vec4(jiggle * sin(iPlace.x * 31.0 + uTime * 26.0) * 0.7, 0.0, jiggle * cos(iPlace.y * 29.0 + uTime * 23.0) * 0.7, 0.0));
   int shape = int(iShape + 0.5);
   vec3 p = rotateQ(q, flakeRow(shape, 0) * scale);
@@ -407,10 +428,11 @@ void main() {
   vec3 facing = abs(N);
   vec2 sheet = facing.y > 0.62 ? vXZ : facing.x > facing.z ? vec2(vXZ.y, h.r) : vec2(vXZ.x, h.r);
   vec2 p = sheet * uLumpScale / uPieceK + 0.35 * vec2(vnoise(sheet * 3.1 / uPieceK), vnoise(sheet * 3.1 / uPieceK + 9.0));
-  vec2 w = worley(p);
+  vec2 bestR;
+  vec2 w = worleyGrad(p, bestR);
   float puff = sat(1.0 - w.x * 1.1);
   float gap = smoothstep(0.0, 0.34, w.y - w.x);
-  vec2 q = vec2(worley(p + vec2(0.05, 0.0)).x - w.x, worley(p + vec2(0.0, 0.05)).x - w.x) * 7.0;
+  vec2 q = -bestR / max(w.x, 0.05) * 0.35;
   N = normalize(N + vec3(q.x, 0.0, q.y) * 0.7);
 
   vec3 toCam = cameraPosition - vWorld;
@@ -475,6 +497,8 @@ let shared: PieceMaterials | null = null;
 
 /** The near-camera flake atlas; the batches fill it in when they are first built. */
 export const pieceAtlas = { value: null as THREE.Texture | null };
+/** Low-poly shadow-proxy flake atlas, isolated from pieceAtlas so gl_VertexID always matches. */
+export const pieceShadowAtlas = { value: null as THREE.Texture | null };
 /** The heap-surface flake atlas, shared by every heap. */
 export const surfaceAtlas = { value: null as THREE.Texture | null };
 
@@ -490,7 +514,7 @@ export function pieceMaterials(): PieceMaterials {
       name: 'popcorn-piece-depth',
       vertexShader: pieceDepthVertex,
       fragmentShader: depthFragment,
-      uniforms: { tFlakes: pieceAtlas },
+      uniforms: { tFlakes: pieceShadowAtlas },
     }),
   };
   return shared;

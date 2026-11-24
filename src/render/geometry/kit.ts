@@ -434,17 +434,19 @@ export const P = {
     new THREE.LatheGeometry(roundProfile(profile, round, steps), segments),
   /** Solid rounded cylinder. */
   puck: (radiusBottom: number, radiusTop: number, height: number, segments = 32, round = 0.03): THREE.BufferGeometry =>
-    new THREE.LatheGeometry(
-      roundProfile(
-        [
-          [0, 0],
-          [radiusBottom, 0],
-          [radiusTop, height],
-          [0, height],
-        ],
-        round,
+    shared(`p${radiusBottom},${radiusTop},${height},${segments},${round}`, () =>
+      new THREE.LatheGeometry(
+        roundProfile(
+          [
+            [0, 0],
+            [radiusBottom, 0],
+            [radiusTop, height],
+            [0, height],
+          ],
+          round,
+        ),
+        segments,
       ),
-      segments,
     ),
   /** A plain box, 12 triangles against a rounded box's 108: for small flat details seen from afar. */
   slab: (w: number, h: number, d: number): THREE.BufferGeometry => shared(`slab${w},${h},${d}`, () => new THREE.BoxGeometry(w, h, d)),
@@ -459,9 +461,9 @@ export const P = {
     }),
   sphere: (radius: number, w = 24, h = 16): THREE.BufferGeometry => shared(`s${radius},${w},${h}`, () => new THREE.SphereGeometry(radius, w, h)),
   capsule: (radius: number, length: number, cap = 6, radial = 14): THREE.BufferGeometry =>
-    new THREE.CapsuleGeometry(radius, length, cap, radial),
+    shared(`c${radius},${length},${cap},${radial}`, () => new THREE.CapsuleGeometry(radius, length, cap, radial)),
   torus: (radius: number, tube: number, radial = 12, tubular = 40, arc = Math.PI * 2): THREE.BufferGeometry =>
-    new THREE.TorusGeometry(radius, tube, radial, tubular, arc),
+    shared(`t${radius},${tube},${radial},${tubular},${arc}`, () => new THREE.TorusGeometry(radius, tube, radial, tubular, arc)),
   tube: (points: THREE.Vector3[], radius: number, tubular = 32, radial = 10, closed = false): THREE.BufferGeometry =>
     new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points, closed), tubular, radius, radial, closed),
 };

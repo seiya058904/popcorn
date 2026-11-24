@@ -110,6 +110,81 @@ export const earthPile: PileShape = {
   },
 };
 
+const cubeBakeVertex = /* glsl */ `
+varying vec2 vNdc;
+void main() {
+  vNdc = position.xy;
+  gl_Position = vec4(position.xy, 0.0, 1.0);
+}
+`;
+
+// Exact OpenGL / WebGL cubemap face projection so textureCube(tMap, d) recovers direction d seamlessly.
+const cubeBakePars = /* glsl */ `
+uniform int uFace;
+varying vec2 vNdc;
+
+vec3 cubeDir(int face, vec2 uv) {
+  float u = uv.x, v = uv.y;
+  if (face == 0) return normalize(vec3( 1.0, -v, -u));
+  if (face == 1) return normalize(vec3(-1.0, -v,  u));
+  if (face == 2) return normalize(vec3(   u,  1.0,  v));
+  if (face == 3) return normalize(vec3(   u, -1.0, -v));
+  if (face == 4) return normalize(vec3(   u, -v,  1.0));
+  return normalize(vec3(-u, -v, -1.0));
+}
+
+float gnoise(vec3 p) {
+  vec3 i = floor(p), f = fract(p);
+  vec3 u = f * f * (3.0 - 2.0 * f);
+  float a = mix(mix(hash31(i), hash31(i + vec3(1, 0, 0)), u.x), mix(hash31(i + vec3(0, 1, 0)), hash31(i + vec3(1, 1, 0)), u.x), u.y);
+  float b = mix(mix(hash31(i + vec3(0, 0, 1)), hash31(i + vec3(1, 0, 1)), u.x), mix(hash31(i + vec3(0, 1, 1)), hash31(i + vec3(1, 1, 1)), u.x), u.y);
+  return mix(a, b, u.z);
+}
+float fbm(vec3 p) { return gnoise(p) * 0.55 + gnoise(p * 2.1 + 3.1) * 0.3 + gnoise(p * 4.3 + 7.7) * 0.15; }
+float fbmFine(vec3 p) {
+  float sum = 0.0, amp = 0.5;
+  for (int i = 0; i < 4; i++) {
+    sum += gnoise(p) * amp;
+    p = p * 2.07 + vec3(1.7, 9.2, 4.4);
+    amp *= 0.5;
+  }
+  return sum / 0.94;
+}
+`;
+
+// Baked once into RGBA16F cubemap: r=height, g=peaksHeight, b=desertBase, a=meadow.
+const planetGeoBakeFragment = /* glsl */ `
+${cubeBakePars}
+void main() {
+  vec3 d = cubeDir(uFace, vNdc);
+  vec3 q = d * 2.4 + 11.0;
+  vec3 warp = vec3(gnoise(q * 0.9 + 1.3), gnoise(q * 0.9 + 7.9), gnoise(q * 0.9 + 3.1)) - 0.5;
+  float height = fbmFine(q + warp * 1.25) * 1.06 - 0.03;
+  float peaksHeight = height + gnoise(d * 22.0) * 0.04;
+  float lat = abs(d.y);
+  float dryness = smoothstep(0.12, 0.3, lat) * (1.0 - smoothstep(0.34, 0.48, lat));
+  float desertBase = smoothstep(0.35, 0.65, dryness + (gnoise(d * 6.0 + 2.0) - 0.5) * 0.8);
+  float meadow = smoothstep(0.3, 0.7, gnoise(d * 9.0 + 4.0));
+  gl_FragColor = vec4(height, peaksHeight, desertBase, meadow);
+}
+`;
+
+// Baked once into RGBA8 cubemap: r=ice, g=cityPattern, b=snowEdgeNoise.
+const planetAuxBakeFragment = /* glsl */ `
+${cubeBakePars}
+void main() {
+  vec3 d = cubeDir(uFace, vNdc);
+  float lat = abs(d.y);
+  float ice = smoothstep(0.86, 0.92, lat + gnoise(d * 7.0) * 0.06);
+  vec2 grid = vec2(atan(d.z, d.x) * 6.0, asin(clamp(d.y, -1.0, 1.0)) * 12.0);
+  float big = smoothstep(0.34, 0.1, worley(grid).x);
+  float small = smoothstep(0.16, 0.05, worley(grid * 3.3 + 7.0).x) * 0.55;
+  float cityPattern = max(big, small);
+  float snowEdge = fbm(d * 5.0);
+  gl_FragColor = vec4(ice, cityPattern, snowEdge, 1.0);
+}
+`;
+
 const globeVertex = /* glsl */ `
 attribute vec4 aMat;
 varying vec3 vWorld, vNormal, vDir;
@@ -124,6 +199,7 @@ void main() {
 
 const globeFragment = /* glsl */ `
 uniform float uSnowLine, uSpin, uCities;
+uniform samplerCube tPlanetGeo, tPlanetAux;
 varying vec3 vWorld, vNormal, vDir;
 
 float gnoise(vec3 p) {
@@ -134,18 +210,8 @@ float gnoise(vec3 p) {
   return mix(a, b, u.z);
 }
 float fbm(vec3 p) { return gnoise(p) * 0.55 + gnoise(p * 2.1 + 3.1) * 0.3 + gnoise(p * 4.3 + 7.7) * 0.15; }
-// More octaves for coastlines and mountain ranges, which are seen up close.
-float fbmFine(vec3 p) {
-  float sum = 0.0, amp = 0.5;
-  for (int i = 0; i < 4; i++) {
-    sum += gnoise(p) * amp;
-    p = p * 2.07 + vec3(1.7, 9.2, 4.4);
-    amp *= 0.5;
-  }
-  return sum / 0.94;
-}
 
-// Screen-space bump from a height, as used for the drifts.
+// Screen-space bump from continuous HalfFloat terrain elevation or sea waves.
 vec3 bumpBy(vec3 N, float h) {
   vec3 dpx = dFdx(vWorld), dpy = dFdy(vWorld);
   vec3 r1 = cross(dpy, N), r2 = cross(N, dpx);
@@ -155,37 +221,44 @@ vec3 bumpBy(vec3 N, float h) {
 }
 
 void main() {
+  vec3 dir0 = normalize(vDir);
   float c = cos(uSpin), s = sin(uSpin);
-  vec3 d = vec3(vDir.x * c - vDir.z * s, vDir.y, vDir.x * s + vDir.z * c);
-  // Continents from warped noise, so coasts wander into bays and peninsulas instead of blobs.
-  vec3 q = d * 2.4 + 11.0;
-  vec3 warp = vec3(gnoise(q * 0.9 + 1.3), gnoise(q * 0.9 + 7.9), gnoise(q * 0.9 + 3.1)) - 0.5;
-  float height = fbmFine(q + warp * 1.25) * 1.06 - 0.03;
-  float land = smoothstep(0.5, 0.508, height);
+  vec3 d = vec3(dir0.x * c - dir0.z * s, dir0.y, dir0.x * s + dir0.z * c);
+
+  // Seamless cubemap lookup replaces ~16 static 3D gnoise + 2 static Worley calls per pixel.
+  vec4 geo = textureCube(tPlanetGeo, d);
+  vec4 aux = textureCube(tPlanetAux, d);
+  float height = geo.r;
+  float peaksHeight = geo.g;
+  float desertBase = geo.b;
+  float meadow = geo.a;
+  float ice = aux.r;
+  float cityPattern = aux.g;
+
+  // Sharp runtime coastlines with fwidth anti-aliasing over HalfFloat continuous height.
+  float hw = max(fwidth(height) * 0.6, 0.004);
+  float land = smoothstep(0.504 - hw, 0.504 + hw, height);
   float inland = smoothstep(0.53, 0.62, height);
   float beach = smoothstep(0.5, 0.505, height) * (1.0 - smoothstep(0.505, 0.52, height));
-  float peaks = smoothstep(0.61, 0.69, height + gnoise(d * 22.0) * 0.04);
-  float lat = abs(d.y);
+  float peaks = smoothstep(0.61, 0.69, peaksHeight);
 
   // Deep blue water, turquoise over the shelves along every coast.
   vec3 ocean = mix(vec3(0.015, 0.09, 0.34), vec3(0.03, 0.3, 0.62), smoothstep(0.3, 0.47, height));
   ocean = mix(ocean, vec3(0.08, 0.62, 0.66), smoothstep(0.455, 0.5, height) * 0.8);
   // Land by climate: forest and meadow, a belt of dry country either side of the tropics.
-  float dryness = smoothstep(0.12, 0.3, lat) * (1.0 - smoothstep(0.34, 0.48, lat));
-  float desert = smoothstep(0.35, 0.65, dryness + (gnoise(d * 6.0 + 2.0) - 0.5) * 0.8) * inland;
-  vec3 ground = mix(vec3(0.13, 0.42, 0.2), vec3(0.36, 0.6, 0.26), smoothstep(0.3, 0.7, gnoise(d * 9.0 + 4.0)));
+  float desert = desertBase * inland;
+  vec3 ground = mix(vec3(0.13, 0.42, 0.2), vec3(0.36, 0.6, 0.26), meadow);
   ground = mix(ground, vec3(0.8, 0.64, 0.36), desert);
   ground = mix(ground, vec3(0.48, 0.4, 0.38), peaks * 0.8);
   ground = mix(ground, vec3(0.95, 0.96, 1.0), smoothstep(0.69, 0.74, height) * 0.9);
   ground = mix(ground, vec3(0.96, 0.87, 0.64), beach);
-  // Ice at the poles of the real planet, before the popcorn takes over.
-  float ice = smoothstep(0.86, 0.92, lat + gnoise(d * 7.0) * 0.06);
   vec3 albedo = mix(mix(ocean, ground, land), vec3(0.92, 0.96, 1.0), ice);
   float gloss = mix(0.86, 0.1, max(land, ice));
 
   vec3 cloudP = d * 3.4 + vec3(uTime * 0.03, 0.0, uTime * 0.018);
   float cloudShape = fbm(cloudP) + gnoise(cloudP * 3.1) * 0.06 + gnoise(cloudP * 7.3) * 0.025;
-  float cloud = smoothstep(0.54, 0.68, cloudShape);
+  float cw = fwidth(cloudShape) * 0.5;
+  float cloud = smoothstep(0.54 - cw, 0.68 + cw, cloudShape);
   // Clouds throw a soft shadow onto the ground beneath them.
   float cloudShade = smoothstep(0.54, 0.66, fbm(cloudP + uSunDir * 0.12));
   albedo *= 1.0 - cloudShade * 0.32;
@@ -200,47 +273,49 @@ void main() {
   // Relief on land: ranges catch the light on one side and fall into shade on the other.
   N = bumpBy(N, height * 0.55 * land * (1.0 - cloud) * (1.0 - ice));
   // Small moving waves break the sun's reflection on the sea into a glinting path.
-  // Toward the rim the waves would be finer than a pixel and only sparkle, so they fade out; and
-  // only open sea, not land, ice or cloud, has any to work out.
   float wet = smoothstep(0.15, 0.55, dot(Ng, V)) * (1.0 - land) * (1.0 - cloud) * (1.0 - ice);
   float waves = wet > 0.001 ? gnoise(d * 90.0 + vec3(uTime * 0.25, 0.0, uTime * 0.18)) + gnoise(d * 170.0 - vec3(0.0, uTime * 0.3, 0.0)) * 0.35 : 0.0;
   N = bumpBy(N, waves * 0.0035 * wet);
   float shadow = sunShadow(vWorld, N);
   vec3 col = toyLight(albedo, N, V, vWorld, gloss, 1.0, shadow);
-  // Popcorn drifts advance from the pole, breaking up at their edge. They are lit exactly like
-  // the heap, puffs and creases included, so heap and drift read as one material.
-  float edge = fbm(vDir * 5.0) * 0.26;
-  float snow = smoothstep(uSnowLine - 0.02, uSnowLine + 0.05, vDir.y + edge - 0.13);
+
+  // Popcorn drifts advance from the pole, breaking up smoothly at their edge with fwidth AA.
+  // Edge noise is sampled at unrotated dir0 from tPlanetAux.b, matching original fbm(vDir * 5.0).
+  float edge = textureCube(tPlanetAux, dir0).b * 0.26;
+  float snowMetric = dir0.y + edge - 0.13;
+  float sw = max(fwidth(snowMetric) * 0.75, 0.035);
+  float snow = smoothstep(uSnowLine + 0.015 - sw, uSnowLine + 0.015 + sw, snowMetric);
   if (snow > 0.0) {
     // Seen from above the planet this projection stays even, so the drifts never smear into lines.
-    vec2 flat_ = vDir.xz / (1.0 + abs(vDir.y));
-    vec2 cell = worley(flat_ * 30.0);
+    vec2 flat_ = dir0.xz / (1.0 + abs(dir0.y));
+    vec2 bestR;
+    vec2 cell = worleyGrad(flat_ * 30.0, bestR);
     float puff = sat(1.0 - cell.x * 1.1);
     float gap = smoothstep(0.0, 0.34, cell.y - cell.x);
-    float bump = (puff * 0.8 + sat(1.0 - worley(flat_ * 84.0 + 3.0).x) * 0.2) * 0.7;
-    // Screen-space bump: the puffs catch the sun and drop into their creases.
-    vec3 dpx = dFdx(vWorld), dpy = dFdy(vWorld);
-    vec3 r1 = cross(dpy, Ng), r2 = cross(Ng, dpx);
-    float det = dot(dpx, r1);
-    vec3 grad = sign(det) * (dFdx(bump) * r1 + dFdy(bump) * r2);
-    vec3 Nd = normalize(abs(det) * Ng - grad);
+    vec2 bestR2;
+    worleyGrad(flat_ * 84.0 + 3.0, bestR2);
+    // Exact unit-length orthonormal tangent basis of flat_ = dir0.xz / (1 + |dir0.y|) on S^2 (zero dFdx/dFdy!).
+    float sig = dir0.y >= 0.0 ? 1.0 : -1.0;
+    vec3 dFlatU = vec3(1.0, -sig * flat_.x, 0.0) - flat_.x * dir0;
+    vec3 dFlatV = vec3(0.0, -sig * flat_.y, 1.0) - flat_.y * dir0;
+    vec2 slopeXZ = -bestR / max(cell.x, 0.08) * 0.5 - bestR2 / max(length(bestR2), 0.08) * 0.14;
+    vec3 Nd = normalize(Ng + (dFlatU * slopeXZ.x + dFlatV * slopeXZ.y) * 0.72);
     float crease = 0.55 + (1.0 - gap) * 0.25 + (1.0 - puff) * 0.25;
     vec3 drift = popcornShade(Nd, V, vWorld, sat(crease), 0.0, 1.0, 0.0, shadow, mix(0.08, 0.5, puff));
     // Thin cloud over the drifts: full white cloud read as holes torn in the popcorn.
     col = mix(col, drift, snow * (1.0 - cloud * 0.3));
   }
-  // City lights come out on the night side as the planet turns: clusters on land, with a scatter
-  // of smaller towns between them, all gone under the ice and the popcorn.
+
+  // City lights come out on the night side as the planet turns: static pattern pre-baked in tPlanetAux.g.
   if (uCities > 0.0) {
-    vec2 grid = vec2(atan(d.z, d.x) * 6.0, asin(clamp(d.y, -1.0, 1.0)) * 12.0);
-    float big = smoothstep(0.34, 0.1, worley(grid).x);
-    float small = smoothstep(0.16, 0.05, worley(grid * 3.3 + 7.0).x) * 0.55;
     float night = smoothstep(0.12, -0.22, dot(Ng, uSunDir));
     // The painted light is soft all round; the night side needs to go properly dark to read.
     col *= 1.0 - 0.62 * smoothstep(0.1, -0.32, dot(Ng, uSunDir)) * uCities;
     // Under the popcorn the lights still glow, softened, as if through snow.
-    float city = max(big, small) * inland * (1.0 - ice) * (1.0 - snow * 0.55) * (1.0 - cloud * 0.75);
-    col += vec3(1.6, 1.05, 0.42) * city * night * uCities * (0.85 + 0.15 * sin(uTime * 3.0 + grid.x * 9.0));
+    float city = cityPattern * inland * (1.0 - ice) * (1.0 - snow * 0.55) * (1.0 - cloud * 0.75);
+    if (city > 0.001) {
+      col += vec3(1.6, 1.05, 0.42) * city * night * uCities * (0.85 + 0.15 * sin(uTime * 3.0 + atan(d.z, d.x) * 54.0));
+    }
   }
   // The air glows blue on the day side and warm along the line where night begins.
   float atmosphere = pow(1.0 - sat(dot(Ng, V)), 3.0);
@@ -256,56 +331,76 @@ void main() {
 function* craterGeometry(): Generator<void, THREE.BufferGeometry, void> {
   const { floorY: f, rimY: r, innerR: i, outerR: o, skirtR: s } = CRATER;
   const kit = new Kit();
+  // Clean stratified basalt caldera terraces descending smoothly onto the planet crust.
   const profile: Array<[number, number]> = [[s + 1, sphereY(s + 1) - 0.8]];
-  for (let n = 0; n <= 24; n += 1) {
-    const radius = lerp(s, o, n / 24);
-    profile.push([radius, coneY(radius) + 0.05]);
+  for (let n = 0; n <= 20; n += 1) {
+    const u = n / 20;
+    const radius = lerp(s, o, u);
+    const terrace = Math.sin(u * Math.PI * 8) * 0.09 * smooth(0.08, 0.25, u) * (1 - smooth(0.85, 1, u));
+    profile.push([radius, coneY(radius) + 0.05 + terrace]);
   }
   profile.push([o - 0.3, r + 0.3], [i + 0.25, r + 0.25], [i, r - 0.2], [i - 0.15, f + 0.3], [i - 0.7, f], [0, f]);
-  const rock = new THREE.Color('#5b4150');
-  const ridge = new THREE.Color('#84606e');
-  const glow = new THREE.Color('#ff7a2f');
-  const inner = new THREE.Color('#2a1820');
-  // Smooth rock pushed about into ridges and gullies: broad planes that take the light, rather
-  // than a scatter of facets that only glitter.
-  const cone = P.lathe(profile, 128, 0.12, 2);
+  const rock = new THREE.Color('#473240');
+  const ridge = new THREE.Color('#745766');
+  const glow = new THREE.Color('#ff6e24');
+  const glowHot = new THREE.Color('#ffcf5c');
+  const inner = new THREE.Color('#25151d');
+  // Broad radial basalt ribs and carved magma channels — no high-frequency foil crumple.
+  const cone = P.lathe(profile, 96, 0.14, 2);
+  const river = (a: number, rr: number): number =>
+    Math.pow(Math.max(0, Math.cos(a * 5 + 0.8 + Math.sin(rr * 0.55) * 0.38)), 22) * (1 - smooth(s - 3, s, rr));
   const position = cone.getAttribute('position') as THREE.BufferAttribute;
   for (let n = 0; n < position.count; n += 1) {
     const x = position.getX(n);
     const y = position.getY(n);
     const z = position.getZ(n);
     const rr = Math.hypot(x, z);
-    if (rr < o + 0.25 || rr > s - 0.2) continue;
+    if (rr < o + 0.2 || rr > s - 0.2) continue;
     const a = Math.atan2(z, x);
-    const lump = Math.sin(a * 7 + y * 1.3) * Math.cos(a * 13 - rr * 0.9) * 0.5 + Math.sin(a * 23 + rr * 2.1) * 0.25;
-    position.setXYZ(n, x, y + lump * 0.42 * smooth(o, o + 2, rr) * (1 - smooth(s - 2, s, rr)), z);
+    const buttress = Math.cos(a * 5 + 0.8 + Math.PI) * 0.28 + Math.cos(a * 10 - 0.4) * 0.1;
+    const carve = river(a, rr) * 0.22;
+    const blend = smooth(o, o + 1.8, rr) * (1 - smooth(s - 2.2, s, rr));
+    position.setXYZ(n, x, y + (buttress - carve) * blend, z);
   }
   cone.computeVertexNormals();
-  smoothLatheSeam(cone, 128);
+  smoothLatheSeam(cone, 96);
   const lavaAt = (p: THREE.Vector3): number => {
     const rr = Math.hypot(p.x, p.z);
     const a = Math.atan2(p.z, p.x);
-    const rivers = Math.pow(Math.max(0, Math.cos(a * 5 + 0.8 + Math.sin(rr * 0.8 + a * 2) * 0.55)), 26) * (1 - smooth(s - 3, s, rr));
-    return rr < i + 0.08 ? 0 : Math.max(smooth(o + 1.1, o - 0.1, rr), rivers);
+    return rr < i + 0.08 ? 0 : Math.min(1, Math.max(smooth(o + 0.9, o - 0.15, rr) * 0.88, river(a, rr) * 1.35));
   };
   yield;
-  // The Kit asks for color, then glow, for each vertex in turn, so the lava is worked out once.
   let lava = 0;
   kit.add(cone, {
     color: rock,
-    gloss: 0.1,
-    colorFn: (p, _n, out) => {
+    gloss: 0.12,
+    colorFn: (p, n, out) => {
       const rr = Math.hypot(p.x, p.z);
-      const a = Math.atan2(p.z, p.x);
       lava = lavaAt(p);
-      out.lerpColors(rock, ridge, 0.5 + 0.5 * Math.sin(a * 11 + rr * 1.3));
-      // Strata: the cone was built up in layers, each a slightly different rock.
-      out.lerp(ridge, smooth(0.6, 0.9, 0.5 + 0.5 * Math.sin(p.y * 2.6 + Math.sin(a * 5 + rr) * 0.8)) * 0.35);
+      const shelf = smooth(0.35, 0.88, n.y);
+      const band = 0.5 + 0.5 * Math.sin(p.y * 2.4);
+      out.lerpColors(rock, ridge, shelf * 0.52 + smooth(0.5, 0.85, band) * 0.26);
       if (rr < i + 0.08) out.copy(inner);
-      else out.lerp(glow, lava);
+      else {
+        out.lerp(glow, smooth(0.08, 0.72, lava));
+        out.lerp(glowHot, smooth(0.68, 1.0, lava) * 0.55);
+      }
     },
-    emissiveFn: () => lava * 0.75,
+    emissiveFn: () => lava * 0.82,
+    ao: (p) => 0.74 + 0.26 * smooth(sphereY(s), r, p.y),
   });
+  // Scattered angular basalt boulders resting around the caldera base skirt.
+  for (let b = 0; b < 14; b += 1) {
+    const a = (b / 14) * Math.PI * 2 + 0.22;
+    const rr = s - 0.4 + (b % 3) * 0.45;
+    const sz = 0.42 + (b % 3) * 0.16;
+    kit.add(P.box(sz * 1.4, sz * 0.8, sz, 0.06, 1), {
+      color: b % 2 ? '#4d3645' : '#644a58',
+      gloss: 0.1,
+      detail: 1,
+      matrix: at(Math.cos(a) * rr, sphereY(rr) + sz * 0.2, Math.sin(a) * rr, [0.15, -a + 0.4, -0.18]),
+    });
+  }
   return kit.build();
 }
 
@@ -645,14 +740,86 @@ function* buildEarth(stage: Stage, root: THREE.Group): SceneBuild {
   sky.add(spaceMesh());
   yield;
 
+  const hash31 = 'float hash31(vec3 p) { p = fract(p * 0.1031); p += dot(p, p.zyx + 31.32); return fract((p.x + p.y) * p.z); }\n';
+  // Pre-bake static planetary elevation, climate, ice, city clusters and snow-edge noise into seamless cubemaps.
+  const bakeSize = stage.quality.tier === 'low' || stage.quality.tier === 'medium' ? 256 : 512;
+  const planetGeo = new THREE.WebGLCubeRenderTarget(bakeSize, {
+    type: THREE.HalfFloatType,
+    format: THREE.RGBAFormat,
+    minFilter: THREE.LinearFilter,
+    magFilter: THREE.LinearFilter,
+    generateMipmaps: false,
+    depthBuffer: false,
+  });
+  const planetAux = new THREE.WebGLCubeRenderTarget(bakeSize, {
+    type: THREE.UnsignedByteType,
+    format: THREE.RGBAFormat,
+    minFilter: THREE.LinearFilter,
+    magFilter: THREE.LinearFilter,
+    generateMipmaps: false,
+    depthBuffer: false,
+  });
+  const bakeGeo = new THREE.BufferGeometry();
+  bakeGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array([-1, -1, 0, 3, -1, 0, -1, 3, 0]), 3));
+  const geoFace = { value: 0 };
+  const auxFace = { value: 0 };
+  const geoBakeMat = new THREE.ShaderMaterial({
+    name: 'planet-geo-bake',
+    vertexShader: cubeBakeVertex,
+    fragmentShader: `${GLSL_UTIL}\n${hash31}${planetGeoBakeFragment}`,
+    uniforms: { uFace: geoFace },
+    depthTest: false,
+    depthWrite: false,
+  });
+  const auxBakeMat = new THREE.ShaderMaterial({
+    name: 'planet-aux-bake',
+    vertexShader: cubeBakeVertex,
+    fragmentShader: `${GLSL_UTIL}\n${hash31}${planetAuxBakeFragment}`,
+    uniforms: { uFace: auxFace },
+    depthTest: false,
+    depthWrite: false,
+  });
+  const bakeQuad = new THREE.Mesh(bakeGeo, geoBakeMat);
+  bakeQuad.frustumCulled = false;
+  const bakeScene = new THREE.Scene();
+  bakeScene.add(bakeQuad);
+  const bakeCamera = new THREE.Camera();
+  const savedClear = new THREE.Color();
+  const renderer = stage.renderer;
+  for (let face = 0; face < 6; face += 1) {
+    const prevTarget = renderer.getRenderTarget();
+    const prevCubeFace = renderer.getActiveCubeFace();
+    const prevMip = renderer.getActiveMipmapLevel();
+    renderer.getClearColor(savedClear);
+    const prevClearAlpha = renderer.getClearAlpha();
+    const prevAutoClear = renderer.autoClear;
+    renderer.autoClear = false;
+    geoFace.value = face;
+    bakeQuad.material = geoBakeMat;
+    renderer.setRenderTarget(planetGeo, face);
+    renderer.render(bakeScene, bakeCamera);
+    auxFace.value = face;
+    bakeQuad.material = auxBakeMat;
+    renderer.setRenderTarget(planetAux, face);
+    renderer.render(bakeScene, bakeCamera);
+    renderer.autoClear = prevAutoClear;
+    renderer.setClearColor(savedClear, prevClearAlpha);
+    renderer.setRenderTarget(prevTarget, prevCubeFace, prevMip);
+    yield;
+  }
+  bakeGeo.dispose();
+  geoBakeMat.dispose();
+  auxBakeMat.dispose();
+
   const globeUniforms = {
     ...globals,
     ...popcornUniforms,
     uSnowLine: { value: 2 },
     uSpin: { value: 0 },
     uCities: { value: 0 },
+    tPlanetGeo: { value: planetGeo.texture },
+    tPlanetAux: { value: planetAux.texture },
   };
-  const hash31 = 'float hash31(vec3 p) { p = fract(p * 0.1031); p += dot(p, p.zyx + 31.32); return fract((p.x + p.y) * p.z); }\n';
   const globeKit = new Kit();
   globeKit.add(new THREE.SphereGeometry(R, 128, 88), { color: '#ffffff', outline: 1.4 });
   const globeGeometry = globeKit.build();
@@ -1135,6 +1302,8 @@ export const earthSpec: SceneSpec = {
   focusPoint: new THREE.Vector3(0, 0, 8),
   focusRange: 70,
   aoRadius: 2,
+  // No reflective floor in space: disable SSR completely on Earth.
+  reflections: false,
   // Now and then a meteor across the stars.
   ambience: [{ look: 'meteor', center: [0, 70, -120], half: [140, 30, 10], rate: 0.25 }],
   // One capture above the crater sees the bright planet below it, which is wrong for its far sides.

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { globals } from '../core/globals.ts';
-import { GLSL_INSTANCE_WORLD, GLSL_LIGHT_PARS, GLSL_UTIL } from './glsl.ts';
+import { GLSL_FOG, GLSL_INSTANCE_WORLD, GLSL_LAMPS, GLSL_SHADOW, GLSL_SUN, GLSL_UTIL } from './glsl.ts';
 
 export interface SignStyle {
   background: string;
@@ -57,6 +57,12 @@ varying vec3 vWorld, vNormal;
 ${GLSL_INSTANCE_WORLD}
 void main() {
   mat4 world = worldMatrixOf();
+  #ifdef USE_PART_RIG
+    if (dot(world[0].xyz, world[0].xyz) < 1e-10) {
+      gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
+      return;
+    }
+  #endif
   vec4 wp = world * vec4(position, 1.0);
   vWorld = wp.xyz;
   vUv = uv;
@@ -67,7 +73,10 @@ void main() {
 
 const fragment = /* glsl */ `
 ${GLSL_UTIL}
-${GLSL_LIGHT_PARS}
+${GLSL_FOG}
+${GLSL_SUN}
+${GLSL_SHADOW}
+${GLSL_LAMPS}
 uniform sampler2D tSign;
 uniform float uGlow;
 varying vec2 vUv;

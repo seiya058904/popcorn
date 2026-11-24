@@ -26,28 +26,37 @@ vec2 worley(vec2 p) {
   }
   return sqrt(vec2(a, b));
 }
+
+// Same as worley(), also returning the vector to the nearest cell center for analytic bump normals.
+vec2 worleyGrad(vec2 p, out vec2 bestR) {
+  vec2 n = floor(p), f = fract(p);
+  float a = 8.0, b = 8.0;
+  bestR = vec2(0.0);
+  for (int y = -1; y <= 1; y++) for (int x = -1; x <= 1; x++) {
+    vec2 g = vec2(float(x), float(y));
+    vec2 r = g + hash22(n + g) - f;
+    float d = dot(r, r);
+    if (d < a) { b = a; a = d; bestR = r; } else if (d < b) { b = d; }
+  }
+  return sqrt(vec2(a, b));
+}
 `;
 
-export const GLSL_LIGHT_PARS = /* glsl */ `
+export const GLSL_FOG = /* glsl */ `
 uniform float uTime;
-uniform vec3 uSunDir, uSunColor, uShadeTint, uSkyColor, uGroundColor, uRimColor, uRimDir, uFogColor;
+uniform vec3 uFogColor;
 uniform vec2 uFogRange;
-uniform highp sampler2DShadow uShadowMap;
-uniform highp sampler2D uShadowDepth;
-uniform mat4 uShadowMatrix;
-uniform float uShadowTexel, uShadowSoftness, uPoolFloor, uShadowOffset;
-uniform vec4 uPool, uShadowPenumbra;
-#define MAX_LAMPS 16
-uniform vec4 uLampPos[MAX_LAMPS];
-uniform vec3 uLampColor[MAX_LAMPS];
-uniform int uLampCount;
-uniform vec3 uEnvTop, uEnvHorizon, uEnvBottom;
-uniform samplerCube uEnvA, uEnvB;
-uniform float uEnvMix, uEnvOn, uEnvGain, uEnvDiffuse;
-uniform vec3 uAmbientCube[6];
-uniform vec4 uBounce;
-uniform vec3 uBounceColor;
-uniform float uLit[40];
+
+vec3 applyFog(vec3 color, float dist) {
+  float f = sat((dist - uFogRange.x) / (uFogRange.y - uFogRange.x));
+  return mix(color, uFogColor, f * f * (3.0 - 2.0 * f));
+}
+`;
+
+export const GLSL_SUN = /* glsl */ `
+uniform vec3 uSunDir, uSunColor, uShadeTint, uSkyColor, uGroundColor, uRimColor, uRimDir;
+uniform float uPoolFloor;
+uniform vec4 uPool;
 
 // The key light falls off like a stage spot, which keeps the eye on the popcorn.
 float lightPool(vec3 P) {
@@ -55,24 +64,48 @@ float lightPool(vec3 P) {
   return mix(uPoolFloor, 1.0, smoothstep(uPool.w * 1.5, uPool.w * 0.4, d));
 }
 
-// How wide the shadow filter is here, in texels. A shadow is crisp where the thing casting it
-// touches the ground and spreads with the distance between them, as under a real sun.
-float penumbraTexels(vec2 uv, float z, mat2 turn) {
-  if (uShadowPenumbra.x < 0.5) return uShadowSoftness;
-  float sum = 0.0, count = 0.0;
-  // The search reaches as far as the widest penumbra could come from.
-  mat2 reach = turn * (uShadowPenumbra.w / uShadowSoftness);
-  for (int i = 0; i < 8; i++) {
-    float t = (float(i) + 0.5) / 8.0;
-    float a = float(i) * 2.39996323;
-    float d = textureLod(uShadowDepth, uv + reach * (vec2(cos(a), sin(a)) * sqrt(t)), 0.0).r;
-    if (d < z) { sum += d; count += 1.0; }
-  }
-  // Nothing found nearer: either open ground, or a caster the copy does not hold. The usual
-  // filter is right for both.
-  if (count < 0.5) return uShadowSoftness;
-  return clamp((z - sum / count) * uShadowPenumbra.y, uShadowPenumbra.z, uShadowPenumbra.w);
+// Three soft painted bands, with a little continuous shading left in for richness.
+float toonBand(float w) {
+  float stepped = smoothstep(0.30, 0.36, w) * 0.5 + smoothstep(0.60, 0.66, w) * 0.5;
+  return mix(w, stepped, 0.72);
 }
+`;
+
+export const GLSL_SHADOW = /* glsl */ `
+uniform highp sampler2DShadow uShadowMap;
+uniform highp sampler2D uShadowDepth;
+uniform mat4 uShadowMatrix;
+uniform float uShadowTexel, uShadowSoftness, uShadowOffset;
+uniform vec4 uShadowPenumbra;
+
+// Precomputed 8-tap Vogel blocker-search disk and 11-tap isotropic Poisson PCF disk (+ center = 12).
+// Rotating per pixel with Interleaved Gradient Noise breaks up cross-hatch artifacts on small parts.
+const vec2 BLOCKER_DISK[8] = vec2[8](
+  vec2( 0.2500,  0.0000),
+  vec2(-0.3193,  0.2925),
+  vec2( 0.0493, -0.5568),
+  vec2( 0.4090,  0.5197),
+  vec2(-0.7351, -0.1516),
+  vec2( 0.6744, -0.4824),
+  vec2(-0.2367,  0.8698),
+  vec2(-0.3886, -0.8879)
+);
+
+const vec2 PCF_DISK[11] = vec2[11](
+  // Stage-1 cardinal ring (4 balanced quadrants) for conservative early-out check.
+  vec2( 0.7200,  0.1900),
+  vec2(-0.1900,  0.7200),
+  vec2(-0.7200, -0.1900),
+  vec2( 0.1900, -0.7200),
+  // Stage-2 remaining 7 Poisson taps for smooth penumbra edges.
+  vec2( 0.2900,  0.2200),
+  vec2(-0.3600,  0.1400),
+  vec2( 0.0800, -0.3900),
+  vec2( 0.8900, -0.3700),
+  vec2(-0.8800,  0.3800),
+  vec2( 0.4200,  0.8600),
+  vec2(-0.4400, -0.8400)
+);
 
 float sunShadow(vec3 worldPos, vec3 N) {
   float slope = 1.0 - sat(dot(N, uSunDir));
@@ -80,35 +113,58 @@ float sunShadow(vec3 worldPos, vec3 N) {
   vec3 p = c.xyz / c.w;
   if (p.x < 0.0 || p.x > 1.0 || p.y < 0.0 || p.y > 1.0 || p.z > 1.0) return 1.0;
   float z = p.z - 0.0006;
-  // A per-pixel turn of the sample ring trades visible stair steps for fine grain.
+  // Interleaved Gradient Noise per-pixel rotation trades stair-steps and hatching for fine grain.
   float a = 6.2831853 * fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
   float ca = cos(a), sa = sin(a);
-  mat2 ring = mat2(ca, sa, -sa, ca) * (uShadowTexel * uShadowSoftness);
-  mat2 turn = ring * (penumbraTexels(p.xy, z, ring) / uShadowSoftness);
+  mat2 rot = mat2(ca, sa, -sa, ca);
+
+  float penumbra = uShadowSoftness;
+  float blockers = -1.0;
+  if (uShadowPenumbra.x >= 0.5) {
+    float sum = 0.0, count = 0.0;
+    mat2 reach = rot * (uShadowTexel * uShadowPenumbra.w);
+    for (int i = 0; i < 8; i++) {
+      float d = textureLod(uShadowDepth, p.xy + reach * BLOCKER_DISK[i], 0.0).r;
+      if (d < z) { sum += d; count += 1.0; }
+    }
+    blockers = count;
+    if (count >= 0.5) {
+      penumbra = clamp((z - sum / count) * uShadowPenumbra.y, uShadowPenumbra.z, uShadowPenumbra.w);
+    }
+  }
+
+  mat2 turn = rot * (uShadowTexel * penumbra);
   float s = texture(uShadowMap, vec3(p.xy, z));
-  s += texture(uShadowMap, vec3(p.xy + turn * vec2( 0.92,  0.38), z));
-  s += texture(uShadowMap, vec3(p.xy + turn * vec2(-0.38,  0.92), z));
-  s += texture(uShadowMap, vec3(p.xy + turn * vec2(-0.92, -0.38), z));
-  s += texture(uShadowMap, vec3(p.xy + turn * vec2( 0.38, -0.92), z));
-  s += texture(uShadowMap, vec3(p.xy + turn * vec2( 0.55,  0.2), z));
-  s += texture(uShadowMap, vec3(p.xy + turn * vec2(-0.2,  0.55), z));
-  s += texture(uShadowMap, vec3(p.xy + turn * vec2(-0.55, -0.2), z));
-  s += texture(uShadowMap, vec3(p.xy + turn * vec2( 0.2, -0.55), z));
-  s += texture(uShadowMap, vec3(p.xy + turn * vec2( 0.68, -0.68), z));
-  s += texture(uShadowMap, vec3(p.xy + turn * vec2(-0.68,  0.68), z));
-  return s / 11.0;
-}
+  s += texture(uShadowMap, vec3(p.xy + turn * PCF_DISK[0], z));
+  s += texture(uShadowMap, vec3(p.xy + turn * PCF_DISK[1], z));
+  s += texture(uShadowMap, vec3(p.xy + turn * PCF_DISK[2], z));
+  s += texture(uShadowMap, vec3(p.xy + turn * PCF_DISK[3], z));
 
-vec3 applyFog(vec3 color, float dist) {
-  float f = sat((dist - uFogRange.x) / (uFogRange.y - uFogRange.x));
-  return mix(color, uFogColor, f * f * (3.0 - 2.0 * f));
-}
+  // Conservative two-stage early-out: only exit when blocker search AND 5-tap PCF agree completely,
+  // preserving thin rods and wheel spokes while skipping 7 taps across open sunlight and deep umbra.
+  if (blockers >= 0.0) {
+    if (blockers < 0.5 && s >= 4.99) return 1.0;
+    if (blockers > 7.5 && s <= 0.01) return 0.0;
+  }
 
-// Three soft painted bands, with a little continuous shading left in for richness.
-float toonBand(float w) {
-  float stepped = smoothstep(0.30, 0.36, w) * 0.5 + smoothstep(0.60, 0.66, w) * 0.5;
-  return mix(w, stepped, 0.72);
+  s += texture(uShadowMap, vec3(p.xy + turn * PCF_DISK[4], z));
+  s += texture(uShadowMap, vec3(p.xy + turn * PCF_DISK[5], z));
+  s += texture(uShadowMap, vec3(p.xy + turn * PCF_DISK[6], z));
+  s += texture(uShadowMap, vec3(p.xy + turn * PCF_DISK[7], z));
+  s += texture(uShadowMap, vec3(p.xy + turn * PCF_DISK[8], z));
+  s += texture(uShadowMap, vec3(p.xy + turn * PCF_DISK[9], z));
+  s += texture(uShadowMap, vec3(p.xy + turn * PCF_DISK[10], z));
+  return s / 12.0;
 }
+`;
+
+export const GLSL_ENV = /* glsl */ `
+uniform vec3 uEnvTop, uEnvHorizon, uEnvBottom;
+uniform samplerCube uEnvA, uEnvB;
+uniform float uEnvMix, uEnvOn, uEnvGain, uEnvDiffuse;
+uniform vec3 uAmbientCube[6];
+uniform vec4 uBounce;
+uniform vec3 uBounceColor;
 
 // Studio softboxes evaluated analytically: the glossy reflections that make enamel read as a toy.
 float softRect(vec2 p, vec2 center, vec2 half_, float edge) {
@@ -180,6 +236,13 @@ vec3 heapBounce(vec3 P, vec3 N) {
   float fall = sat(1.0 - d / uBounce.w);
   return uBounceColor * fall * fall * sat(dot(N, L / max(d, 1e-4)) * 0.75 + 0.25);
 }
+`;
+
+export const GLSL_LAMPS = /* glsl */ `
+#define MAX_LAMPS 16
+uniform vec4 uLampPos[MAX_LAMPS];
+uniform vec3 uLampColor[MAX_LAMPS];
+uniform int uLampCount;
 
 // Geometric specular antialiasing (after Kaplanyan 2016): where the normal turns within a pixel,
 // the highlight widens instead of sparkling.
@@ -243,6 +306,10 @@ void lampLight(vec3 P, vec3 N, vec3 V, float rough, out vec3 diffuse, out vec3 s
     if (ndl > 0.0) sheen += light * ndl * min(ggx(sat(dot(N, normalize(L + V))), a) * 0.25, 6.0);
   }
 }
+`;
+
+export const GLSL_SURFACE = /* glsl */ `
+uniform float uLit[40];
 
 // Painted bands stay as a soft undertone; metal, enamel and lacquer respond like real materials.
 vec3 surfaceLight(vec3 albedo, vec3 N, vec3 V, vec3 P, float gloss, float ao, float shadow, float metal, float coat) {
@@ -294,6 +361,20 @@ vec3 surfaceLight(vec3 albedo, vec3 N, vec3 V, vec3 P, float gloss, float ao, fl
 
 vec3 toyLight(vec3 albedo, vec3 N, vec3 V, vec3 P, float gloss, float ao, float shadow) {
   return surfaceLight(albedo, N, V, P, gloss, ao, shadow, 0.0, 0.0);
+}
+`;
+
+export const GLSL_LIGHT_PARS = `${GLSL_FOG}\n${GLSL_SUN}\n${GLSL_SHADOW}\n${GLSL_ENV}\n${GLSL_LAMPS}\n${GLSL_SURFACE}`;
+
+/** Signed cofactor normal matrix: exact replacement for transpose(inverse(m)) without full 3x3 inverse. */
+export const GLSL_NORMAL_MAT = /* glsl */ `
+mat3 adjugate3(mat3 m) {
+  vec3 c0 = cross(m[1], m[2]);
+  vec3 c1 = cross(m[2], m[0]);
+  vec3 c2 = cross(m[0], m[1]);
+  float det = dot(m[0], c0);
+  float inv = abs(det) > 1e-12 ? 1.0 / det : 0.0;
+  return mat3(c0, c1, c2) * inv;
 }
 `;
 

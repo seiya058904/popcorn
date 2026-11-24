@@ -90,9 +90,9 @@ void main() { vUv = position.xy * 0.5 + 0.5; gl_Position = vec4(position.xy, 0.0
 const depthHelpers = /* glsl */ `
 uniform sampler2D tDepth;
 uniform vec2 uNearFar, uProjScale, uProjShift;
+uniform vec3 uDepthParams;
 float linearDepth(vec2 uv) {
-  float d = textureLod(tDepth, uv, 0.0).r * 2.0 - 1.0;
-  return 2.0 * uNearFar.x * uNearFar.y / (uNearFar.y + uNearFar.x - d * (uNearFar.y - uNearFar.x));
+  return uDepthParams.x / (uDepthParams.y - textureLod(tDepth, uv, 0.0).r * uDepthParams.z);
 }
 vec3 viewPosition(vec2 uv) {
   float z = linearDepth(uv);
@@ -213,16 +213,28 @@ uniform vec2 uPixel;
 uniform float uMaxBlur;
 varying vec2 vUv;
 const int TAPS = 26;
+const vec2 DOF_DISK[TAPS] = vec2[TAPS](
+  vec2(-0.14461,  0.13247), vec2( 0.02425, -0.27629), vec2( 0.20668,  0.26957), vec2(-0.38624, -0.06832),
+  vec2( 0.37001, -0.23537), vec2(-0.12471,  0.46391), vec2(-0.23915, -0.46047), vec2( 0.52104,  0.19028),
+  vec2(-0.54384,  0.22449), vec2( 0.26286, -0.56171), vec2( 0.19467,  0.62063), vec2(-0.58780, -0.34064),
+  vec2( 0.69061, -0.15183), vec2(-0.42203,  0.60029), vec2(-0.09761, -0.75326), vec2( 0.59984,  0.50555),
+  vec2(-0.80792,  0.03341), vec2( 0.58978, -0.58691), vec2(-0.03949,  0.85394), vec2(-0.56194, -0.67339),
+  vec2( 0.89069,  0.11984), vec2(-0.75508,  0.52536), vec2( 0.20643, -0.91761), vec2( 0.47768,  0.83361),
+  vec2(-0.93419, -0.29803), vec2( 0.90779, -0.41942)
+);
 void main() {
   float zCenter = linearDepth(vUv);
   float center = cocAt(zCenter, vUv);
   vec3 sum = textureLod(tColor, vUv, 0.0).rgb;
+  // In-focus regions are blended at 0 weight in composite; skip all 26x2 taps safely.
+  if (center < 0.005) {
+    gl_FragColor = vec4(sum, 0.0);
+    return;
+  }
   float weight = 1.0;
-  float radius = center * uMaxBlur;
-  for (int i = 1; i <= TAPS; i++) {
-    float t = sqrt(float(i) / float(TAPS));
-    float a = float(i) * 2.39996323;
-    vec2 uv = vUv + vec2(cos(a), sin(a)) * t * max(radius, 1.0) * uPixel;
+  vec2 spread = max(center * uMaxBlur, 1.0) * uPixel;
+  for (int i = 0; i < TAPS; i++) {
+    vec2 uv = vUv + DOF_DISK[i] * spread;
     float z = linearDepth(uv);
     // Something sharp in front must not bleed into the blurred background behind it.
     float w = z < zCenter - 0.15 ? cocAt(z, uv) : 1.0;
@@ -378,11 +390,10 @@ varying vec2 vUv;
 
 // Occlusion is worked out at half size. Of the four nearest half-size texels, those at this
 // pixel's own depth count most, so a dark rim never spills across a silhouette.
-float aoAt(vec2 uv) {
+float aoAt(vec2 uv, float z) {
   vec2 t = uv * uAoSize - 0.5;
   vec2 base = floor(t);
   vec2 f = t - base;
-  float z = linearDepth(uv);
   float sum = 0.0, weight = 0.0;
   for (int i = 0; i < 4; i++) {
     vec2 o = vec2(float(i & 1), float(i >> 1));
@@ -459,11 +470,14 @@ void main() {
     float ring = exp(-pow((r - uShock.z) * 9.0, 2.0));
     uv -= normalize(d + 1e-5) / vec2(uAspect, 1.0) * ring * uShock.w;
   }
+  vec4 baseScene = texture2D(tColor, uv);
+  float baseZ = (uHasBlur > 0.5 || uHasAo > 0.5 || uMotion > 0.0) ? linearDepth(uv) : 0.0;
   vec3 col;
   if (uMotion > 0.0) {
     // Where this point was on screen last frame, from its depth: the camera's own motion, smeared
     // over a share of the frame and capped so a jump never tears the picture apart.
-    vec4 before = uReproject * vec4(viewPosition(uv), 1.0);
+    vec3 P = vec3((uv * 2.0 - 1.0 + uProjShift) / uProjScale * baseZ, -baseZ);
+    vec4 before = uReproject * vec4(P, 1.0);
     vec2 velocity = (uv - (before.xy / before.w * 0.5 + 0.5)) * uMotion;
     float speed = length(velocity);
     velocity *= min(1.0, 0.045 / max(speed, 1e-5));
@@ -474,16 +488,21 @@ void main() {
     vec2 off = (uv - 0.5) * uChroma;
     col = vec3(sampleScene(uv + off).r, sampleScene(uv).g, sampleScene(uv - off).b);
   } else {
-    col = sampleScene(uv);
+    // Normal path: reuse single tColor + linearDepth read across DOF, CAS sharpen, SSR gate and AO.
+    col = baseScene.rgb;
+    float coc = uHasBlur > 0.5 ? cocAt(baseZ, uv) : 0.0;
+    if (uHasBlur > 0.5 && coc > 0.02) {
+      float glass = clamp(baseScene.a - 1.0, 0.0, 1.0);
+      if (glass < 0.999) col = mix(col, texture2D(tBlur, uv).rgb, smoothstep(0.02, 0.4, coc) * (1.0 - glass));
+    }
     if (uSharpen > 0.0) {
       // Only what is in focus: sharpening the blur would bring back the edges it took away.
-      float focus = uHasBlur > 0.5 ? 1.0 - smoothstep(0.02, 0.2, cocAt(linearDepth(uv), uv)) : 1.0;
-      vec4 scene = texture2D(tColor, uv);
-      if (focus > 0.01 && scene.a <= 1.0) col = mix(col, casSharpen(scene.rgb, uv), focus);
+      float focus = uHasBlur > 0.5 ? 1.0 - smoothstep(0.02, 0.2, coc) : 1.0;
+      if (focus > 0.01 && baseScene.a <= 1.0) col = mix(col, casSharpen(baseScene.rgb, uv), focus);
     }
   }
-  if (uHasReflect > 0.5) {
-    // A small blur turns the reflection into a soft sheen on polished tile.
+  if (uHasReflect > 0.5 && baseScene.a < 0.995) {
+    // Only polished floor pixels carry reflection alpha (< 1); skip 5-tap blur on non-reflective pixels.
     vec4 mirror = texture2D(tReflect, uv) * 0.28;
     mirror += texture2D(tReflect, uv + uMirrorPixel * vec2(1.6, 0.7)) * 0.18;
     mirror += texture2D(tReflect, uv + uMirrorPixel * vec2(-1.6, -0.7)) * 0.18;
@@ -493,7 +512,7 @@ void main() {
     if (amount > 0.001) col = mix(col, mirror.rgb / max(mirror.a, 0.001) * amount + col * (1.0 - amount), amount);
   }
   if (uHasAo > 0.5) {
-    float ao = mix(1.0, aoAt(uv), uAoStrength);
+    float ao = mix(1.0, aoAt(uv, baseZ), uAoStrength);
     col *= mix(uAoTint * 2.2, vec3(1.0), ao);
   }
   vec3 glow = texture2D(tBloom, uv).rgb;
@@ -558,6 +577,7 @@ export class PostPipeline {
   private readonly depthUniforms = {
     tDepth: { value: null as THREE.Texture | null },
     uNearFar: { value: new THREE.Vector2(0.1, 200) },
+    uDepthParams: { value: new THREE.Vector3(20, 200, 199.9) },
     uProjScale: { value: new THREE.Vector2(1, 1) },
     uProjShift: { value: new THREE.Vector2(0, 0) },
   };
@@ -687,6 +707,7 @@ export class PostPipeline {
     const depthUniforms = this.depthUniforms;
     depthUniforms.tDepth.value = this.hdr.depthTexture;
     depthUniforms.uNearFar.value.set(camera.near, camera.far);
+    depthUniforms.uDepthParams.value.set(camera.near * camera.far, camera.far, camera.far - camera.near);
     const e = camera.projectionMatrix.elements;
     depthUniforms.uProjScale.value.set(e[0]!, e[5]!);
     depthUniforms.uProjShift.value.set(e[8]!, e[9]!);
@@ -717,7 +738,8 @@ export class PostPipeline {
       this.draw(this.dofMat, this.blur);
     }
 
-    if (this.quality.reflections) {
+    const hasReflect = this.quality.reflections && p.reflectionRange > 0;
+    if (hasReflect) {
       this.reflectMat.uniforms.tColor!.value = color;
       this.reflectMat.uniforms.uRange!.value = p.reflectionRange;
       this.reflectMat.uniforms.uUp!.value.set(0, 1, 0).transformDirection(camera.matrixWorldInverse);
@@ -745,7 +767,7 @@ export class PostPipeline {
     c.tReflect!.value = this.mirror.texture;
     c.tShafts!.value = this.shaftTarget.texture;
     c.uShaftStrength!.value = hasShafts ? p.shafts.z : 0;
-    c.uHasReflect!.value = this.quality.reflections ? 1 : 0;
+    c.uHasReflect!.value = hasReflect ? 1 : 0;
     c.uMirrorPixel!.value.set(1 / this.mirror.width, 1 / this.mirror.height);
     c.uAoSize!.value.set(this.aoA.width, this.aoA.height);
     c.uTilt!.value.copy(p.tilt);

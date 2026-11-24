@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { Rng } from '../../motion/rng.ts';
 import { globals } from '../core/globals.ts';
-import { GLSL_LIGHT_PARS, GLSL_UTIL } from '../materials/glsl.ts';
+import { GLSL_FOG, GLSL_SUN, GLSL_UTIL } from '../materials/glsl.ts';
 import { popcornUniforms } from '../materials/popcorn.ts';
 import { lowFlake } from '../popcorn/batches.ts';
 
@@ -69,7 +69,7 @@ export class PopcornSnow {
       new THREE.ShaderMaterial({
         name: 'popcorn-snow',
         vertexShader: vertex,
-        fragmentShader: `${GLSL_UTIL}\n${GLSL_LIGHT_PARS}\n${fragment}`,
+        fragmentShader: `${GLSL_UTIL}\n${GLSL_FOG}\n${GLSL_SUN}\n${fragment}`,
         uniforms: {
           ...globals,
           uPopCream: popcornUniforms.uPopCream,
