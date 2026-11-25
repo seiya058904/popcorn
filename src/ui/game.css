@@ -539,8 +539,11 @@
  * ticket for its next rung. The page is the same height from the first pot to the moon.
  */
 .row {
-  /* Name, a two-line blurb and the ticket's padding: every row is this tall, whatever it says. */
-  --row-h: calc(var(--s-2) + 1.9rem * 1.2 + 0.3rem + 1.45rem * 1.35 * 2 + var(--s-4));
+  /*
+   * Name, a three-line blurb and the ticket's padding: every row is this tall, whatever it says.
+   * Two lines cut off half of what a locked play rung gives, behind the reason it is locked.
+   */
+  --row-h: calc(var(--s-2) + 1.9rem * 1.2 + 0.3rem + 1.45rem * 1.35 * 3 + var(--s-4));
   display: flex;
   flex-direction: column;
   gap: var(--s-1);
@@ -551,7 +554,8 @@
 }
 
 .row .ticket-blurb {
-  min-height: calc(1.45rem * 1.35 * 2);
+  min-height: calc(1.45rem * 1.35 * 3);
+  -webkit-line-clamp: 3;
 }
 
 .row + .row {

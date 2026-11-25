@@ -168,7 +168,7 @@ function chain(stage: number, name: string, joke: string, cost: number): Upgrade
   return {
     id: `line-chain-${stage}`,
     name,
-    blurb: `设备串成一条线：每台上游让下游 +${Number((SYNERGY_PER_OWNED * 100).toFixed(2))}%。${joke}`,
+    blurb: `每台上游设备让下游 +${Number((SYNERGY_PER_OWNED * 100).toFixed(2))}%。${joke}`,
     track: 'line',
     cost,
     unlockStage: stage,

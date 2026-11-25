@@ -466,7 +466,6 @@ export class Shop {
       if (changed) {
         parts.root.dataset.upgrade = head.id;
         parts.name.set(head.name);
-        parts.blurb.set(head.blurb);
         parts.price.set(formatAmount(head.cost));
         setClass(parts.root, 'is-gold', head.gold === true);
         row.icon.innerHTML = head.gold ? ICONS.gold : TRACK_ICON[row.track.id];
@@ -484,6 +483,8 @@ export class Shop {
             ? `突破「${STAGES[head.unlockStage - 1]!.name}」后解锁 · `
             : `${STAGES[head.needs!.stage]!.name}的三种设备各要 ${needs!.want} 台 · `,
         );
+        // Behind the reason only what the rung gives fits in two lines; the joke comes once it can be bought.
+        parts.blurb.set(head.blurb.slice(0, head.blurb.indexOf('。') + 1) || head.blurb);
         parts.owned.set(lock === 'needs' ? `${needs!.have}/${needs!.want}` : '');
         parts.ready = null;
         setClass(parts.root, 'is-ready', false);
@@ -492,6 +493,7 @@ export class Shop {
         continue;
       }
       row.lock.set('');
+      parts.blurb.set(head.blurb);
       parts.owned.set('');
       const affordable = popcorn >= head.cost;
       if (affordable) ready += 1;

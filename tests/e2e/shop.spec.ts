@@ -121,6 +121,34 @@ test('the upgrade page is four fixed rows, each showing only its next rung, whic
   expect(Math.abs((await upgradePage.boundingBox())!.height - height)).toBeLessThanOrEqual(1);
 });
 
+test('every rung says all it gives, locked or not, in the space a row has', async ({ page }) => {
+  await open(page);
+  await page.locator('.shop-tab', { hasText: '升级' }).click();
+  const cut = await page.evaluate(async () => {
+    // Served by the dev server; a variable, so TypeScript does not try to resolve it from here.
+    const module = '/src/content/upgrades.ts';
+    const { UPGRADES } = (await import(/* @vite-ignore */ module)) as typeof import('../../src/content/upgrades.ts');
+    const api = (window as unknown as { __pop: QaApi }).__pop;
+    const reached = [0, 2000, 33e6, 300e9, 250e12];
+    const cut: string[] = [];
+    for (const rung of UPGRADES) {
+      const row = UPGRADES.filter((other) => other.track === rung.track);
+      const before = row.slice(0, row.indexOf(rung)).map((other) => other.id);
+      const rest = UPGRADES.filter((other) => other.track !== rung.track).map((other) => other.id);
+      // Once while it is still locked, once when it can be bought.
+      for (const stage of new Set([Math.max(0, rung.unlockStage - 1), rung.unlockStage])) {
+        api.set({ stage, upgrades: [...before, ...rest], popcorn: 0, totalEarned: reached[stage]! });
+        api.advance(0.2);
+        await new Promise(requestAnimationFrame);
+        const blurb = document.querySelector<HTMLElement>(`.row[data-track="${rung.track}"] .ticket-blurb`)!;
+        if (blurb.scrollHeight > blurb.clientHeight + 1) cut.push(`${rung.id} in scene ${stage}: ${blurb.textContent}`);
+      }
+    }
+    return cut;
+  });
+  expect(cut).toEqual([]);
+});
+
 test('the counter keeps every digit on its strip while it climbs every frame', async ({ page }) => {
   await open(page);
   // Real time, so the rolls are interrupted again and again before they finish.
