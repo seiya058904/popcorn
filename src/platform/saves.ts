@@ -1,6 +1,6 @@
 import { elapsedSince, migrationResetsRun, parseSave, serializeSave, type LoadError, type LoadResult, type UpgradeConversion } from '../sim/save.ts';
 import type { OfflineReport, Simulation } from '../sim/simulation.ts';
-import type { KeyValueStore } from './storage.ts';
+import { reloadNote, type KeyValueStore } from './storage.ts';
 
 const AUTOSAVE_SECONDS = 30;
 /** The backup slot is refreshed every few saves, so one bad write cannot take both copies. */
@@ -19,11 +19,30 @@ export interface LoadOutcome {
   offline: OfflineReport | null;
 }
 
-const versionChange = (result: Extract<LoadResult, { ok: true }>): Pick<LoadOutcome, 'migrated' | 'upgraded' | 'converted'> => ({
+type VersionChange = Pick<LoadOutcome, 'migrated' | 'upgraded' | 'converted'>;
+
+const versionChange = (result: Extract<LoadResult, { ok: true }>): VersionChange => ({
   migrated: migrationResetsRun(result.migratedFrom),
   upgraded: result.migratedFrom !== null && !migrationResetsRun(result.migratedFrom),
   converted: migrationResetsRun(result.migratedFrom) ? null : result.converted,
 });
+
+const changed = (change: VersionChange): boolean => change.migrated || change.upgraded || change.converted !== null;
+
+/** What an imported save's version change was, left for the reload after the import to tell. */
+function takeImportNote(): VersionChange | null {
+  const text = reloadNote.take();
+  if (text === null) return null;
+  try {
+    const note = JSON.parse(text) as Partial<VersionChange>;
+    const converted = note.converted;
+    const validConversion = converted === null || (typeof converted === 'object' && Number.isFinite(converted?.rungs) && Number.isFinite(converted?.refunded));
+    if (typeof note.migrated !== 'boolean' || typeof note.upgraded !== 'boolean' || !validConversion) return null;
+    return { migrated: note.migrated, upgraded: note.upgraded, converted: converted ?? null };
+  } catch {
+    return null;
+  }
+}
 
 export class SaveManager {
   private readonly sim: Simulation;
@@ -39,6 +58,14 @@ export class SaveManager {
   }
 
   async load(now = Date.now()): Promise<LoadOutcome> {
+    const outcome = await this.loadSaved(now);
+    // A save imported just before this load was already brought up to date and stored; its own
+    // version change only survives in the note the import left.
+    const note = takeImportNote();
+    return note && outcome.source !== 'new' && !changed(outcome) ? { ...outcome, ...note } : outcome;
+  }
+
+  private async loadSaved(now: number): Promise<LoadOutcome> {
     const main = await this.store.read('main');
     const parsedMain = main === null ? null : parseSave(main);
     // A rescue copy only exists when the last regular save may not have finished.
@@ -126,6 +153,8 @@ export class SaveManager {
     if (!parsed.ok) return parsed.error;
     this.sim.load(parsed.state);
     await this.save();
+    const change = versionChange(parsed);
+    if (changed(change)) reloadNote.write(JSON.stringify(change));
     return null;
   }
 

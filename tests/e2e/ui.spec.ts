@@ -27,6 +27,8 @@ for (const size of [
   { width: 3840, height: 2160 },
   { width: 1024, height: 768 },
   { width: 900, height: 1200 },
+  { width: 1366, height: 768 },
+  { width: 2560, height: 1080 },
 ]) {
   test(`layout holds at ${size.width}×${size.height}`, async ({ page }) => {
     await page.setViewportSize(size);
@@ -86,6 +88,36 @@ for (const size of [
       return found;
     });
     expect(issues).toEqual([]);
+
+    // The four upgrade rows fit the shop side by side with nothing cut, and the shop keeps its share
+    // of the window (INTERACTION.md §1.7).
+    await page.locator('.shop-tab', { hasText: '升级' }).click();
+    await qa(page, (api) => api.advance(1));
+    await page.evaluate(() => document.getAnimations().forEach((animation) => animation.finish()));
+    const shop = await page.evaluate(() => {
+      const found: string[] = [];
+      const panel = document.querySelector('.shop')!.getBoundingClientRect();
+      const share = panel.width / window.innerWidth;
+      // At the interface's smallest scale a tall window gives the shop a little more of its width.
+      const atFloor = parseFloat(getComputedStyle(document.documentElement).fontSize) <= 6.4 && window.innerHeight > window.innerWidth;
+      if (share < 0.219 || share > (atFloor ? 0.32 : 0.301)) found.push(`shop is ${(share * 100).toFixed(1)}% of the window`);
+      const rows = [...document.querySelectorAll<HTMLElement>('.row[data-track]')];
+      if (rows.length !== 4) found.push(`${rows.length} upgrade rows`);
+      const boxes = rows.map((row) => row.getBoundingClientRect());
+      boxes.forEach((box, i) => {
+        if (box.left < panel.left - 0.5 || box.right > panel.right + 0.5) found.push(`row ${i} leaves the shop sideways`);
+        if (box.height < 1) found.push(`row ${i} is not shown`);
+        for (let j = i + 1; j < boxes.length; j += 1) {
+          const other = boxes[j]!;
+          if (box.top < other.bottom - 0.5 && other.top < box.bottom - 0.5) found.push(`rows ${i} and ${j} overlap`);
+        }
+      });
+      for (const node of document.querySelectorAll<HTMLElement>('.row .ticket-name, .row .ticket-price, .row .ticket-blurb, .row-name, .row-count')) {
+        if (node.scrollWidth > node.clientWidth + 1 || node.scrollHeight > node.clientHeight + 1) found.push(`${node.className} is cut: ${node.textContent}`);
+      }
+      return found;
+    });
+    expect(shop).toEqual([]);
   });
 }
 

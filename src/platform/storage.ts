@@ -40,6 +40,32 @@ const browserRescue = {
   },
 };
 
+const NOTE_KEY = `${FALLBACK_PREFIX}note`;
+
+/**
+ * A short note for the next page load of this tab only, such as what an import changed, which the
+ * reload that follows it would otherwise forget. Lost quietly when storage is blocked.
+ */
+export const reloadNote = {
+  write(text: string): void {
+    try {
+      sessionStorage.setItem(NOTE_KEY, text);
+    } catch {
+      // The note is a courtesy; the save itself is already written.
+    }
+  },
+  /** Reads the note and removes it, so it is only ever shown once. */
+  take(): string | null {
+    try {
+      const text = sessionStorage.getItem(NOTE_KEY);
+      sessionStorage.removeItem(NOTE_KEY);
+      return text;
+    } catch {
+      return null;
+    }
+  },
+};
+
 class IndexedDbStore implements KeyValueStore {
   readonly writeRescue = browserRescue.writeRescue;
   readonly readRescue = browserRescue.readRescue;

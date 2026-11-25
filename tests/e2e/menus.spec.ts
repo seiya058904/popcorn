@@ -1,5 +1,8 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { expect, test, type Page } from '@playwright/test';
 import type { QaApi } from '../../src/debug/index.ts';
+import { checksum } from '../../src/sim/save.ts';
 
 type QaWindow = Window & { __pop: QaApi };
 
@@ -75,7 +78,60 @@ test('a save exported here can be imported into a fresh browser profile', async 
   await other.close();
 });
 
-test('a save travels from Chromium to Firefox and back', async ({ page, browser, playwright, baseURL }, testInfo) => {
+const importThroughMenu = async (page: Page, text: string): Promise<void> => {
+  await page.goto('/?play=1');
+  await ready(page);
+  await page.keyboard.press('Escape');
+  await page.locator('.menu-list .menu-item', { hasText: '存档管理' }).click();
+  await page.locator('.menu-text').fill(text);
+  await Promise.all([page.waitForNavigation(), press(page, '[data-action="import"]')]);
+  await ready(page);
+};
+
+test('an exported version 4 save comes in with its upgrades moved onto the rows, and says so', async ({ page }) => {
+  // Exported from the last version 4 build (6f6edc5) after its bot had played for a while.
+  const text = readFileSync(fileURLToPath(new URL('../fixtures/save-v4.txt', import.meta.url)), 'utf8');
+  const before = JSON.parse(JSON.parse(text).body) as { popcorn: number; owned: number[]; upgrades: string[] };
+  await importThroughMenu(page, text);
+  await expect(page.locator('.dialog h2')).toHaveText('升级改版');
+  await expect(page.locator('.dialog', { hasText: '升级改版' })).toContainText('四栏');
+  const after = await qa(page, (api) => {
+    const sim = api.game.sim;
+    return {
+      version: sim.state.version,
+      popcorn: sim.state.popcorn,
+      owned: [...sim.state.owned],
+      upgrades: [...sim.state.upgrades],
+      heads: (['craft', 'line', 'play', 'decor'] as const).map((track) => sim.trackHead(track)?.id ?? null),
+    };
+  });
+  expect(after.version).toBe(5);
+  expect(after.owned).toEqual(before.owned);
+  // Whatever no rung took in was paid back, so nothing was lost.
+  expect(after.popcorn).toBeGreaterThanOrEqual(before.popcorn);
+  expect(after.upgrades.length).toBeGreaterThan(0);
+  // Each row shows its next rung, and its dots light up as many rungs as it owns.
+  for (const [index, track] of ['craft', 'line', 'play', 'decor'].entries()) {
+    const row = page.locator(`[data-track="${track}"]`);
+    const owned = after.upgrades.filter((id) => id.startsWith(`${track}-`)).length;
+    await expect(row.locator('.row-pips i.is-on')).toHaveCount(owned);
+    if (after.heads[index]) await expect(row.locator(`[data-upgrade="${after.heads[index]}"]`)).toHaveCount(1);
+  }
+  // The notice is shown once; it does not come back on the next reload.
+  await page.reload();
+  await ready(page);
+  await page.waitForTimeout(500);
+  await expect(page.locator('.dialog h2')).toHaveCount(0);
+});
+
+test('an imported save from a version whose run cannot continue says it starts over', async ({ page }) => {
+  const body = JSON.stringify({ version: 1, popcorn: 500, totalEarned: 800, owned: [3, 0, 0, 0, 0, 0], clicks: 90 });
+  const text = JSON.stringify({ format: 'pop-popcorn-save', version: 1, sum: checksum(body), body });
+  await importThroughMenu(page, text);
+  await expect(page.locator('.dialog h2')).toHaveText('配方大改版');
+});
+
+test('a save travels from Chromium to Firefox and back',async ({ page, browser, playwright, baseURL }, testInfo) => {
   test.skip(testInfo.project.name !== 'chromium', 'One run covers both engines.');
   const importInto = async (target: Page, text: string): Promise<void> => {
     await target.goto(`${baseURL}/?play=1`);

@@ -138,9 +138,13 @@ describe('prices', () => {
     expect(sim.price(0, 10)).toBe(bulkPrice(0, 3, 10));
   });
 
-  it('prices flavors at 400 × 28^n', () => {
+  it('prices flavors at 400 × 28^n, and only ×3 each past the ninth', () => {
     expect(flavorPrice(0)).toBe(400);
     expect(flavorPrice(3)).toBe(400 * 28 ** 3);
+    expect(flavorPrice(8)).toBe(400 * 28 ** 8);
+    expect(flavorPrice(9)).toBe(400 * 28 ** 8 * 3);
+    expect(flavorPrice(11)).toBe(400 * 28 ** 8 * 27);
+    for (let n = 1; n < FLAVORS.length; n += 1) expect(flavorPrice(n)).toBeGreaterThan(flavorPrice(n - 1));
   });
 });
 
@@ -831,6 +835,8 @@ describe('balance gates', () => {
   it('lets every player type finish, buying all fifteen units until late', () => {
     for (const report of reports) {
       expect(report.finished).toBe(true);
+      // Every flavor is seen in a run, the last one before the moon.
+      expect(report.flavors).toBe(FLAVORS.length);
       report.owned.forEach((count) => expect(count).toBeGreaterThan(0));
       // No unit may be abandoned early: each is still being bought in the last 40% of the run.
       report.lastBought.forEach((minute) => expect(minute).toBeGreaterThan(report.endMinutes * 0.6));

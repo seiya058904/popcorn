@@ -46,3 +46,10 @@ export const FLAVORS: readonly FlavorDef[] = [
 export const FLAVOR_MULTIPLIER = 1.35;
 export const FLAVOR_BASE_COST = 400;
 export const FLAVOR_COST_GROWTH = 28;
+/**
+ * Past the ninth flavor each one costs only this many times the last, so a run reaches the starry,
+ * gold and mystery flavors on Earth, the last just before the moon. At the full ×28 the last two cost
+ * more than a whole run earns and only came hours after the ending.
+ */
+export const FLAVOR_LATE_FROM = 8;
+export const FLAVOR_LATE_GROWTH = 3;

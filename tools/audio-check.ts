@@ -124,6 +124,11 @@ const SPECS: MixSpec[] = [
   ...[1, 2, 3, 4, 5, 6, 7].map((intensity): MixSpec => ({ seconds: 9, skip: 3, name: `bed-${intensity}`, intensity, stage: 2, track: null, bed: true, clicks: [] })),
 ];
 
+/** The full-load ending mix: measured after the bed and the music have come in. */
+const FINALE = { seconds: 13, skip: 3 };
+/** Headroom the full-load mix must keep, in dBFS of true peak. */
+const FINALE_PEAK_DB = -1;
+
 const harness = await startHarness();
 const rendered = new Map<string, Float32Array[]>();
 try {
@@ -204,6 +209,90 @@ try {
     },
     { specs: SPECS, rate: SAMPLE_RATE },
   );
+  // The end of the game at full tilt, played through the game's own sound engine, so its voice
+  // limits and ducking are the ones being measured.
+  Object.assign(
+    encoded,
+    await page.evaluate(
+      async ({ rate, seconds, skip }) => {
+        const load = (path: string): Promise<Record<string, never>> => import(/* @vite-ignore */ path);
+        const { SOUND_RECIPES: recipes } = (await load('/src/audio/bank.ts')) as unknown as typeof import('../src/audio/bank.ts');
+        const { AudioEngine } = (await load('/src/audio/engine.ts')) as unknown as typeof import('../src/audio/engine.ts');
+        const { COMBO_PITCH, COMBO_TIERS } = (await load('/src/render/fx/combo.ts')) as unknown as typeof import('../src/render/fx/combo.ts');
+        const context = new OfflineAudioContext(2, Math.floor(seconds * rate), rate);
+        const sounds = new Map(Object.keys(recipes).map((name) => [name, recipes[name]!()] as const));
+        const engine = new AudioEngine();
+        engine.setTrack('world');
+        engine.setSpace(4);
+        engine.attach(context, sounds);
+        const quantum = 128 / rate;
+        const timeline = new Map<number, Array<() => void>>();
+        const at = (time: number, action: () => void): void => {
+          const key = Math.max(1, Math.round(time / quantum));
+          // A suspend must fall inside the render.
+          if ((key + 1) * quantum >= seconds) return;
+          let list = timeline.get(key);
+          if (!list) timeline.set(key, (list = []));
+          list.push(action);
+        };
+        // The heap at its loudest and the player at full activity, refreshed as the game does.
+        for (let t = 0; t < seconds; t += 1 / 30) at(t, () => engine.update(6.9, 1));
+        // Ten clicks a second, the combo climbing through every tier.
+        for (let i = 0; i < (seconds - 0.5) * 10; i += 1) {
+          const count = i + 1;
+          at(0.5 + i / 10, () => {
+            engine.pop(count);
+            const tier = COMBO_TIERS.filter((step) => count >= step).length;
+            if ((COMBO_TIERS as readonly number[]).includes(count)) engine.effect('combo', tier >= 3 ? 'medium' : 'small', COMBO_PITCH[tier - 1]);
+          });
+        }
+        // Machines popping by themselves: far more crackle than the engine will ever voice.
+        for (let t = 0.2; t < seconds; t += 1 / 60) at(t, () => engine.crackle());
+        const machines = ['work-volcano', 'work-typhoon', 'work-train', 'orbital-zap', 'airship-drop', 'work-factory', 'truck-horn', 'ding'];
+        for (let i = 0; i < seconds * 8; i += 1) at(0.3 + i / 8, () => engine.machine(machines[i % machines.length]!));
+        // A green-zone shot every two seconds, charged for most of a second first.
+        for (let shot = 1; shot < seconds; shot += 2) {
+          for (let c = 0; c <= 10; c += 1) at(shot - 0.9 + c * 0.08, () => engine.setCharge(c / 10, true));
+          at(shot, () => {
+            engine.setCharge(0, false);
+            engine.effect('cannon-fire', 'large');
+            engine.effect('pigeons');
+            engine.effect('cannon-perfect', 'large');
+          });
+        }
+        // Golden kernels, kernels caught, purchases and an achievement on top.
+        for (let t = 1.7; t < seconds; t += 3) at(t, () => engine.effect('chime', 'small', 1.5));
+        for (let t = 2.4; t < seconds; t += 5) {
+          at(t, () => engine.effect('boing'));
+          at(t + 1.2, () => engine.effect('catch', 'medium'));
+        }
+        for (let t = 1.1; t < seconds; t += 1) {
+          at(t, () => {
+            engine.effect('buy', 'small', 1);
+            engine.effect('shovel');
+          });
+        }
+        at(seconds * 0.6, () => engine.effect('achievement'));
+        for (const [key, actions] of timeline) {
+          void context.suspend(key * quantum).then(() => {
+            for (const action of actions) action();
+            void context.resume();
+          });
+        }
+        const result = await context.startRendering();
+        const first = Math.floor(skip * rate);
+        const channels = [0, 1].map((channel) => {
+          const data = result.getChannelData(channel).subarray(first);
+          const bytes = new Uint8Array(new Float32Array(data).buffer);
+          let text = '';
+          for (let i = 0; i < bytes.length; i += 32768) text += String.fromCharCode(...bytes.subarray(i, i + 32768));
+          return btoa(text);
+        });
+        return { 'mix-finale-full': channels };
+      },
+      { rate: SAMPLE_RATE, ...FINALE },
+    ),
+  );
   for (const [name, channels] of Object.entries(encoded)) {
     rendered.set(
       name,
@@ -217,7 +306,7 @@ try {
   await harness.close();
 }
 
-const mixes = SPECS.map((spec) => analyze(spec.name, rendered.get(spec.name)!, spec.name.startsWith('mix') && !spec.name.endsWith('no-clicks')));
+const mixes = [...SPECS.map((spec) => spec.name), 'mix-finale-full'].map((name) => analyze(name, rendered.get(name)!, name.startsWith('mix') && !name.endsWith('no-clicks')));
 console.table(mixes);
 const mixReport = (name: string): Report => mixes.find((mix) => mix.name === name)!;
 
@@ -300,6 +389,8 @@ for (let level = 2; level <= 7; level += 1) {
   const louder = mixReport(`bed-${level}`).lufs ?? -99;
   if (louder < quieter + 0.5) problems.push(`bed loudness does not grow from ${level - 1} (${quieter}) to ${level} (${louder})`);
 }
+const finale = mixReport('mix-finale-full');
+if ((finale.truePeakDb ?? 0) > FINALE_PEAK_DB) problems.push(`mix-finale-full: true peak ${finale.truePeakDb} dBFS above ${FINALE_PEAK_DB} at full load`);
 if ((mixReport('bed-7').lufs ?? 0) > -15) problems.push(`the bed alone is too loud at the top: ${mixReport('bed-7').lufs} LUFS`);
 if (clarity.earth < -9) problems.push(`clicks are buried at the end of the game: ${clarity.earth} dB`);
 if (bass.earth <= bass.kitchen) problems.push('the heap should sound heavier at the end than in the kitchen');

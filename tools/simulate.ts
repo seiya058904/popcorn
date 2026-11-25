@@ -1,6 +1,6 @@
 import { writeFileSync } from 'node:fs';
 import { ACHIEVEMENTS } from '../src/content/achievements.ts';
-import { FLAVORS } from '../src/content/flavors.ts';
+import { FLAVOR_LATE_GROWTH, FLAVORS } from '../src/content/flavors.ts';
 import { formatAmount } from '../src/content/format.ts';
 import { DECOR } from '../src/content/decor.ts';
 import { MILESTONE_STEP, MILESTONES, PRODUCERS_IN_ORDER } from '../src/content/producers.ts';
@@ -37,6 +37,8 @@ lines.push(
   '- 19 条协同按场景合成 5 档「联动」；金牌档合成 5 档金色产线，某个场景的三种设备都够台数后，三种一起 ×2。',
   '- 点击、自动、大炮、跳跳粒、离线的 31 项合成手艺 8 档、玩法 8 档；10 件装修照旧。',
   '- 不再花钱买 60 档设备升级后，厨房快了约 2 分钟，所以厨房三种设备的价格提高约 1.5 倍（推车 2,500 → 4,000，厨师机 13,000 → 20,000，老式爆米花炮 74,000 → 110,000）；喷泉灯光秀 1.2 万亿 → 5 万亿，保证它在小城里买下。',
+  '',
+  `口味价格从二期起是 400 × 28^n，最后两种（黄金、神秘味道）比一整局的产量还贵，三类玩家通关时都只有 10/12，「说不清的味道」要在通关后再挂好几个小时才拿得到。六期阶段 4 改为第 9 种之后每种只贵 ${FLAVOR_LATE_GROWTH} 倍：星空、黄金、神秘味道都在地球买下，最后一种就在月亮之前。前 9 种价格不变，地球阶段缩短约 1 分钟。`,
   '',
 );
 lines.push('## 三类玩家', '');
@@ -115,6 +117,7 @@ if (!(idle.endMinutes <= 210)) failures.push(`挂机玩家通关 ${idle.endMinut
 if (active.total < 3e16 || active.total > 3e17) failures.push(`通关累计 ${formatAmount(active.total)} 不在 3亿亿～30亿亿之间`);
 for (const report of reports) {
   if (!report.finished) failures.push(`${report.name} 未通关`);
+  if (report.flavors < FLAVORS.length) failures.push(`${report.name} 通关时只有 ${report.flavors}/${FLAVORS.length} 种口味`);
   // A rung waiting for machines holds up its whole row; never for more than half a scene.
   for (const [id, waited] of Object.entries(report.rungsWaiting)) {
     const span = report.stageMinutes[waited.stage]! - (waited.stage > 0 ? report.stageMinutes[waited.stage - 1]! : 0);

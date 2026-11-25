@@ -37,7 +37,7 @@ export class AudioEngine {
   readonly levels: AudioLevels = { master: 0.85, music: 0.6, effects: 0.9, ui: 0.7 };
   /** When each interface sound last played, so a burst of presses never stacks into noise. */
   private readonly uiClock = new Map<string, number>();
-  private context: AudioContext | null = null;
+  private context: BaseAudioContext | null = null;
   private graph: MixGraph | null = null;
   private pops: AudioBuffer[] = [];
   private crackles: AudioBuffer[] = [];
@@ -56,10 +56,17 @@ export class AudioEngine {
 
   unlock(): void {
     if (this.context) {
-      if (this.context.state === 'suspended') void this.context.resume();
+      this.resume();
       return;
     }
-    const context = new AudioContext({ latencyHint: 'interactive' });
+    this.attach(new AudioContext({ latencyHint: 'interactive' }));
+  }
+
+  /**
+   * Plays into the given context. The game passes a live one and has the sound bank made in a
+   * worker; the offline mix check passes an offline one with every sound already made.
+   */
+  attach(context: BaseAudioContext, sounds?: ReadonlyMap<string, Float32Array>): void {
     this.context = context;
     this.graph = new MixGraph(context);
     this.applyLevels();
@@ -68,7 +75,13 @@ export class AudioEngine {
 
     this.pops = Array.from({ length: POP_VARIATIONS }, (_, i) => this.toBuffer(synthPop(i)));
     this.crackles = Array.from({ length: CRACKLE_VARIATIONS }, (_, i) => this.toBuffer(synthCrackle(i)));
-    this.loadBank();
+    if (sounds) for (const [name, samples] of sounds) this.addSound(name, samples);
+    else this.loadBank();
+  }
+
+  private resume(): void {
+    const context = this.context;
+    if (context instanceof AudioContext && context.state === 'suspended') void context.resume();
   }
 
   private toBuffer(samples: Float32Array): AudioBuffer {
@@ -79,14 +92,15 @@ export class AudioEngine {
 
   private loadBank(): void {
     const worker = new Worker(new URL('./bank.worker.ts', import.meta.url), { type: 'module' });
-    worker.onmessage = (event: MessageEvent<{ name: string; samples: Float32Array }>) => {
-      const { name, samples } = event.data;
-      const buffer = this.toBuffer(samples);
-      this.bank.set(name, buffer);
-      if ((BED_LAYERS as readonly string[]).includes(name)) this.graph!.startBedLayer(name as BedLayer, buffer);
-      if (name.startsWith('music-')) this.syncMusic();
-    };
+    worker.onmessage = (event: MessageEvent<{ name: string; samples: Float32Array }>) => this.addSound(event.data.name, event.data.samples);
     worker.onerror = (event) => console.warn('Sound bank failed to load', event.message);
+  }
+
+  private addSound(name: string, samples: Float32Array): void {
+    const buffer = this.toBuffer(samples);
+    this.bank.set(name, buffer);
+    if ((BED_LAYERS as readonly string[]).includes(name)) this.graph!.startBedLayer(name as BedLayer, buffer);
+    if (name.startsWith('music-')) this.syncMusic();
   }
 
   applyLevels(): void {
@@ -257,7 +271,7 @@ export class AudioEngine {
   setPaused(paused: boolean): void {
     if (paused) this.setCharge(0, false);
     if (!this.context || !this.graph) return;
-    if (!paused && this.context.state === 'suspended') void this.context.resume();
+    if (!paused) this.resume();
     this.graph.setWorldPaused(paused);
   }
 

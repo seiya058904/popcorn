@@ -6,7 +6,8 @@
   --night: #1e0f1a;
   --panel: var(--glass);
   --digits: 'Fredoka', 'Kuaile', sans-serif;
-  --shop-width: 44rem;
+  /* 44rem is 23% of a 16:9 window; wider windows, such as 21:9, keep the shop at 22% of the width. */
+  --shop-width: max(44rem, 22vw);
   --gauge-size: 21rem;
   --corner-size: 5.6rem;
   /* Middle of the play area, between the window's left edge and the shop. */

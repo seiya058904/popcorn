@@ -1,4 +1,4 @@
-import { FLAVOR_BASE_COST, FLAVOR_COST_GROWTH, FLAVOR_MULTIPLIER, FLAVORS } from '../content/flavors.ts';
+import { FLAVOR_BASE_COST, FLAVOR_COST_GROWTH, FLAVOR_LATE_FROM, FLAVOR_LATE_GROWTH, FLAVOR_MULTIPLIER, FLAVORS } from '../content/flavors.ts';
 import { MILESTONE_STEP, MILESTONES, PRICE_GROWTH, PRODUCERS } from '../content/producers.ts';
 import { CANNON, CLICK, GOLDEN, HOLD_POP, HOPPER, NEW_POT, OFFLINE, POT } from '../content/skills.ts';
 import { STAGES } from '../content/stages.ts';
@@ -30,7 +30,8 @@ export function affordableCount(producer: number, owned: number, budget: number,
 }
 
 export function flavorPrice(owned: number): number {
-  return FLAVOR_BASE_COST * FLAVOR_COST_GROWTH ** owned;
+  const late = Math.max(0, owned - FLAVOR_LATE_FROM);
+  return FLAVOR_BASE_COST * FLAVOR_COST_GROWTH ** (owned - late) * FLAVOR_LATE_GROWTH ** late;
 }
 
 /** What owning this many of one machine multiplies each of them by. */
