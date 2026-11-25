@@ -4,7 +4,7 @@ import { PRODUCERS } from '../content/producers.ts';
 import { EGG_IDS } from '../content/props.ts';
 import { CANNON, HOPPER, OFFLINE, POT_SKINS } from '../content/skills.ts';
 import { CANNON_UNLOCK_STAGE, STAGES } from '../content/stages.ts';
-import { UPGRADE_BY_ID, UPGRADES, type UpgradeDef } from '../content/upgrades.ts';
+import { sceneUnits, TRACK_RUNGS, TRACKS, UPGRADE_BY_ID, type UpgradeDef, type UpgradeTrack } from '../content/upgrades.ts';
 import type { EventBus } from '../events/bus.ts';
 import type { CannonResult, GameEvents } from '../events/game-events.ts';
 import {
@@ -303,26 +303,36 @@ export class Simulation {
     return true;
   }
 
+  /** The next rung of a row: the first one in ladder order not yet owned, or null when all are. */
+  trackHead(track: UpgradeTrack): UpgradeDef | null {
+    for (const upgrade of TRACK_RUNGS.get(track)!) if (!hasUpgrade(this.state, upgrade.id)) return upgrade;
+    return null;
+  }
+
+  /** How many of each of the scene's machines a rung asks for, against the fewest owned of them. */
+  needsProgress(upgrade: UpgradeDef): { have: number; want: number } | null {
+    if (!upgrade.needs) return null;
+    const have = Math.min(...sceneUnits(upgrade.needs.stage).map((unit) => this.state.owned[unit]!));
+    return { have, want: upgrade.needs.count };
+  }
+
+  /** Why a rung cannot be bought yet, if it cannot: the scene is still ahead, or too few machines. */
+  upgradeLock(upgrade: UpgradeDef): 'stage' | 'needs' | null {
+    if (this.state.stage < upgrade.unlockStage) return 'stage';
+    const needs = this.needsProgress(upgrade);
+    return needs && needs.have < needs.want ? 'needs' : null;
+  }
+
+  /** On offer: the next rung of its row, and nothing left in its way but the price. */
   upgradeAvailable(upgrade: UpgradeDef): boolean {
-    const s = this.state;
-    if (hasUpgrade(s, upgrade.id) || s.totalEarned < upgrade.showAt) return false;
-    if (upgrade.requires && !hasUpgrade(s, upgrade.requires)) return false;
-    if (upgrade.ownedAtLeast && s.owned[upgrade.ownedAtLeast.unit]! < upgrade.ownedAtLeast.count) return false;
-    return s.stage >= (upgrade.unlockStage ?? 0);
+    return this.trackHead(upgrade.track) === upgrade && this.upgradeLock(upgrade) === null;
   }
 
   get availableUpgrades(): UpgradeDef[] {
-    return UPGRADES.filter((upgrade) => this.upgradeAvailable(upgrade));
-  }
-
-  /** What "buy them all" would buy: upgrades on offer, cheapest first, as far as the popcorn goes. */
-  affordableUpgrades(): UpgradeDef[] {
-    let budget = this.state.popcorn;
     const list: UpgradeDef[] = [];
-    for (const upgrade of this.availableUpgrades.sort((a, b) => a.cost - b.cost)) {
-      if (upgrade.cost > budget) break;
-      budget -= upgrade.cost;
-      list.push(upgrade);
+    for (const track of TRACKS) {
+      const head = this.trackHead(track.id);
+      if (head && this.upgradeLock(head) === null) list.push(head);
     }
     return list;
   }
@@ -425,7 +435,7 @@ export class Simulation {
     let goldOwned = 0;
     for (const id of s.upgrades) {
       const upgrade = UPGRADE_BY_ID.get(id);
-      if (upgrade?.group === 'decor') decorOwned += 1;
+      if (upgrade?.track === 'decor') decorOwned += 1;
       if (upgrade?.gold) goldOwned += 1;
     }
     return {

@@ -1,5 +1,6 @@
 import { AudioEngine } from './audio/engine.ts';
 import { MUSIC_HOME } from './audio/music.ts';
+import { formatAmount } from './content/format.ts';
 import { HOLD_POP } from './content/skills.ts';
 import { EventBus } from './events/bus.ts';
 import type { GameEvents } from './events/game-events.ts';
@@ -13,12 +14,12 @@ import { Stage } from './render/core/stage.ts';
 import type { FinaleBeat } from './render/scenes/types.ts';
 import { World, type BreakBeat } from './render/world.ts';
 import { showIntensity } from './sim/economy.ts';
+import type { UpgradeConversion } from './sim/save.ts';
 import { Simulation } from './sim/simulation.ts';
 import { FixedStepper } from './sim/stepper.ts';
 import { feedback } from './ui/feedback.ts';
 import { FlyIn } from './ui/flyin.ts';
 import { Hud } from './ui/hud.ts';
-import { ICONS } from './ui/icons.ts';
 import { setMotion } from './ui/motion.ts';
 import { Menus } from './ui/menu.ts';
 import { PhotoMode, photoFileName } from './ui/photo.ts';
@@ -72,6 +73,13 @@ const DYNAMIC_SCALES = [1, 0.85, 0.72];
 /** A window this fast means frames arrive with the display, so there may be room to spare. */
 const SMOOTH_FRAME_SECONDS = 0.0175;
 const RAISE_AFTER_WINDOWS = 10;
+
+/** What a save from before the upgrade rows is told when it is first loaded. */
+export function conversionText(converted: UpgradeConversion, offline: number): string {
+  const refund = converted.refunded > 0 ? `，其余的按原价返还了 ${formatAmount(converted.refunded)} 爆米花` : '';
+  const away = offline > 0 ? `你不在的时候锅也没停：+${formatAmount(offline)}。` : '';
+  return `升级合并成了手艺、产线、玩法、装修四栏。你原来的升级折算成 ${converted.rungs} 档${refund}。设备的四档升级改成了里程碑，台数一到自动翻倍。进度都还在。${away}`;
+}
 
 /** A cautious first guess; the frame-time watcher corrects it downward if needed. */
 function initialTier(gpuName: string): QualityTier {
@@ -388,9 +396,10 @@ export class Game {
     performance.mark('boot:compile');
     this.stage.preload(this.stage.scene);
     performance.mark('boot:preload');
-    if (outcome.upgraded) this.hud.toast(ICONS.unit, '新内容上架', '五种新设备、金色玉米、跳跳粒群和场景装修，进度都还在。');
     if (outcome.migrated) {
       this.hud.showNotice('配方大改版', '这一版的数值全部重做，这一锅要从头开始。成就、口味图鉴和再来一锅的记录都还在。');
+    } else if (outcome.converted) {
+      this.hud.showNotice('升级改版', conversionText(outcome.converted, outcome.offline?.gained ?? 0));
     } else if (outcome.offline) this.hud.showOffline(outcome.offline.seconds, outcome.offline.gained);
     else if (outcome.recovered) {
       this.hud.showNotice(

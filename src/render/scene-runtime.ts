@@ -535,8 +535,7 @@ export class SceneRuntime {
   syncUpgrades(owned: readonly string[], animate = false): void {
     let pops = 0;
     for (const id of owned) {
-      const effect = UPGRADE_BY_ID.get(id)?.effect;
-      if (effect?.kind === 'autoPops') pops += effect.perSecond;
+      for (const effect of UPGRADE_BY_ID.get(id)?.effects ?? []) if (effect.kind === 'autoPops') pops += effect.perSecond;
     }
     this.stirrer?.setPower(pops);
     this.parts.upgradesChanged?.(owned, animate && !this.calmEntrances);

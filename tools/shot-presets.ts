@@ -135,7 +135,7 @@ export const shotPresets: ShotPreset[] = [
           api.buy(0, 4);
           api.buy(1, 2);
           api.game.sim.state.totalEarned = 1200;
-          api.game.sim.buyUpgrade('auto1');
+          for (const id of ['craft-1', 'craft-2']) api.game.sim.buyUpgrade(id);
           api.set({ popcorn: 0, totalEarned: 320 });
           api.advance(2.8);
         },
@@ -174,7 +174,8 @@ export const shotPresets: ShotPreset[] = [
           api.set({ stage: 2, totalEarned: value.total, popcorn: value.plenty, flavors: 4 });
           api.advance(0.2);
           [4, 0, 16, 2, 4, 2].forEach((count, unit) => api.buy(unit, count));
-          api.game.sim.buyUpgrade('syn-cart-cinema');
+          api.set({ upgrades: ['line-chain-0', 'line-chain-1', 'line-gold-0', 'line-chain-2'] });
+          api.game.world.current?.syncUpgrades(api.game.sim.state.upgrades);
           api.set({ popcorn: value.total });
           api.advance(3.5);
         },

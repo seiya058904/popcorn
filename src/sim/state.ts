@@ -1,7 +1,10 @@
 import { PRODUCERS } from '../content/producers.ts';
 
-/** 4: five more machines, golden kernels, swarms, pokes and the easter-egg album. */
-export const SAVE_VERSION = 4;
+/**
+ * 4: five more machines, golden kernels, swarms, pokes and the easter-egg album.
+ * 5: upgrades fold into four rows of rungs; machine tiers become milestones.
+ */
+export const SAVE_VERSION = 5;
 
 export interface RunStats {
   clicks: number;

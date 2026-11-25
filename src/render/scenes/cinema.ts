@@ -708,7 +708,8 @@ function* buildCinema(stage: Stage, root: THREE.Group): SceneBuild {
       bucketKick.kick(-0.16 - 0.14 * strength);
     },
     upgradesChanged(owned, animate) {
-      beltOn = owned.includes('syn-cart-cinema');
+      // The carts feed the cinema machines once the cinema's chain is bought.
+      beltOn = owned.includes('line-chain-2');
       belt.visible = beltOn;
       if (!beltOn) beltLoads.commit(0);
       pieces.sync(owned, animate);

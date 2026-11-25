@@ -4,12 +4,23 @@ import { PRODUCERS } from '../content/producers.ts';
 import { EGG_IDS } from '../content/props.ts';
 import { POT_SKINS } from '../content/skills.ts';
 import { STAGES } from '../content/stages.ts';
-import { UPGRADE_BY_ID } from '../content/upgrades.ts';
+import { UPGRADE_BY_ID, UPGRADES } from '../content/upgrades.ts';
+import { legacyCost } from './legacy-upgrades.ts';
 import { createLegacy, createState, createStats, SAVE_VERSION, type GameState } from './state.ts';
 
 const FORMAT = 'pop-popcorn-save';
 
-export type LoadResult = { ok: true; state: GameState; migratedFrom: number | null } | { ok: false; error: LoadError };
+/** What became of an old save's upgrades when they moved onto the upgrade rows. */
+export interface UpgradeConversion {
+  /** Rungs the old upgrades add up to. */
+  rungs: number;
+  /** Popcorn paid back for the old upgrades that no rung took in. */
+  refunded: number;
+}
+
+export type LoadResult =
+  | { ok: true; state: GameState; migratedFrom: number | null; converted: UpgradeConversion | null }
+  | { ok: false; error: LoadError };
 export type LoadError = 'not-json' | 'wrong-format' | 'bad-checksum' | 'future-version' | 'invalid-data';
 
 type Json = Record<string, unknown>;
@@ -56,7 +67,29 @@ const MIGRATIONS: Record<number, (raw: Json) => Json> = {
   // Version 4 only adds things: five machines (new ids after the old ones), counters and the egg
   // album. The run carries on; sanitize() fills every new field with its default.
   3: (raw) => ({ ...raw, version: 4 }),
+  // Version 5 folds 120 upgrades into four rows of rungs. A rung is owned when every upgrade it
+  // replaces was; whatever is left over (half a pair, and the machine tiers that are now
+  // milestones) is paid back at its old price. Spending money back does not count as earning it,
+  // so the scene and the run's total stay where they were.
+  4: (raw) => {
+    const old = new Set(Array.isArray(raw.upgrades) ? raw.upgrades.filter((id): id is string => typeof id === 'string') : []);
+    const rungs: string[] = [];
+    const taken = new Set<string>();
+    for (const upgrade of UPGRADES) {
+      if (upgrade.from.length > 0 && upgrade.from.every((id) => old.has(id))) {
+        rungs.push(upgrade.id);
+        for (const id of upgrade.from) taken.add(id);
+      }
+    }
+    let refunded = 0;
+    for (const id of old) if (!taken.has(id)) refunded += legacyCost(id);
+    const converted: UpgradeConversion = { rungs: rungs.length, refunded };
+    return { ...raw, upgrades: rungs, popcorn: finite(raw.popcorn, 0) + refunded, version: 5, [CONVERTED]: converted };
+  },
 };
+
+/** Where the version 5 migration leaves its report on the raw state, for `parseSave` to pass on. */
+const CONVERTED = '__converted';
 
 /** Saves from before this version start a fresh run when loaded; later ones carry on. */
 const FIRST_KEPT_RUN_VERSION = 3;
@@ -147,7 +180,8 @@ export function parseSave(text: string): LoadResult {
   }
   const state = sanitize(current);
   if (!state) return { ok: false, error: 'invalid-data' };
-  return { ok: true, state, migratedFrom: original === SAVE_VERSION ? null : original };
+  const converted = isObject(current[CONVERTED]) ? (current[CONVERTED] as unknown as UpgradeConversion) : null;
+  return { ok: true, state, migratedFrom: original === SAVE_VERSION ? null : original, converted };
 }
 
 /** Whole-seconds absence for offline earnings; a clock moved backwards yields zero. */

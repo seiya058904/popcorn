@@ -84,7 +84,7 @@ export const filmScenarios: Record<string, FilmScenario> = {
     columns: 6,
     setup: async (page) => {
       await qa(page, (api, total: number) => {
-        api.set({ stage: 1, totalEarned: total, popcorn: 1e9, upgrades: ['golden1'] });
+        api.set({ stage: 1, totalEarned: total, popcorn: 1e9, upgrades: ['craft-1', 'craft-2', 'craft-3'] });
         (api.game.sim as unknown as { derived: { goldenChance: number } }).derived.goldenChance = 1;
         api.advance(2);
       }, totalAt(1, 0.4));

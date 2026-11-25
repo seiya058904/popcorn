@@ -2,12 +2,13 @@ import { FLAVOR_MULTIPLIER, FLAVORS } from '../content/flavors.ts';
 import { formatAmount } from '../content/format.ts';
 import { PRODUCERS_IN_ORDER, type ProducerDef } from '../content/producers.ts';
 import { STAGES } from '../content/stages.ts';
-import { UPGRADES, type UpgradeDef, type UpgradeGroup } from '../content/upgrades.ts';
+import { TRACK_RUNGS, TRACKS, type TrackDef, type UpgradeDef, type UpgradeTrack } from '../content/upgrades.ts';
+import { hasUpgrade, nextMilestone } from '../sim/economy.ts';
 import type { Simulation } from '../sim/simulation.ts';
 import { el, setClass, Text } from './dom.ts';
 import { feedback } from './feedback.ts';
 import { ICONS, UNIT_ICONS } from './icons.ts';
-import { flip, MOTION, motionPrefs, play } from './motion.ts';
+import { MOTION, motionPrefs, play } from './motion.ts';
 import { pressable } from './press.ts';
 import { Segmented } from './segmented.ts';
 
@@ -19,27 +20,12 @@ const BULK_OPTIONS: ReadonlyArray<readonly [Bulk, string]> = [
   ['max', '最大'],
 ];
 
-const GROUP_ICON: Record<UpgradeGroup, string> = {
-  click: ICONS.click,
-  unit: ICONS.unit,
-  synergy: ICONS.synergy,
-  cannon: ICONS.cannon,
-  hopper: ICONS.hopper,
-  offline: ICONS.offline,
+const TRACK_ICON: Record<UpgradeTrack, string> = {
+  craft: ICONS.click,
+  line: ICONS.synergy,
+  play: ICONS.cannon,
   decor: ICONS.decor,
 };
-
-/** Upgrade filters, by what the player is thinking about rather than how the rules group them. */
-const FILTERS: ReadonlyArray<readonly [label: string, groups: readonly UpgradeGroup[] | null]> = [
-  ['全部', null],
-  ['点击', ['click']],
-  ['产线', ['unit', 'synergy']],
-  ['玩法', ['cannon', 'hopper', 'offline']],
-  ['装修', ['decor']],
-];
-
-/** "Buy them all" buys one after another at this pace, so each purchase is seen and heard. */
-const CASCADE_MS = 90;
 
 const CHEVRON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9.5l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
@@ -53,6 +39,25 @@ interface TicketParts {
   lastProgress: number;
   /** Whether it was affordable at the last refresh, to catch the moment it becomes so. */
   ready: boolean | null;
+}
+
+/**
+ * One of the four fixed upgrade rows: a header with the row's progress, and a single ticket for
+ * its next rung that turns into the one after it when bought, or a closing line once all are.
+ */
+interface RowParts {
+  track: TrackDef;
+  rungs: readonly UpgradeDef[];
+  root: HTMLElement;
+  pips: HTMLElement[];
+  count: Text;
+  ticket: TicketParts;
+  icon: HTMLElement;
+  /** Why the next rung cannot be bought yet, ahead of what it gives. */
+  lock: Text;
+  done: HTMLElement;
+  /** The rung on the ticket at the last refresh: undefined before the first, null once complete. */
+  shown: string | null | undefined;
 }
 
 /** The machines of one scene, under a header that folds them away. */
@@ -126,23 +131,9 @@ export class Shop {
   private readonly groups: UnitGroup[] = [];
   private readonly flavor: TicketParts;
   private readonly albumCells: HTMLElement[] = [];
-  private readonly upgrades = new Map<string, TicketParts>();
-  private readonly upgradeList: HTMLElement;
-  private readonly noUpgrades: Text;
-  private readonly noUpgradesNode: HTMLElement;
+  private readonly rows: RowParts[] = [];
   private readonly tabControl: Segmented;
   private readonly bulkControl: Segmented;
-  private readonly buyAllButton: HTMLButtonElement;
-  private readonly buyAllCount: Text;
-  private readonly sortButton: HTMLButtonElement;
-  private filter = 0;
-  private sortByPrice = false;
-  /** Upgrades on offer at the last refresh, whatever the filter. */
-  private readonly offered = new Set<string>();
-  /** Upgrades listed right now, in their order. */
-  private listedKey = '';
-  private listed: HTMLElement[] = [];
-  private cascade = 0;
   /** The scene for which old groups were last folded away; -1 before the first refresh. */
   private foldedAt = -1;
   private heightAnimation: Animation | null = null;
@@ -188,37 +179,39 @@ export class Shop {
     for (const flavor of FLAVORS) this.albumCells.push(el('span', '', album, flavor.name));
 
     const upgradeSection = sections[2]!;
-    const tools = el('div', 'upgrade-tools', upgradeSection);
-    const filters = new Segmented(tools, 'is-small upgrade-filter', FILTERS.map(([label]) => label), (index) => {
-      this.filter = index;
-      this.update();
-      play(this.upgradeList, [{ opacity: 0 }, { opacity: 1 }], MOTION.fade);
-    });
-    filters.root.dataset.control = 'upgrade-filter';
-    const actions = el('div', 'upgrade-actions', tools);
-    this.buyAllButton = el('button', 'buy-all', actions);
-    this.buyAllButton.dataset.action = 'buy-all';
-    el('span', 'buy-all-icon', this.buyAllButton).innerHTML = ICONS.allIn;
-    el('span', '', this.buyAllButton, '全部买下');
-    this.buyAllCount = new Text(el('span', 'buy-all-count num', this.buyAllButton));
-    pressable(this.buyAllButton, { scale: 0.96, silentRelease: true, action: () => this.buyAll() });
-    this.sortButton = el('button', 'sort-chip', actions, '按价格');
-    this.sortButton.dataset.action = 'sort';
-    this.sortButton.setAttribute('aria-pressed', 'false');
-    pressable(this.sortButton, {
-      quiet: true,
-      scale: 0.94,
-      action: () => {
-        this.sortByPrice = !this.sortByPrice;
-        feedback.toggle(this.sortByPrice);
-        this.sortButton.setAttribute('aria-pressed', String(this.sortByPrice));
-        this.update();
-      },
-    });
-    this.noUpgradesNode = el('div', 'empty-note', upgradeSection);
-    this.noUpgrades = new Text(this.noUpgradesNode);
-    this.upgradeList = el('div', 'upgrade-list', upgradeSection);
-    for (const upgrade of UPGRADES) this.addUpgrade(this.upgradeList, upgrade);
+    for (const track of TRACKS) this.addRow(upgradeSection, track);
+  }
+
+  private addRow(parent: HTMLElement, track: TrackDef): void {
+    const root = el('div', 'row', parent);
+    root.dataset.track = track.id;
+    const head = el('div', 'row-head', root);
+    el('span', 'row-name', head, track.name);
+    const pipRow = el('span', 'row-pips', head);
+    const rungs = TRACK_RUNGS.get(track.id)!;
+    const pips = rungs.map(() => el('i', '', pipRow));
+    const count = new Text(el('span', 'row-count num', head));
+    const parts = ticket(root, TRACK_ICON[track.id], true);
+    // The reason it is locked goes first, in color; what it gives follows.
+    const blurb = parts.blurb.element;
+    blurb.textContent = '';
+    const lock = new Text(el('span', 'ticket-lock', blurb));
+    parts.blurb = new Text(el('span', '', blurb));
+    const done = el('div', 'row-done', root);
+    el('span', 'row-done-icon', done).innerHTML = ICONS.allIn;
+    el('span', '', done, track.done);
+    const row: RowParts = { track, rungs, root, pips, count, ticket: parts, icon: parts.root.querySelector('.ticket-icon')!, lock, done, shown: undefined };
+    pressable(parts.root, { scale: 0.98, silentRelease: true, action: () => this.buyRow(row) });
+    this.rows.push(row);
+  }
+
+  /** Buys the row's next rung; a refusal shakes the ticket. */
+  private buyRow(row: RowParts): boolean {
+    const head = this.sim.trackHead(row.track.id);
+    if (!head || !this.sim.buyUpgrade(head.id)) return false;
+    // At once, rather than at the next refresh, so the new rung is there as the press lets go.
+    this.updateRows();
+    return true;
   }
 
   private addGroup(parent: HTMLElement, stage: number): void {
@@ -297,18 +290,6 @@ export class Shop {
     for (const group of this.groups) if (group.stage < stage - 1 && !group.collapsed) this.setCollapsed(group, true, animate);
   }
 
-  private addUpgrade(parent: HTMLElement, upgrade: UpgradeDef): void {
-    const parts = ticket(parent, upgrade.gold ? ICONS.gold : GROUP_ICON[upgrade.group], true);
-    parts.root.style.display = 'none';
-    parts.root.dataset.upgrade = upgrade.id;
-    if (upgrade.gold) parts.root.classList.add('is-gold');
-    parts.name.set(upgrade.name);
-    parts.blurb.set(upgrade.blurb);
-    parts.price.set(formatAmount(upgrade.cost));
-    pressable(parts.root, { scale: 0.98, silentRelease: true, action: () => this.sim.buyUpgrade(upgrade.id) });
-    this.upgrades.set(upgrade.id, parts);
-  }
-
   /**
    * The new page slides in from the side of the tab that was chosen, and the card, which is only
    * as tall as its contents, eases to its new height instead of jumping.
@@ -342,28 +323,6 @@ export class Shop {
     return this.sim.buyProducer(producer, this.quantityFor(producer));
   }
 
-  /** Buys every affordable upgrade, cheapest first, one after another; ends on a success chime. */
-  private buyAll(): boolean {
-    if (this.cascade) return true;
-    const queue = this.sim.affordableUpgrades().map((upgrade) => upgrade.id);
-    if (queue.length === 0) return false;
-    const next = (): void => {
-      const id = queue.shift();
-      if (id === undefined) {
-        this.cascade = 0;
-        feedback.success();
-        this.update();
-        return;
-      }
-      if (this.sim.buyUpgrade(id)) feedback.bought();
-      this.update();
-      this.cascade = window.setTimeout(next, CASCADE_MS);
-    };
-    this.cascade = -1;
-    next();
-    return true;
-  }
-
   private setBadge(index: number, count: number): void {
     const badge = this.tabs[index]!.badge;
     if (badge.set(count > 0 ? String(count) : '') && count > 0) hop(badge.element, 0.4);
@@ -372,7 +331,7 @@ export class Shop {
   update(): void {
     this.updateUnits();
     this.updateFlavor();
-    this.updateUpgrades();
+    this.updateRows();
   }
 
   private updateUnits(): void {
@@ -417,8 +376,10 @@ export class Shop {
         parts.name.set(quantity > 1 ? `${producer.name} ×${quantity}` : producer.name);
         const each = formatAmount(sim.derived.unitEach[id]!);
         const share = sim.derived.baseRate > 0 ? Math.round((sim.derived.unitRates[id]! / sim.derived.baseRate) * 100) : 0;
-        // The joke greets a new machine; once it is working, the numbers matter more.
-        parts.blurb.set(owned[id]! > 0 ? `每台 ${each}/秒 · 占产量 ${share}%` : `每台 ${each}/秒 · ${producer.blurb}`);
+        const milestone = nextMilestone(owned[id]!);
+        // The joke greets a new machine; once it is working, the numbers matter more, and the next
+        // milestone says what more of them will bring.
+        parts.blurb.set(owned[id]! > 0 ? `每台 ${each}/秒 · 占产量 ${share}% · ${milestone.at} 台时 ×${milestone.mult}` : `每台 ${each}/秒 · ${producer.blurb}`);
         if (parts.owned.set(String(owned[id])) && owned[id]! > 0) hop(parts.owned.element);
         parts.price.set(formatAmount(price));
         setReady(parts, ready);
@@ -469,60 +430,74 @@ export class Shop {
     });
   }
 
-  private updateUpgrades(): void {
+  /**
+   * Each row shows its next rung. When that rung changes (it was bought, or a new save was loaded),
+   * the new one floats in where the old one was and the row's next pip lights; the page itself never
+   * grows or shrinks.
+   */
+  private updateRows(): void {
     const sim = this.sim;
     const popcorn = sim.state.popcorn;
-    const available = UPGRADES.filter((upgrade) => sim.upgradeAvailable(upgrade));
-    const groups = FILTERS[this.filter]![1];
-    const shown = groups ? available.filter((upgrade) => groups.includes(upgrade.group)) : available;
-    if (this.sortByPrice) shown.sort((a, b) => a.cost - b.cost);
-
-    // Upgrades come and go as they unlock and sell; the list glides into its new shape.
-    const key = shown.map((upgrade) => upgrade.id).join(' ');
-    if (key !== this.listedKey) {
-      const arriving = shown.filter((upgrade) => !this.offered.has(upgrade.id));
-      const firstFill = this.offered.size === 0;
-      const nodes = shown.map((upgrade) => this.upgrades.get(upgrade.id)!.root);
-      flip(this.listed, () => {
-        for (const node of this.listed) node.style.display = 'none';
-        for (const node of nodes) {
-          node.style.display = '';
-          this.upgradeList.append(node);
+    let ready = 0;
+    for (const row of this.rows) {
+      const head = sim.trackHead(row.track.id);
+      let owned = 0;
+      row.rungs.forEach((rung, index) => {
+        const has = hasUpgrade(sim.state, rung.id);
+        if (has) owned += 1;
+        const pip = row.pips[index]!;
+        if (has && !pip.classList.contains('is-on')) {
+          pip.classList.add('is-on');
+          if (row.shown !== undefined) hop(pip, 0.3);
         }
       });
-      this.listed = nodes;
-      this.listedKey = key;
-      // Only new arrivals animate, not the whole list on load or on a change of filter.
-      if (!firstFill) {
-        for (const upgrade of arriving) {
-          play(this.upgrades.get(upgrade.id)!.root, [{ opacity: 0, transform: 'translateY(0.8rem) scale(0.98)' }, { opacity: 1, transform: 'none' }], MOTION.appear);
-        }
+      if (row.count.set(`${owned}/${row.rungs.length}`) && row.shown !== undefined) hop(row.count.element, 1.2);
+      const id = head?.id ?? null;
+      const changed = id !== row.shown;
+      const first = row.shown === undefined;
+      row.shown = id;
+      setClass(row.root, 'is-done', head === null);
+      if (!head) {
+        setClass(row.ticket.root, 'is-ready', false);
+        if (changed && !first) play(row.done, [{ opacity: 0, transform: 'scale(0.96)' }, { opacity: 1, transform: 'none' }], MOTION.appear);
+        continue;
       }
+      const parts = row.ticket;
+      if (changed) {
+        parts.root.dataset.upgrade = head.id;
+        parts.name.set(head.name);
+        parts.blurb.set(head.blurb);
+        parts.price.set(formatAmount(head.cost));
+        setClass(parts.root, 'is-gold', head.gold === true);
+        row.icon.innerHTML = head.gold ? ICONS.gold : TRACK_ICON[row.track.id];
+        // A fresh rung starts out as not affordable, so becoming affordable gleams once.
+        parts.ready = null;
+        parts.lastProgress = -1;
+        if (!first) play(parts.root, [{ opacity: 0, transform: 'translateY(0.8rem) scale(0.98)' }, { opacity: 1, transform: 'none' }], MOTION.appear);
+      }
+      const lock = sim.upgradeLock(head);
+      setClass(parts.root, 'is-locked', lock !== null);
+      if (lock) {
+        const needs = sim.needsProgress(head);
+        row.lock.set(
+          lock === 'stage'
+            ? `突破「${STAGES[head.unlockStage - 1]!.name}」后解锁 · `
+            : `${STAGES[head.needs!.stage]!.name}的三种设备各要 ${needs!.want} 台 · `,
+        );
+        parts.owned.set(lock === 'needs' ? `${needs!.have}/${needs!.want}` : '');
+        parts.ready = null;
+        setClass(parts.root, 'is-ready', false);
+        setClass(parts.root, 'is-dim', true);
+        setProgress(parts, 0);
+        continue;
+      }
+      row.lock.set('');
+      parts.owned.set('');
+      const affordable = popcorn >= head.cost;
+      if (affordable) ready += 1;
+      setReady(parts, affordable);
+      setProgress(parts, affordable ? 0 : Math.min(1, popcorn / head.cost));
     }
-    this.offered.clear();
-    for (const upgrade of available) this.offered.add(upgrade.id);
-
-    let readyUpgrades = 0;
-    for (const upgrade of available) {
-      const parts = this.upgrades.get(upgrade.id)!;
-      const ready = popcorn >= upgrade.cost;
-      if (ready) readyUpgrades += 1;
-      setReady(parts, ready);
-      setProgress(parts, ready ? 0 : Math.min(1, popcorn / upgrade.cost));
-    }
-    const empty = shown.length === 0;
-    this.noUpgradesNode.style.display = empty ? '' : 'none';
-    if (empty) this.noUpgrades.set(available.length === 0 ? '继续爆，新的升级很快就来。' : '这一类暂时没有新升级。');
-    this.setBadge(2, readyUpgrades);
-
-    const affordable = sim.affordableUpgrades();
-    const busy = this.cascade !== 0;
-    const can = affordable.length > 0 || busy;
-    setClass(this.buyAllButton, 'is-ready', can);
-    this.buyAllButton.setAttribute('aria-disabled', String(!can));
-    if (busy) this.buyAllButton.setAttribute('aria-busy', 'true');
-    else this.buyAllButton.removeAttribute('aria-busy');
-    const total = affordable.reduce((sum, upgrade) => sum + upgrade.cost, 0);
-    this.buyAllCount.set(affordable.length > 0 ? `${affordable.length} 项 · ${formatAmount(total)}` : busy ? '' : '暂时买不起');
+    this.setBadge(2, ready);
   }
 }

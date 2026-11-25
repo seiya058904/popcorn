@@ -8,6 +8,7 @@ import type { EventBus } from '../events/bus.ts';
 import type { GameEvents } from '../events/game-events.ts';
 import { easeOutCubic } from '../motion/ease.ts';
 import { tuning } from '../motion/tuning.ts';
+import { milestoneMultiplier, nextMilestone } from '../sim/economy.ts';
 import type { Simulation } from '../sim/simulation.ts';
 import { el, setClass, Text } from './dom.ts';
 import './game.css';
@@ -158,7 +159,9 @@ export class Hud {
       if (owned === quantity && producer > 0) {
         this.toast(UNIT_ICONS[producer]!, `新设备：${def.name}`, `每台每秒 ${formatAmount(sim.derived.unitEach[producer]!)}`);
       } else if (milestone) {
-        this.toast(UNIT_ICONS[producer]!, `${def.name} 达到 ${owned} 台`, '这种设备的产量翻倍了。');
+        const jump = milestoneMultiplier(owned) / milestoneMultiplier(owned - quantity);
+        const next = nextMilestone(owned);
+        this.toast(UNIT_ICONS[producer]!, `${def.name} 达到 ${owned} 台`, `每台产量 ×${jump}。下一次在 ${next.at} 台。`);
       }
     });
     bus.on('stage_broken', ({ stage }) => {

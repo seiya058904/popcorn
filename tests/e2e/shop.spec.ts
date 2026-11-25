@@ -49,42 +49,76 @@ test('machines are grouped by scene, in price order, and a header folds its mach
   await expect(page.locator('[data-group="3"]')).not.toHaveClass(/is-collapsed/);
 });
 
-test('upgrades filter by kind, sort by price, and "buy them all" buys the affordable ones cheapest first', async ({ page }) => {
+test('the upgrade page is four fixed rows, each showing only its next rung, which turns into the next once bought', async ({ page }) => {
   await open(page);
   await qa(page, (api) => {
-    api.set({ totalEarned: 1e4, popcorn: 1000 });
+    api.set({ totalEarned: 1500, popcorn: 1000 });
     api.advance(0.3);
   });
   await page.locator('.shop-tab', { hasText: '升级' }).click();
-  const buyAll = page.locator('[data-action="buy-all"]');
-  await expect(buyAll).toHaveClass(/is-ready/);
-  await expect(buyAll.locator('.buy-all-count')).toHaveText('3 项 · 610');
+  const rows = page.locator('.row');
+  await expect(rows).toHaveCount(4);
+  expect(await rows.evaluateAll((nodes) => nodes.map((node) => (node as HTMLElement).dataset.track))).toEqual(['craft', 'line', 'play', 'decor']);
+  expect(await visibleIds(page, '.row [data-upgrade]', 'upgrade')).toEqual(['craft-1', 'line-chain-0', 'play-1', 'decor-neon']);
+  // The page itself, not the card, whose height eases over from the tab before.
+  const upgradePage = page.locator('.shop-body > section.is-active');
+  const height = (await upgradePage.boundingBox())!.height;
 
-  const filter = page.locator('[data-control="upgrade-filter"] .seg-item');
-  await filter.filter({ hasText: '装修' }).click();
-  await qa(page, (api) => api.advance(0.2));
-  expect(await visibleIds(page, '.upgrade-list [data-upgrade]', 'upgrade')).toEqual(['decor-neon', 'decor-plant']);
-  await filter.filter({ hasText: '全部' }).click();
+  // The cannon's row waits for the kitchen, and says so.
+  const play = page.locator('.row[data-track="play"] .ticket');
+  await expect(play).toHaveClass(/is-locked/);
+  await expect(play.locator('.ticket-lock')).toHaveText('突破「灶台」后解锁 · ');
 
-  await page.locator('[data-action="sort"]').click();
-  await expect(page.locator('[data-action="sort"]')).toHaveAttribute('aria-pressed', 'true');
-  await qa(page, (api) => api.advance(0.2));
-  const costs = await page.locator('.upgrade-list [data-upgrade]').evaluateAll((nodes) =>
-    nodes.filter((node) => (node as HTMLElement).offsetParent !== null).map((node) => (node as HTMLElement).dataset.upgrade!),
-  );
-  const prices = await qa(page, (api) => Object.fromEntries(api.game.sim.availableUpgrades.map((upgrade) => [upgrade.id, upgrade.cost])));
-  expect(costs.length).toBeGreaterThan(3);
-  expect(costs.map((id) => prices[id]!)).toEqual([...costs.map((id) => prices[id]!)].sort((a, b) => a - b));
+  // Buying a rung puts the next one in its place and lights the row's first pip.
+  const craft = page.locator('.row[data-track="craft"]');
+  await expect(craft.locator('.ticket')).toHaveClass(/is-ready/);
+  await craft.locator('.ticket').click();
+  await expect(craft.locator('.ticket')).toHaveAttribute('data-upgrade', 'craft-2');
+  await expect(craft.locator('.row-count')).toHaveText('1/8');
+  await expect(craft.locator('.row-pips i.is-on')).toHaveCount(1);
+  expect(await qa(page, (api) => api.game.sim.state.upgrades.join(' '))).toBe('craft-1');
 
-  await buyAll.click();
-  await expect.poll(() => qa(page, (api) => api.game.sim.state.upgrades.join(' '))).toBe('pop3 decor-neon decor-plant');
-  // 1000 − 60 − 100 − 450, plus what the pot simmered meanwhile.
-  const left = await qa(page, (api) => api.game.sim.state.popcorn);
-  expect(left).toBeGreaterThanOrEqual(390);
-  expect(left).toBeLessThan(400);
-  await qa(page, (api) => api.advance(0.2));
-  await expect(buyAll).not.toHaveClass(/is-ready/);
-  await expect(buyAll.locator('.buy-all-count')).toHaveText('暂时买不起');
+  // Too dear: the ticket shakes its head and nothing is bought.
+  await qa(page, (api) => {
+    api.set({ popcorn: 10 });
+    api.advance(0.2);
+  });
+  await page.locator('.row[data-track="decor"] .ticket').click();
+  await expect(page.locator('.row[data-track="decor"] .ticket')).toHaveAttribute('data-upgrade', 'decor-neon');
+
+  // The keyboard buys like a press.
+  await qa(page, (api) => {
+    api.set({ popcorn: 1000 });
+    api.advance(0.2);
+  });
+  await page.locator('.row[data-track="decor"] .ticket').focus();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.row[data-track="decor"] .ticket')).toHaveAttribute('data-upgrade', 'decor-plant');
+
+  // A gold rung waits for every machine of its scene, and counts the one with the fewest.
+  await qa(page, (api) => {
+    api.set({ stage: 1, upgrades: ['craft-1', 'line-chain-0', 'line-chain-1'], owned: [60, 12, 0, 0, 0, 0, 0, 0, 0, 0, 40, 0, 0, 0, 0] });
+    api.advance(0.2);
+  });
+  const line = page.locator('.row[data-track="line"] .ticket');
+  await expect(line).toHaveAttribute('data-upgrade', 'line-gold-0');
+  await expect(line).toHaveClass(/is-locked/);
+  await expect(line.locator('.ticket-lock')).toHaveText('灶台的三种设备各要 50 台 · ');
+  await expect(line.locator('.ticket-owned')).toHaveText('12/50');
+  await expect(line.locator('.ticket-icon svg')).toHaveCount(1);
+
+  // A finished row closes with a line of its own, in the same space.
+  await qa(page, (api) => {
+    const all = ['craft-1', 'craft-2', 'craft-3', 'craft-4', 'craft-5', 'craft-6', 'craft-7', 'craft-8'];
+    api.set({ stage: 4, totalEarned: 1e17, upgrades: all });
+    api.advance(0.2);
+  });
+  await expect(craft).toHaveClass(/is-done/);
+  await expect(craft.locator('.ticket')).toBeHidden();
+  await expect(craft.locator('.row-done')).toContainText('手艺练满了');
+  await expect(craft.locator('.row-count')).toHaveText('8/8');
+  // From the first pot to the moon, the page keeps its size.
+  expect(Math.abs((await upgradePage.boundingBox())!.height - height)).toBeLessThanOrEqual(1);
 });
 
 test('the counter keeps every digit on its strip while it climbs every frame', async ({ page }) => {
@@ -110,7 +144,7 @@ test('a golden kernel bursts with a gold number, and green streaks light the gau
   await open(page);
   await qa(page, (api) => {
     const sim = api.game.sim;
-    api.set({ stage: 1, upgrades: ['golden1', 'cannon-streak'] });
+    api.set({ stage: 1, upgrades: ['craft-3', 'play-5'] });
     // Every click golden, so the test does not wait on luck.
     sim.derived.goldenChance = 1;
     api.advance(0.2);

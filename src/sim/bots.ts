@@ -2,7 +2,7 @@ import { FLAVORS } from '../content/flavors.ts';
 import { PRODUCERS } from '../content/producers.ts';
 import { CANNON } from '../content/skills.ts';
 import { STAGES } from '../content/stages.ts';
-import type { UpgradeDef } from '../content/upgrades.ts';
+import { TRACKS, type UpgradeDef } from '../content/upgrades.ts';
 import { EventBus } from '../events/bus.ts';
 import type { GameEvents } from '../events/game-events.ts';
 import { cannonGreenRange, derive } from './economy.ts';
@@ -48,6 +48,11 @@ export interface BotReport {
   purchaseGapsEarly: number[];
   /** Minute and scene of each upgrade's purchase. */
   upgradesBought: Record<string, { minute: number; stage: number }>;
+  /**
+   * Minutes each rung sat at the head of its row waiting for machines (not for a scene), and the
+   * scene it waited in: the row was stuck all that time.
+   */
+  rungsWaiting: Record<string, { minutes: number; stage: number }>;
 }
 
 type Choice =
@@ -248,6 +253,7 @@ export function runBot(profile: BotProfile, maxHours = 14, trace?: (seconds: num
     },
   });
 
+  const rungsWaiting: BotReport['rungsWaiting'] = {};
   const limit = maxHours * 3600;
   while (time < limit && !sim.state.ended) {
     time += SIM_STEP;
@@ -255,6 +261,12 @@ export function runBot(profile: BotProfile, maxHours = 14, trace?: (seconds: num
     sim.step(SIM_STEP);
     trace?.(time, sim);
     bot.decide(SIM_STEP);
+    for (const track of TRACKS) {
+      const head = sim.trackHead(track.id);
+      if (!head || sim.upgradeLock(head) !== 'needs') continue;
+      const entry = (rungsWaiting[head.id] ??= { minutes: 0, stage: sim.state.stage });
+      entry.minutes += SIM_STEP / 60;
+    }
   }
 
   while (stageMinutes.length < STAGES.length) stageMinutes.push(Number.NaN);
@@ -279,5 +291,6 @@ export function runBot(profile: BotProfile, maxHours = 14, trace?: (seconds: num
     achievements: sim.state.legacy.achievements.length,
     purchaseGapsEarly: early,
     upgradesBought,
+    rungsWaiting,
   };
 }

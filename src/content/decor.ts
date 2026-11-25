@@ -21,7 +21,7 @@ export const DECOR: readonly DecorDef[] = [
   { id: 'decor-carpet', stage: 2, name: '红地毯与丝绒围栏', joke: '爆米花机走上了红地毯。', cost: 6e8, mult: 1.05 },
   { id: 'decor-stars', stage: 2, name: '穹顶星空灯', joke: '抬头是星空，低头是爆米花。', cost: 8e9, mult: 1.05 },
   { id: 'decor-bunting', stage: 3, name: '彩旗与路灯花篮', joke: '全城都在为爆米花过节。', cost: 1e12, mult: 1.05 },
-  { id: 'decor-fountain', stage: 3, name: '喷泉灯光秀', joke: '喷泉跟着爆米花的节拍起舞。', cost: 1.2e13, mult: 1.05 },
+  { id: 'decor-fountain', stage: 3, name: '喷泉灯光秀', joke: '喷泉跟着爆米花的节拍起舞。', cost: 5e12, mult: 1.05 },
   { id: 'decor-ring', stage: 4, name: '环球霓虹广告环', joke: '从太空也能看清那个「砰」。', cost: 3e14, mult: 1.05 },
   { id: 'decor-aurora', stage: 4, name: '爆米花极光', joke: '极光是黄油的颜色。', cost: 1.5e15, mult: 1.05 },
 ];

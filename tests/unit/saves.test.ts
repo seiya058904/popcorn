@@ -74,16 +74,16 @@ describe('saving as the page goes away', () => {
     const kept = memoryStore();
     await kept.write('main', wrap(v3));
     const carried = session(kept);
-    expect(await carried.saves.load(T0)).toMatchObject({ source: 'main', migrated: false, upgraded: true });
+    expect(await carried.saves.load(T0)).toMatchObject({ source: 'main', migrated: false, upgraded: true, converted: { rungs: 0, refunded: 0 } });
     expect(carried.sim.state.owned[0]).toBe(5);
 
     const reset = memoryStore();
     await reset.write('main', wrap({ ...v3, version: 2 }));
-    expect(await session(reset).saves.load(T0)).toMatchObject({ migrated: true, upgraded: false });
+    expect(await session(reset).saves.load(T0)).toMatchObject({ migrated: true, upgraded: false, converted: null });
 
     const current = memoryStore();
     await session(current).saves.save(T0);
-    expect(await session(current).saves.load(T0)).toMatchObject({ migrated: false, upgraded: false });
+    expect(await session(current).saves.load(T0)).toMatchObject({ migrated: false, upgraded: false, converted: null });
   });
 
   it('a wipe removes the copy too', async () => {

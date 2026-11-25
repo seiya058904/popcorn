@@ -6,7 +6,7 @@ import { PRODUCERS, PRODUCERS_IN_ORDER } from '../../src/content/producers.ts';
 import { EGGS } from '../../src/content/props.ts';
 import { CANNON, CLICK, GOLDEN, HOLD_POP, HOPPER, OFFLINE, POT } from '../../src/content/skills.ts';
 import { STAGES } from '../../src/content/stages.ts';
-import { UPGRADES } from '../../src/content/upgrades.ts';
+import { legacyRung, TRACK_RUNGS, TRACKS, UPGRADE_BY_ID, UPGRADES } from '../../src/content/upgrades.ts';
 import { EventBus } from '../../src/events/bus.ts';
 import type { GameEvents } from '../../src/events/game-events.ts';
 import { BOT_PROFILES, runBot } from '../../src/sim/bots.ts';
@@ -16,9 +16,12 @@ import {
   cannonGreenRange,
   derive,
   flavorPrice,
-  milestoneCount,
+  isMilestone,
+  milestoneMultiplier,
+  nextMilestone,
   producerPrice,
 } from '../../src/sim/economy.ts';
+import { legacyCost } from '../../src/sim/legacy-upgrades.ts';
 import { checksum, elapsedSince, migrationResetsRun, parseSave, serializeSave } from '../../src/sim/save.ts';
 import { createState } from '../../src/sim/state.ts';
 import { Simulation } from '../../src/sim/simulation.ts';
@@ -38,18 +41,48 @@ describe('content tables', () => {
     expect(FLAVORS).toHaveLength(12);
     expect(STAGES).toHaveLength(5);
     expect(ACHIEVEMENTS).toHaveLength(45);
-    expect(UPGRADES.length).toBeGreaterThanOrEqual(110);
-    expect(UPGRADES.length).toBeLessThanOrEqual(125);
+    expect(UPGRADES.length).toBeGreaterThanOrEqual(30);
+    expect(UPGRADES.length).toBeLessThanOrEqual(40);
     expect(DECOR).toHaveLength(10);
     expect(EGGS).toHaveLength(15);
   });
 
-  it('uses unique ids and resolvable prerequisites', () => {
+  it('uses unique ids', () => {
     const ids = new Set(UPGRADES.map((upgrade) => upgrade.id));
     expect(ids.size).toBe(UPGRADES.length);
     expect(new Set(ACHIEVEMENTS.map((achievement) => achievement.id)).size).toBe(ACHIEVEMENTS.length);
     expect(new Set(EGGS.map((egg) => egg.id)).size).toBe(EGGS.length);
-    for (const upgrade of UPGRADES) if (upgrade.requires) expect(ids.has(upgrade.requires)).toBe(true);
+  });
+
+  it('lays out four rows whose rungs never get cheaper or come earlier further along', () => {
+    expect(TRACKS.map((track) => track.id)).toEqual(['craft', 'line', 'play', 'decor']);
+    for (const track of TRACKS) {
+      const rungs = TRACK_RUNGS.get(track.id)!;
+      expect(rungs.length).toBeGreaterThanOrEqual(6);
+      for (let i = 1; i < rungs.length; i += 1) {
+        expect(rungs[i]!.cost, rungs[i]!.id).toBeGreaterThan(rungs[i - 1]!.cost);
+        expect(rungs[i]!.unlockStage, rungs[i]!.id).toBeGreaterThanOrEqual(rungs[i - 1]!.unlockStage);
+      }
+      for (const rung of rungs) expect(rung.effects.length, rung.id).toBeGreaterThan(0);
+    }
+  });
+
+  it('gives every scene a chain and a gold rung, and two decorations', () => {
+    for (const stage of STAGES) {
+      expect(UPGRADE_BY_ID.get(`line-chain-${stage.id}`)!.unlockStage).toBe(stage.id);
+      expect(UPGRADE_BY_ID.get(`line-gold-${stage.id}`)).toMatchObject({ gold: true, needs: { stage: stage.id } });
+      expect(DECOR.filter((decor) => decor.stage === stage.id)).toHaveLength(2);
+    }
+  });
+
+  it('takes in every old upgrade at most once, and knows what each one cost', () => {
+    const taken = UPGRADES.flatMap((upgrade) => upgrade.from);
+    expect(new Set(taken).size).toBe(taken.length);
+    for (const id of taken) expect(legacyCost(id), id).toBeGreaterThan(0);
+    // The 31 skills, 19 synergies, 10 decorations and the gold tier of each of the 15 machines.
+    expect(taken).toHaveLength(31 + 19 + 10 + 15);
+    expect(legacyRung('unit-4-2')).toBeNull();
+    expect(legacyRung('hold8')!.id).toBe('craft-4');
   });
 
   it('keeps machine ids in save order and gives every scene three machines in the shop', () => {
@@ -63,14 +96,6 @@ describe('content tables', () => {
     }
   });
 
-  it('gives every machine four tiers, the last one gold at 100 owned, and every scene two decorations', () => {
-    for (const producer of PRODUCERS) {
-      const tiers = UPGRADES.filter((upgrade) => upgrade.effect.kind === 'unitMult' && upgrade.effect.unit === producer.id);
-      expect(tiers).toHaveLength(4);
-      expect(tiers[3]).toMatchObject({ gold: true, ownedAtLeast: { unit: producer.id, count: 100 } });
-    }
-    for (const stage of STAGES) expect(DECOR.filter((decor) => decor.stage === stage.id)).toHaveLength(2);
-  });
 });
 
 describe('prices', () => {
@@ -102,16 +127,24 @@ describe('prices', () => {
 });
 
 describe('multipliers', () => {
-  it('doubles at 25, 50, 100 and then every 50', () => {
-    expect([24, 25, 49, 50, 99, 100, 149, 150, 200].map(milestoneCount)).toEqual([0, 1, 1, 2, 2, 3, 3, 4, 5]);
+  it('jumps at 10, 25, 50, 75 and 100 owned, and then every 50', () => {
+    expect([0, 9, 10, 24, 25, 49, 50, 74, 75, 99, 100, 149, 150, 200].map(milestoneMultiplier)).toEqual([1, 1, 1.75, 1.75, 3.5, 3.5, 14, 14, 28, 28, 56, 56, 112, 224]);
+    expect([0, 10, 60, 100, 120].map((owned) => nextMilestone(owned))).toEqual([
+      { at: 10, mult: 1.75 },
+      { at: 25, mult: 2 },
+      { at: 75, mult: 2 },
+      { at: 150, mult: 2 },
+      { at: 150, mult: 2 },
+    ]);
+    expect([9, 10, 11, 50].map(isMilestone)).toEqual([false, true, false, true]);
   });
 
   it('applies milestones and flavors to production', () => {
     const state = createState();
     state.owned[0] = 25;
-    expect(derive(state).baseRate).toBeCloseTo(POT.idleRate + 25 * 0.5 * 2);
+    expect(derive(state).baseRate).toBeCloseTo(POT.idleRate + 25 * 0.5 * 3.5);
     state.flavors = 2;
-    expect(derive(state).baseRate).toBeCloseTo((POT.idleRate + 25 * 0.5 * 2) * 1.35 ** 2);
+    expect(derive(state).baseRate).toBeCloseTo((POT.idleRate + 25 * 0.5 * 3.5) * 1.35 ** 2);
   });
 
   it('adds click upgrades without multiplying the production share', () => {
@@ -120,7 +153,7 @@ describe('multipliers', () => {
     sim.invalidate();
     const rate = sim.perSecond;
     expect(sim.clickValue).toBeCloseTo(1 + rate * CLICK.rateShare);
-    sim.state.upgrades.push('pop3');
+    sim.state.upgrades.push('craft-1');
     sim.invalidate();
     expect(sim.clickValue).toBeCloseTo(3 + rate * CLICK.rateShare);
     const { count, gainEach } = sim.click();
@@ -159,22 +192,45 @@ describe('purchases', () => {
     const events = vi.fn();
     bus.on('producer_purchased', events);
     rich(sim);
-    sim.buyProducer(0, 24);
+    sim.buyProducer(0, 9);
     sim.buyProducer(0, 2);
     expect(events.mock.calls[0]![0].milestone).toBe(false);
     expect(events.mock.calls[1]![0].milestone).toBe(true);
   });
 
-  it('enforces upgrade prerequisites and buys each only once', () => {
+  it('sells each row one rung at a time, in order, each only once', () => {
     const { sim } = setup();
     rich(sim);
-    sim.state.totalEarned = 1e9;
     sim.state.stage = 4;
-    expect(sim.buyUpgrade('pop5')).toBe(false);
-    expect(sim.buyUpgrade('pop3')).toBe(true);
-    expect(sim.buyUpgrade('pop3')).toBe(false);
-    expect(sim.buyUpgrade('pop5')).toBe(true);
-    expect(sim.derived.clickPops).toBe(5);
+    expect(sim.trackHead('craft')!.id).toBe('craft-1');
+    expect(sim.buyUpgrade('craft-2')).toBe(false);
+    expect(sim.buyUpgrade('craft-1')).toBe(true);
+    expect(sim.buyUpgrade('craft-1')).toBe(false);
+    expect(sim.trackHead('craft')!.id).toBe('craft-2');
+    for (const id of ['craft-2', 'craft-3', 'craft-4']) expect(sim.buyUpgrade(id)).toBe(true);
+    expect(sim.derived).toMatchObject({ clickPops: 5, holdRate: 8, autoPops: 1, goldenChance: 0.03 });
+    for (const rung of TRACK_RUNGS.get('craft')!) sim.buyUpgrade(rung.id);
+    expect(sim.trackHead('craft')).toBeNull();
+  });
+
+  it('offers only the next rung of each row, once its scene is reached', () => {
+    const { sim } = setup();
+    sim.state.popcorn = 1000;
+    expect(sim.availableUpgrades.map((upgrade) => upgrade.id)).toEqual(['craft-1', 'line-chain-0', 'decor-neon']);
+    expect(sim.trackHead('play')!.id).toBe('play-1');
+    expect(sim.upgradeLock(sim.trackHead('play')!)).toBe('stage');
+    sim.state.stage = 1;
+    expect(sim.upgradeLock(sim.trackHead('play')!)).toBeNull();
+  });
+
+  it('skips a rung that is already owned, as an old save may leave a gap', () => {
+    const { sim } = setup();
+    rich(sim);
+    sim.state.stage = 1;
+    sim.state.upgrades.push('decor-plant');
+    expect(sim.trackHead('decor')!.id).toBe('decor-neon');
+    expect(sim.buyUpgrade('decor-neon')).toBe(true);
+    expect(sim.trackHead('decor')!.id).toBe('decor-chandelier');
   });
 
   it('caps flavors at twelve', () => {
@@ -187,21 +243,32 @@ describe('purchases', () => {
 });
 
 describe('automation', () => {
-  it('offers a unit upgrade only once enough of that unit are owned', () => {
+  it('holds a gold rung until every machine of its scene is owned in numbers, then doubles all three', () => {
     const { sim } = setup();
     rich(sim);
-    sim.state.totalEarned = 1e12;
-    expect(sim.buyUpgrade('unit-0-1')).toBe(false);
-    sim.state.owned[0] = 10;
-    expect(sim.buyUpgrade('unit-0-1')).toBe(true);
-    expect(sim.buyUpgrade('unit-0-2')).toBe(false);
+    sim.state.stage = 1;
+    sim.state.upgrades.push('line-chain-0', 'line-chain-1');
+    const gold = sim.trackHead('line')!;
+    expect(gold.id).toBe('line-gold-0');
+    sim.state.owned[0] = 80;
+    sim.state.owned[10] = 60;
+    sim.state.owned[1] = 49;
+    expect(sim.needsProgress(gold)).toEqual({ have: 49, want: 50 });
+    expect(sim.upgradeLock(gold)).toBe('needs');
+    expect(sim.buyUpgrade(gold.id)).toBe(false);
+    sim.state.owned[1] = 50;
+    sim.invalidate();
+    const before = [...sim.derived.unitEach];
+    expect(sim.buyUpgrade(gold.id)).toBe(true);
+    for (const unit of [0, 10, 1]) expect(sim.derived.unitEach[unit]).toBeCloseTo(before[unit]! * 2);
+    expect(sim.derived.unitEach[2]).toBeCloseTo(before[2]!);
   });
 
   it('makes clicks on its own once the stirrer is bought', () => {
     const { sim, bus } = setup();
     const popped = vi.fn();
     bus.on('auto_popped', popped);
-    sim.state.upgrades.push('auto1');
+    sim.state.upgrades.push('craft-2');
     sim.invalidate();
     for (let i = 0; i < 31; i += 1) sim.step(0.1);
     expect(popped).toHaveBeenCalledTimes(3);
@@ -213,7 +280,7 @@ describe('automation', () => {
     const fired = vi.fn();
     bus.on('cannon_fired', fired);
     sim.state.stage = 1;
-    sim.state.upgrades.push('auto-cannon');
+    sim.state.upgrades.push('play-3');
     sim.invalidate();
     sim.cannonHeld = true;
     for (let i = 0; i < (CANNON.autoFireDelay + 1) * 10; i += 1) sim.step(0.1);
@@ -226,7 +293,7 @@ describe('automation', () => {
 
   it('catches the hopping kernel by itself after a moment', () => {
     const { sim } = setup();
-    sim.state.upgrades.push('auto-hopper');
+    sim.state.upgrades.push('play-2');
     sim.invalidate();
     sim.state.hopperTimer = 0.05;
     for (let i = 0; i < (HOPPER.autoCatchSeconds + 1) * 10; i += 1) sim.step(0.1);
@@ -294,7 +361,7 @@ describe('cannon', () => {
     const sim = ready();
     const before = cannonGreenRange(sim.derived);
     expect(before.end - before.start).toBeCloseTo(0.16);
-    sim.state.upgrades.push('cannon-window');
+    sim.state.upgrades.push('play-1');
     sim.invalidate();
     const after = cannonGreenRange(sim.derived);
     expect(after.end - after.start).toBeCloseTo(0.24);
@@ -345,7 +412,7 @@ describe('golden kernels, decorations and other phase 3 rules', () => {
     const seed = sim.state.rng;
     sim.click();
     expect(sim.state.rng).toBe(seed);
-    sim.state.upgrades.push('golden1');
+    sim.state.upgrades.push('craft-3');
     sim.invalidate();
     const plain = sim.clickValue;
     let golden = 0;
@@ -362,7 +429,7 @@ describe('golden kernels, decorations and other phase 3 rules', () => {
 
   it('raises the golden chance and payout with the later tiers', () => {
     const { sim } = producing();
-    sim.state.upgrades.push('golden1', 'golden2', 'golden3');
+    sim.state.upgrades.push('craft-3', 'craft-6', 'craft-8');
     sim.invalidate();
     expect(sim.derived.goldenChance).toBeCloseTo(0.05);
     expect(sim.derived.goldenMultiplier).toBe(20);
@@ -371,7 +438,7 @@ describe('golden kernels, decorations and other phase 3 rules', () => {
   it('pops faster while held once the gloves are bought', () => {
     const { sim } = producing();
     expect(sim.derived.holdRate).toBe(HOLD_POP.perSecond);
-    sim.state.upgrades.push('hold8');
+    sim.state.upgrades.push('craft-4');
     sim.invalidate();
     expect(sim.derived.holdRate).toBe(8);
   });
@@ -388,23 +455,24 @@ describe('golden kernels, decorations and other phase 3 rules', () => {
     const { sim } = producing();
     sim.state.frenzy = 10;
     const before = sim.clickValue;
-    sim.state.upgrades.push('frenzy-click');
+    sim.state.upgrades.push('play-5');
     sim.invalidate();
     expect(sim.clickValue).toBeCloseTo(before * 2);
     sim.state.frenzy = 0;
     sim.state.upgrades.pop();
     sim.invalidate();
     const calm = sim.clickValue;
-    sim.state.upgrades.push('frenzy-click');
+    sim.state.upgrades.push('play-5');
     sim.invalidate();
     expect(sim.clickValue).toBeCloseTo(calm);
   });
 
   it('adds 10% per green shot in a row up to 50%, and starts over after any other shot', () => {
     const { sim, bus } = producing();
-    sim.state.upgrades.push('cannon-streak');
+    // The same rung also loads the cannon half as much again.
+    sim.state.upgrades.push('play-5');
     sim.invalidate();
-    const rate = sim.perSecond;
+    const rate = sim.perSecond * 1.5;
     const green = cannonGreenRange(sim.derived);
     const streaks: number[] = [];
     bus.on('cannon_fired', ({ streak }) => streaks.push(streak));
@@ -422,7 +490,7 @@ describe('golden kernels, decorations and other phase 3 rules', () => {
 
   it('sends a swarm one kernel after another, stacking the frenzy, and counts a full catch', () => {
     const { sim, bus } = producing();
-    sim.state.upgrades.push('hopper-swarm');
+    sim.state.upgrades.push('play-6');
     sim.invalidate();
     const spawned: number[] = [];
     bus.on('hopper_spawned', ({ swarm }) => spawned.push(swarm));
@@ -476,18 +544,9 @@ describe('golden kernels, decorations and other phase 3 rules', () => {
     expect(sim.state.legacy.achievements).toEqual(expect.arrayContaining(['egg-first', 'poke-first']));
   });
 
-  it('lists what "buy them all" would buy: cheapest first, as far as the popcorn goes', () => {
-    const { sim } = setup();
-    sim.state.totalEarned = 1e4;
-    sim.state.popcorn = 1000;
-    expect(sim.affordableUpgrades().map((upgrade) => upgrade.id)).toEqual(['pop3', 'decor-neon', 'decor-plant']);
-    sim.state.popcorn = 50;
-    expect(sim.affordableUpgrades()).toEqual([]);
-  });
-
   it('earns the collection achievements for decorations and gold tiers', () => {
     const { sim } = producing();
-    sim.state.upgrades.push('decor-neon', 'unit-0-4');
+    sim.state.upgrades.push('decor-neon', 'line-gold-0');
     sim.step(0.1);
     expect(sim.state.legacy.achievements).toEqual(expect.arrayContaining(['decor-first', 'gold-tier']));
     expect(sim.state.legacy.achievements).not.toContain('decor-all');
@@ -535,7 +594,7 @@ describe('saves', () => {
     state.totalEarned = 98765;
     state.owned = [12, 3, 1, 0, 0, 0, 0, 0, 0, 0, 7, 2, 0, 0, 0];
     state.flavors = 4;
-    state.upgrades = ['pop3', 'unit-0-1', 'golden1', 'decor-neon'];
+    state.upgrades = ['craft-1', 'craft-2', 'decor-neon'];
     state.stage = 2;
     state.hopperSwarm = 1;
     state.hopperSwarmSize = 3;
@@ -563,7 +622,7 @@ describe('saves', () => {
     expect(result).toMatchObject({ ok: true, migratedFrom: 1 });
     expect(migrationResetsRun(1)).toBe(true);
     if (result.ok) {
-      expect(result.state.version).toBe(4);
+      expect(result.state.version).toBe(5);
       expect(result.state.popcorn).toBe(0);
       expect(result.state.owned).toEqual(PRODUCERS.map(() => 0));
       expect(result.state.legacy.lifetimeEarned).toBe(800);
@@ -585,12 +644,12 @@ describe('saves', () => {
     expect(result).toMatchObject({ ok: true, migratedFrom: 2 });
     expect(migrationResetsRun(2)).toBe(true);
     if (result.ok) {
-      expect(result.state).toMatchObject({ version: 4, popcorn: 0, totalEarned: 0, stage: 0, upgrades: [], ended: false });
+      expect(result.state).toMatchObject({ version: 5, popcorn: 0, totalEarned: 0, stage: 0, upgrades: [], ended: false });
       expect(result.state.legacy).toEqual({ ...old.legacy, found: [] });
     }
   });
 
-  it('carries a version 3 run on into version 4, with the new machines at zero', () => {
+  it('carries a version 3 run on, with the new machines at zero and its upgrades on the rows', () => {
     // A real version 3 save: ten machines, the old counters, no swarms, no egg album.
     const v3 = {
       version: 3,
@@ -616,9 +675,14 @@ describe('saves', () => {
     expect(migrationResetsRun(3)).toBe(false);
     if (!result.ok) return;
     const s = result.state;
-    expect(s).toMatchObject({ version: 4, popcorn: 4.2e9, totalEarned: 9.5e10, flavors: 6, stage: 2, hopperId: 7, rng: 123456, savedAt: 1_700_000_000_000 });
+    // Only the stirrer and the triple pop come over whole; the rest is paid back at its old price:
+    // five-pop (4,000) without its gloves, two pan tiers (250 + 10,000), one of the three stove
+    // synergies (6,600) and the cannon window (50,000) without the spring shoes.
+    const refunded = 4_000 + 250 + 10_000 + 6_600 + 50_000;
+    expect(result.converted).toEqual({ rungs: 2, refunded });
+    expect(s).toMatchObject({ version: 5, popcorn: 4.2e9 + refunded, totalEarned: 9.5e10, flavors: 6, stage: 2, hopperId: 7, rng: 123456, savedAt: 1_700_000_000_000 });
     expect(s.owned).toEqual([...v3.owned, 0, 0, 0, 0, 0]);
-    expect(s.upgrades).toEqual(v3.upgrades);
+    expect(s.upgrades).toEqual(['craft-1', 'craft-2']);
     expect(s.stats).toEqual({ ...v3.stats, goldenPops: 0, pokes: 0, swarmsCaught: 0 });
     expect(s.legacy).toEqual({ ...v3.legacy, found: [] });
     expect(s).toMatchObject({ hopperSwarm: 0, hopperSwarmSize: 0 });
@@ -627,6 +691,39 @@ describe('saves', () => {
     sim.load(s);
     expect(sim.producerUnlocked(11)).toBe(true);
     expect(sim.price(11)).toBe(PRODUCERS[11]!.baseCost);
+  });
+
+  it('moves a version 4 run onto the upgrade rows, paying back what no rung took in', () => {
+    const v4 = {
+      ...createState(),
+      version: 4,
+      popcorn: 1e9,
+      totalEarned: 4e11,
+      stage: 2,
+      owned: [80, 60, 40, 30, 5, 0, 0, 0, 0, 0, 70, 30, 2, 0, 0],
+      upgrades: [
+        ...['pop3', 'auto1', 'touch1', 'golden1', 'pop5', 'hold8', 'touch2'],
+        ...['syn-pan-toaster', 'syn-pan-microwave', 'syn-toaster-microwave', 'unit-0-4', 'unit-10-4', 'unit-1-4'],
+        ...['unit-3-2', 'decor-plant', 'decor-chandelier', 'cannon-window', 'hopper-time'],
+      ],
+      legacy: { ...createState().legacy, achievements: ['first-pop', 'gold-tier'], found: ['egg-clock'] },
+    };
+    const result = parseSave(wrap(v4));
+    expect(result).toMatchObject({ ok: true, migratedFrom: 4 });
+    if (!result.ok) return;
+    const s = result.state;
+    expect(s.upgrades).toEqual(['craft-1', 'craft-2', 'craft-3', 'craft-4', 'line-chain-0', 'line-gold-0', 'play-1', 'decor-plant', 'decor-chandelier']);
+    // touch2 (3.6 million) waits for pop10; the cannon tier (74,000 × 1,000) is a milestone now.
+    expect(result.converted).toEqual({ rungs: 9, refunded: 3.6e6 + 7.4e7 });
+    expect(s).toMatchObject({ version: 5, popcorn: 1e9 + 3.6e6 + 7.4e7, totalEarned: 4e11, stage: 2, owned: v4.owned });
+    expect(s.legacy).toMatchObject({ achievements: ['first-pop', 'gold-tier'], found: ['egg-clock'] });
+    const { sim } = setup();
+    sim.load(s);
+    // The row shows the neon sign that was skipped, then carries on after the chandelier.
+    expect(sim.trackHead('decor')!.id).toBe('decor-neon');
+    expect(sim.trackHead('craft')!.id).toBe('craft-5');
+    expect(sim.trackHead('line')!.id).toBe('line-chain-1');
+    expect(sim.derived.clickPops).toBe(5);
   });
 
   it('rejects damaged or foreign data with a specific reason', () => {
@@ -648,18 +745,18 @@ describe('saves', () => {
     state.popcorn = -50;
     state.flavors = 999;
     state.stage = 77;
-    state.upgrades = ['pop3', 'pop3', 'no-such-upgrade', 5];
+    state.upgrades = ['craft-1', 'craft-1', 'no-such-upgrade', 5];
     state.owned = [1.9, 'x', null, -4, 0, 0];
     state.hopperSwarm = 1e9;
     (state.legacy as Record<string, unknown>).found = ['egg-clock', 'egg-clock', 'egg-nowhere', 3];
     const body = JSON.stringify(state);
-    const result = parseSave(JSON.stringify({ format: 'pop-popcorn-save', version: 4, sum: checksum(body), body }));
+    const result = parseSave(JSON.stringify({ format: 'pop-popcorn-save', version: 5, sum: checksum(body), body }));
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.state.popcorn).toBe(0);
       expect(result.state.flavors).toBe(12);
       expect(result.state.stage).toBe(5);
-      expect(result.state.upgrades).toEqual(['pop3']);
+      expect(result.state.upgrades).toEqual(['craft-1']);
       expect(result.state.owned).toEqual([1, 0, 0, 0, ...PRODUCERS.slice(4).map(() => 0)]);
       expect(result.state.hopperSwarm).toBeLessThanOrEqual(12);
       expect(result.state.legacy.found).toEqual(['egg-clock']);
@@ -684,7 +781,7 @@ describe('new game plus', () => {
     expect(sim.state.legacy).toMatchObject({ runs: 1, flavorAlbum: 9, achievements: ['first-pop'], potSkin: 1, found: ['egg-moon'] });
     sim.state.owned[0] = 10;
     sim.invalidate();
-    expect(sim.perSecond).toBeCloseTo((POT.idleRate + 10 * 0.5) * 1.25);
+    expect(sim.perSecond).toBeCloseTo((POT.idleRate + 10 * 0.5 * 1.75) * 1.25);
   });
 });
 

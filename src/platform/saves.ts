@@ -1,4 +1,4 @@
-import { elapsedSince, migrationResetsRun, parseSave, serializeSave, type LoadError } from '../sim/save.ts';
+import { elapsedSince, migrationResetsRun, parseSave, serializeSave, type LoadError, type LoadResult, type UpgradeConversion } from '../sim/save.ts';
 import type { OfflineReport, Simulation } from '../sim/simulation.ts';
 import type { KeyValueStore } from './storage.ts';
 
@@ -14,12 +14,15 @@ export interface LoadOutcome {
   migrated: boolean;
   /** The save came from an older version and its run carries on, with new things to discover. */
   upgraded: boolean;
+  /** The save's old upgrades were moved onto the upgrade rows, with what was paid back. */
+  converted: UpgradeConversion | null;
   offline: OfflineReport | null;
 }
 
-const versionChange = (from: number | null): Pick<LoadOutcome, 'migrated' | 'upgraded'> => ({
-  migrated: migrationResetsRun(from),
-  upgraded: from !== null && !migrationResetsRun(from),
+const versionChange = (result: Extract<LoadResult, { ok: true }>): Pick<LoadOutcome, 'migrated' | 'upgraded' | 'converted'> => ({
+  migrated: migrationResetsRun(result.migratedFrom),
+  upgraded: result.migratedFrom !== null && !migrationResetsRun(result.migratedFrom),
+  converted: migrationResetsRun(result.migratedFrom) ? null : result.converted,
 });
 
 export class SaveManager {
@@ -43,21 +46,21 @@ export class SaveManager {
     const rescue = rescueText === null ? null : parseSave(rescueText);
     if (rescue?.ok && (!parsedMain?.ok || rescue.state.savedAt >= parsedMain.state.savedAt)) {
       this.sim.load(rescue.state);
-      return { source: 'main', recovered: false, ...versionChange(rescue.migratedFrom), offline: this.collectOffline(now) };
+      return { source: 'main', recovered: false, ...versionChange(rescue), offline: this.collectOffline(now) };
     }
     if (parsedMain?.ok) {
       this.sim.load(parsedMain.state);
-      return { source: 'main', recovered: false, ...versionChange(parsedMain.migratedFrom), offline: this.collectOffline(now) };
+      return { source: 'main', recovered: false, ...versionChange(parsedMain), offline: this.collectOffline(now) };
     }
     const backup = await this.store.read('backup');
     if (backup !== null) {
       const parsed = parseSave(backup);
       if (parsed.ok) {
         this.sim.load(parsed.state);
-        return { source: 'backup', recovered: main !== null, ...versionChange(parsed.migratedFrom), offline: this.collectOffline(now) };
+        return { source: 'backup', recovered: main !== null, ...versionChange(parsed), offline: this.collectOffline(now) };
       }
     }
-    return { source: 'new', recovered: main !== null, migrated: false, upgraded: false, offline: null };
+    return { source: 'new', recovered: main !== null, migrated: false, upgraded: false, converted: null, offline: null };
   }
 
   private collectOffline(now: number): OfflineReport | null {

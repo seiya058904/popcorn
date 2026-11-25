@@ -33,16 +33,24 @@ export function flavorPrice(owned: number): number {
   return FLAVOR_BASE_COST * FLAVOR_COST_GROWTH ** owned;
 }
 
-export function milestoneCount(owned: number): number {
-  let count = 0;
-  for (const milestone of MILESTONES) if (owned >= milestone) count += 1;
-  const last = MILESTONES[MILESTONES.length - 1]!;
-  if (owned > last) count += Math.floor((owned - last) / MILESTONE_STEP);
-  return count;
+/** What owning this many of one machine multiplies each of them by. */
+export function milestoneMultiplier(owned: number): number {
+  let multiplier = 1;
+  for (const milestone of MILESTONES) if (owned >= milestone.at) multiplier *= milestone.mult;
+  const last = MILESTONES[MILESTONES.length - 1]!.at;
+  if (owned > last) multiplier *= 2 ** Math.floor((owned - last) / MILESTONE_STEP);
+  return multiplier;
+}
+
+/** The next count at which a machine's output jumps, and by how much. */
+export function nextMilestone(owned: number): { at: number; mult: number } {
+  for (const milestone of MILESTONES) if (owned < milestone.at) return milestone;
+  const last = MILESTONES[MILESTONES.length - 1]!.at;
+  return { at: last + (Math.floor((owned - last) / MILESTONE_STEP) + 1) * MILESTONE_STEP, mult: 2 };
 }
 
 export function isMilestone(owned: number): boolean {
-  return milestoneCount(owned) > milestoneCount(owned - 1);
+  return owned > 0 && milestoneMultiplier(owned) > milestoneMultiplier(owned - 1);
 }
 
 export function hasUpgrade(state: GameState, id: string): boolean {
@@ -52,7 +60,7 @@ export function hasUpgrade(state: GameState, id: string): boolean {
 function* activeEffects(state: GameState): Generator<UpgradeEffect> {
   for (const id of state.upgrades) {
     const upgrade = UPGRADE_BY_ID.get(id);
-    if (upgrade) yield upgrade.effect;
+    if (upgrade) yield* upgrade.effects;
   }
 }
 
@@ -208,7 +216,7 @@ export function derive(state: GameState): Derived {
     (1 + state.legacy.runs * NEW_POT.bonusPerRun);
   d.unitEach = PRODUCERS.map(
     (producer) =>
-      producer.baseRate * 2 ** milestoneCount(state.owned[producer.id]!) * unitMults[producer.id]! * (1 + synergy[producer.id]!) * global,
+      producer.baseRate * milestoneMultiplier(state.owned[producer.id]!) * unitMults[producer.id]! * (1 + synergy[producer.id]!) * global,
   );
   d.unitRates = PRODUCERS.map((producer) => state.owned[producer.id]! * d.unitEach[producer.id]!);
   d.baseRate = d.unitRates.reduce((sum, rate) => sum + rate, POT.idleRate * global);

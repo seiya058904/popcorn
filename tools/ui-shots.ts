@@ -47,7 +47,7 @@ const steps: Step[] = [
           api.set({ stage: 1, totalEarned: value.total, popcorn: value.plenty, flavors: 3 });
           api.advance(0.2);
           [6, 3, 3, 2].forEach((count, unit) => api.buy(unit, count));
-          for (const id of ['pop3', 'touch1', 'auto1']) api.game.sim.buyUpgrade(id);
+          for (const id of ['craft-1', 'craft-2', 'craft-3']) api.game.sim.buyUpgrade(id);
           api.game.sim.state.stats.clicks = 80;
           api.set({ popcorn: api.game.sim.price(2) * 1.4 });
           api.advance(3);

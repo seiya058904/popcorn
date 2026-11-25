@@ -534,106 +534,119 @@
   display: none;
 }
 
-/* Upgrade tools: a filter, then "buy them all" beside a sort chip. */
-.upgrade-tools {
+/*
+ * The upgrade page: four fixed rows, each a quiet header with the row's progress over a single
+ * ticket for its next rung. The page is the same height from the first pot to the moon.
+ */
+.row {
+  /* Name, a two-line blurb and the ticket's padding: every row is this tall, whatever it says. */
+  --row-h: calc(var(--s-2) + 1.9rem * 1.2 + 0.3rem + 1.45rem * 1.35 * 2 + var(--s-4));
   display: flex;
   flex-direction: column;
-  gap: var(--s-2);
-  padding-top: var(--s-1);
+  gap: var(--s-1);
 }
 
-.upgrade-filter .seg-item {
+.row .ticket {
+  min-height: var(--row-h);
+}
+
+.row .ticket-blurb {
+  min-height: calc(1.45rem * 1.35 * 2);
+}
+
+.row + .row {
+  margin-top: var(--s-1);
+}
+
+.row-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-height: 3.2rem;
+  padding: 0 var(--s-2);
+  color: var(--ink-2);
+}
+
+.row-name {
+  font-size: 1.9rem;
+  color: var(--ink);
+  letter-spacing: 0.08em;
+}
+
+.row-pips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
   min-width: 0;
 }
 
-.upgrade-actions {
-  display: flex;
-  gap: var(--s-2);
+.row-pips i {
+  width: 0.9rem;
+  height: 0.9rem;
+  border-radius: 50%;
+  background: var(--paper-sunk);
+  box-shadow: inset 0 0.1rem 0.15rem rgb(110 74 58 / 28%);
 }
 
-.buy-all,
-.sort-chip {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--s-2);
-  height: 4.4rem;
-  border-radius: var(--r-pill);
-  font-size: 1.8rem;
+.row-pips i.is-on {
+  background: linear-gradient(180deg, #ffd45e, var(--butter-deep));
+  box-shadow: inset 0 0.1rem 0 rgb(255 255 255 / 55%), 0 0.05rem 0.15rem rgb(140 90 20 / 35%);
+}
+
+.row-count {
+  margin-left: auto;
+  font-size: 1.5rem;
   white-space: nowrap;
 }
 
-.buy-all {
-  flex: 1 1 auto;
-  min-width: 0;
-  padding: 0 var(--s-4) 0 var(--s-3);
+/* A rung still out of reach keeps its name readable: it is the next thing to aim for. */
+.row .ticket.is-locked .ticket-name {
+  color: var(--ink-2);
+  letter-spacing: normal;
+}
+
+.row .ticket-owned {
+  font-size: 1.7rem;
+  color: var(--ink-2);
+}
+
+.ticket-lock {
+  color: var(--accent-deep);
+}
+
+.row-done {
+  display: none;
+  align-items: center;
+  gap: var(--s-3);
+  min-height: var(--row-h);
+  padding: 0 var(--s-4) 0 var(--s-2);
+  border-radius: var(--r-m);
   background: var(--paper-sunk);
+  box-shadow: inset 0 0.1rem 0.25rem rgb(110 74 58 / 18%);
   color: var(--ink-2);
-  box-shadow: inset 0 0.1rem 0.2rem rgb(110 74 58 / 16%);
-  transition:
-    background-color var(--dur-fade, 190ms) var(--ease-fade, ease-out),
-    color var(--dur-fade, 190ms) var(--ease-fade, ease-out);
-}
-
-.buy-all.is-ready {
-  background: linear-gradient(180deg, #ffd45e, var(--butter));
-  color: var(--ink);
-  box-shadow: inset 0 0.1rem 0 rgb(255 255 255 / 55%), inset 0 -0.25rem 0 rgb(140 90 20 / 22%), var(--e1);
-}
-
-.buy-all[aria-busy='true'] {
-  cursor: progress;
-}
-
-.buy-all-icon {
-  display: grid;
-  width: 2.6rem;
-  height: 2.6rem;
-}
-
-.buy-all-icon svg {
-  width: 100%;
-  height: 100%;
-}
-
-.buy-all:not(.is-ready) .buy-all-icon svg {
-  filter: grayscale(1);
-  opacity: 0.55;
-}
-
-.buy-all-count {
-  margin-left: auto;
-  overflow: hidden;
-  text-overflow: ellipsis;
   font-size: 1.6rem;
-  color: var(--ink-2);
+  line-height: 1.35;
 }
 
-.buy-all.is-ready .buy-all-count {
-  color: var(--ink);
-}
-
-.sort-chip {
+.row-done-icon {
+  display: grid;
   flex: none;
-  padding: 0 var(--s-4);
-  background: var(--paper-raised);
-  color: var(--ink-2);
-  box-shadow: inset 0 0 0 0.1rem var(--paper-line);
-  transition:
-    background-color var(--dur-fade, 190ms) var(--ease-fade, ease-out),
-    color var(--dur-fade, 190ms) var(--ease-fade, ease-out);
+  place-items: center;
+  width: 4.4rem;
+  height: 4.4rem;
 }
 
-.sort-chip[aria-pressed='true'] {
-  background: var(--ink);
-  color: var(--paper-raised);
-  box-shadow: none;
+.row-done-icon svg {
+  width: 3.2rem;
+  height: 3.2rem;
 }
 
-.upgrade-list {
+.row.is-done .ticket {
+  display: none;
+}
+
+.row.is-done .row-done {
   display: flex;
-  flex-direction: column;
-  gap: var(--s-2);
 }
 
 /* The gold tier: a gilded icon well and a deep gold name. */
@@ -897,13 +910,6 @@
 .album span.is-owned {
   color: var(--ink);
   box-shadow: inset 0 0.1rem 0 rgb(255 255 255 / 40%), inset 0 -0.3rem 0 rgb(0 0 0 / 12%), 0 0.1rem 0.3rem rgb(70 30 20 / 18%);
-}
-
-.empty-note {
-  padding: var(--s-5) var(--s-3);
-  font-size: var(--t-body);
-  text-align: center;
-  color: var(--ink-2);
 }
 
 /* Cannon gauge ------------------------------------------------------------ */
