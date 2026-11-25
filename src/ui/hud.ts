@@ -27,6 +27,24 @@ const HINT_SECONDS = 120;
 /** How long a found thing's line stays up. */
 const EGG_BUBBLE_MS = 3200;
 const FLOAT_POOL = 24;
+
+/**
+ * Shows each backdrop blur that appears only later (the dialog veil, the photo hint) for a few
+ * frames on a speck in the corner. The first time the browser draws one it builds the shader for
+ * it: the "welcome back" dialog over a busy scene took a 100 ms frame for that, now paid at start.
+ */
+function warmFilters(root: HTMLElement): void {
+  const specks = ['is-veil', 'is-hint'].map((kind) => el('div', `filter-warm ${kind}`, root));
+  let frames = 10;
+  const tick = (): void => {
+    frames -= 1;
+    if (frames > 0) requestAnimationFrame(tick);
+    else specks.forEach((speck) => speck.remove());
+  };
+  requestAnimationFrame(tick);
+}
+/** The counter pops at most this often for landings of the same or less weight. */
+const COUNTER_POP_GAP_MS = 50;
 const SHOP_REFRESH_SECONDS = 0.1;
 const TOAST_MS = 4200;
 const MAX_TOASTS = 3;
@@ -79,6 +97,9 @@ export class Hud {
   private readonly veil: HTMLElement;
   private readonly dialog: HTMLElement;
   private cinematic = false;
+  private counterPop: Animation | null = null;
+  private counterPopAt = -Infinity;
+  private counterPopStrength = 0;
   private floatCursor = 0;
   private shopTimer = 0;
   private shown = 0;
@@ -139,6 +160,7 @@ export class Hud {
     pressable(this.skip, { action: () => this.onSkip?.() });
 
     this.veil = el('div', 'dialog-veil', root);
+    warmFilters(root);
     this.dialog = el('div', 'dialog', this.veil);
     this.veil.addEventListener('pointerdown', (event) => {
       if (event.target === this.veil) this.closeDialog();
@@ -247,9 +269,15 @@ export class Hud {
   }
 
   popCounter(strength = 1): void {
-    this.countNode.getAnimations().forEach((animation) => animation.cancel());
+    // Every landing pops the counter, dozens a second at full tilt; restarting the pop more often
+    // than this cannot be seen, and each restart costs a style pass. A stronger pop always gets through.
+    const now = performance.now();
+    if (now - this.counterPopAt < COUNTER_POP_GAP_MS && strength <= this.counterPopStrength) return;
+    this.counterPopAt = now;
+    this.counterPopStrength = strength;
+    this.counterPop?.cancel();
     const scale = 1 + (tuning.counterPopScale - 1) * strength;
-    this.countNode.animate([{ transform: `scale(${scale})` }, { transform: 'scale(1)' }], {
+    this.counterPop = this.countNode.animate([{ transform: `scale(${scale})` }, { transform: 'scale(1)' }], {
       duration: tuning.counterPopMs,
       easing: 'ease-out',
     });

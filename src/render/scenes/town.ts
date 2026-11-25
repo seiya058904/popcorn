@@ -267,7 +267,7 @@ function* addTown(kit: Kit, houseKits: [Kit, Kit]): Generator<void, void, void> 
   // Details draw from their own sequence, so the layout of the town never shifts with them.
   const look = new Rng(99);
   yield;
-  dressPlaza(kit, look, RING_ROAD, lightGroup(3, LIT.lamps));
+  yield* dressPlaza(kit, look, RING_ROAD, lightGroup(3, LIT.lamps));
   yield;
   let houses = 0;
   let guard = 0;
@@ -459,7 +459,7 @@ function* buildTown(stage: Stage, root: THREE.Group): SceneBuild {
   const show = pieces.group(root);
   pieces.part(fountainShowGeometry(), show, { shadow: false });
   pieces.decoration('decor-fountain', show, 3);
-  pieces.build(stage);
+  yield* pieces.build(stage);
   yield;
 
   const snow = new PopcornSnow(root, { count: 460, size: 0.95, height: 130, radius: 88, center: [0, 0, -12] });

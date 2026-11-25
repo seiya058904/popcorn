@@ -1220,6 +1220,24 @@
   display: grid;
 }
 
+/* A speck that draws a later blur once at start, so its first real showing is smooth (hud.ts). */
+.filter-warm {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0.4rem;
+  height: 0.4rem;
+  pointer-events: none;
+}
+
+.filter-warm.is-veil {
+  backdrop-filter: blur(0.6rem) saturate(1.1);
+}
+
+.filter-warm.is-hint {
+  backdrop-filter: blur(0.8rem);
+}
+
 /* Three widths: narrow for messages, medium for menus, wide for lists. */
 .dialog {
   width: min(88rem, 100%);
@@ -1696,12 +1714,7 @@
   display: block;
   white-space: pre;
   line-height: 1;
-  transition: transform 0.24s cubic-bezier(0.2, 0.75, 0.2, 1);
   will-change: transform;
-}
-
-:root[data-motion='reduced'] .odo-strip {
-  transition: none;
 }
 
 .odo-char {
@@ -1822,7 +1835,17 @@
   animation: combo-glow 0.7s cubic-bezier(0.2, 0.7, 0.3, 1) 1;
 }
 
-/* The top tier runs once through the rainbow. */
+/*
+ * The top tier runs once through the rainbow. Its color is animated rather than filtered: a
+ * hue-rotate over this much screen made the compositor build a new pipeline the first time it
+ * showed, two frames of 40 ms in the middle of the busiest moment of play.
+ */
+@property --combo {
+  syntax: '<color>';
+  inherits: false;
+  initial-value: rgb(255 244 220 / 75%);
+}
+
 .marquee-combo[data-tier='4'].is-on {
   animation: combo-glow 1s cubic-bezier(0.2, 0.7, 0.3, 1) 1, combo-rainbow 1s linear 1;
 }
@@ -1834,7 +1857,11 @@
 }
 
 @keyframes combo-rainbow {
-  to { filter: hue-rotate(360deg); }
+  0%, 100% { --combo: rgb(255 90 90 / 90%); }
+  20% { --combo: rgb(255 200 80 / 90%); }
+  40% { --combo: rgb(120 230 110 / 90%); }
+  60% { --combo: rgb(90 200 255 / 90%); }
+  80% { --combo: rgb(190 110 255 / 90%); }
 }
 
 /* Things flying between the shop, the scene and the counter ----------------- */

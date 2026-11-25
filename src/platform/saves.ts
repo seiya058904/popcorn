@@ -70,8 +70,13 @@ export class SaveManager {
     return report;
   }
 
-  /** Credits time spent suspended or in a background tab, and restarts the absence clock. */
-  resume(now = Date.now()): OfflineReport | null {
+  /**
+   * Credits time spent suspended or in a background tab, and restarts the absence clock.
+   * `activeUntil` is when the game last ran: after a stall the economy was already played up to then,
+   * so the absence starts there rather than at the last save, which can be half a minute earlier.
+   */
+  resume(now = Date.now(), activeUntil = 0): OfflineReport | null {
+    if (activeUntil > this.sim.state.savedAt && activeUntil <= now) this.sim.state.savedAt = activeUntil;
     const report = this.collectOffline(now);
     // A clock that jumped backward also restarts here, so play is not lost to it later.
     this.sim.state.savedAt = now;

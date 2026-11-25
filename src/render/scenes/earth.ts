@@ -786,6 +786,18 @@ function* buildEarth(stage: Stage, root: THREE.Group): SceneBuild {
   const bakeCamera = new THREE.Camera();
   const savedClear = new THREE.Color();
   const renderer = stage.renderer;
+  // Both bake shaders are compiled by the driver in parallel before the first face is drawn: drawing
+  // with them straight away blocked that frame until they were done, about 0.3 s in the town. They
+  // are compiled against a cube target, as they will be drawn, since the target decides their output.
+  const auxQuad = new THREE.Mesh(bakeGeo, auxBakeMat);
+  auxQuad.frustumCulled = false;
+  bakeScene.add(auxQuad);
+  const compileTarget = renderer.getRenderTarget();
+  renderer.setRenderTarget(planetGeo, 0);
+  renderer.compile(bakeScene, bakeCamera);
+  renderer.setRenderTarget(compileTarget);
+  bakeScene.remove(auxQuad);
+  while (!stage.programsReady()) yield;
   for (let face = 0; face < 6; face += 1) {
     const prevTarget = renderer.getRenderTarget();
     const prevCubeFace = renderer.getActiveCubeFace();
@@ -927,6 +939,7 @@ function* buildEarth(stage: Stage, root: THREE.Group): SceneBuild {
       (beam.material as THREE.ShaderMaterial).uniforms.uStrength!.value = strength;
     });
   };
+  yield;
 
   // The astronaut, the launch pad and the ad ring share one rig; the aurora is a light of its own.
   const pieces = new SetPieces(root);
@@ -935,22 +948,26 @@ function* buildEarth(stage: Stage, root: THREE.Group): SceneBuild {
   const flag = pieces.group(sky);
   flag.scale.setScalar(2.5);
   pieces.part(flagGeometry(), flag);
+  // The figure, the rocket and the ring in one step took 13-14 ms of a frame in the town.
+  yield;
   const pad = pieces.group(root, PAD_AT.x, sphereY(Math.hypot(PAD_AT.x, PAD_AT.z)) - 0.15, PAD_AT.z);
   pad.quaternion.setFromUnitVectors(UP, planetUp(R, pad.position.x, pad.position.y, pad.position.z));
   pad.scale.setScalar(1.25);
   pieces.part(rocketGeometry(), pad);
+  yield;
   const ringTilt = pieces.group(root, 0, -R, 0);
   ringTilt.rotation.set(0.3, 0, -0.2);
   const ring = pieces.group(ringTilt);
   pieces.part(adRingGeometry(), ring, { shadow: false });
   pieces.decoration('decor-ring', ringTilt, 14);
+  yield;
   // Hidden things to find (src/content/props.ts): a satellite with a camera, a cloud. The moon is the third.
   const satellite = pieces.group(root, SATELLITE_AT.x, SATELLITE_AT.y, SATELLITE_AT.z);
   satellite.rotation.set(0.25, 0.9, 0.15);
   pieces.part(satelliteGeometry(), satellite);
   const cloud = pieces.group(root, CLOUD_AT.x, CLOUD_AT.y, CLOUD_AT.z);
   pieces.part(cloudGeometry(), cloud);
-  pieces.build(stage);
+  yield* pieces.build(stage);
   const aurora = auroraMesh();
   aurora.visible = false;
   root.add(aurora);

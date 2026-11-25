@@ -61,8 +61,9 @@ export class SetPieces {
   }
 
   /** Must come last, after every piece has been added. */
-  build(stage: Stage): void {
-    this.rig.build(stage, this.root, globals.uTime);
+  /** Joins every piece into the scene's one rig, a step at a time: the scene is built in the background. */
+  *build(stage: Stage): Generator<void, void, void> {
+    yield* this.rig.buildInSteps(stage, this.root, globals.uTime);
   }
 
   /** Shows the decorations that are owned. With `animate`, a new one pops in with sparkles. */

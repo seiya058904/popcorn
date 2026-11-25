@@ -117,6 +117,8 @@ export class Game {
   private readonly stepper = new FixedStepper();
   private readonly frameListeners: Array<(deltaSeconds: number) => void> = [];
   private lastTimestamp = 0;
+  /** Wall-clock time of the last frame that ran the economy, so a stall is paid from there. */
+  private lastActive = 0;
   private running = false;
   private clickActivity = 0;
   /** Where the mouse is being held down, and how long until the next pop. */
@@ -460,7 +462,7 @@ export class Game {
 
   /** Time spent with the tab hidden or the machine asleep counts as being away. */
   private handleReturn(): void {
-    const report = this.saves?.resume();
+    const report = this.saves?.resume(Date.now(), this.lastActive);
     if (report) this.hud.showOffline(report.seconds, report.gained);
     this.lastTimestamp = 0;
     this.stepper.reset();
@@ -496,6 +498,7 @@ export class Game {
         this.simSteps += 1;
       });
       this.saves?.tick(delta);
+      if (delta > 0) this.lastActive = Date.now();
       this.stepHold(delta);
     }
 

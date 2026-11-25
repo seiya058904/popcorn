@@ -47,6 +47,12 @@ export class FlyIn {
   private readonly tickets: Ticket[] = [];
   private readonly crumbs: Crumb[] = [];
   private counterEl: HTMLElement | null = null;
+  /**
+   * Where the counter's middle is, measured when its size or the window's changes. Reading it on
+   * every frame of a stream, right after the interface rewrote its numbers, forced a layout each time.
+   */
+  private counterAt: ScreenPoint | null = null;
+  private readonly counterWatch = new ResizeObserver(() => this.measureCounter());
   private seed = 7;
   /** Called as each streamed piece reaches the counter; `last` for the final one. */
   onCrumb: ((last: boolean) => void) | null = null;
@@ -102,14 +108,28 @@ export class FlyIn {
   }
 
   private counterTarget(): ScreenPoint | null {
-    if (!this.counterEl?.isConnected) this.counterEl = this.root.querySelector<HTMLElement>('[data-counter="popcorn"]');
-    if (!this.counterEl) return null;
+    if (!this.counterEl?.isConnected) {
+      this.counterWatch.disconnect();
+      this.counterEl = this.root.querySelector<HTMLElement>('[data-counter="popcorn"]');
+      if (!this.counterEl) return null;
+      // The window too: the counter can move without changing size.
+      this.counterWatch.observe(this.counterEl);
+      this.counterWatch.observe(document.documentElement);
+      this.measureCounter();
+    }
+    return this.counterAt;
+  }
+
+  private measureCounter(): void {
+    if (!this.counterEl) return;
     const rect = this.counterEl.getBoundingClientRect();
-    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+    this.counterAt = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
   }
 
   /** A handful of popcorn from a point on screen into the counter. */
   stream(fromX: number, fromY: number, count: number): void {
+    // Measured afresh once per stream, in case the counter shifted along without changing size.
+    this.measureCounter();
     const to = this.counterTarget();
     if (motionPrefs.reduced || !to || this.root.classList.contains('is-cinematic')) {
       this.onCrumb?.(true);

@@ -8,8 +8,6 @@ import { sceneUnits, TRACK_RUNGS, TRACKS, UPGRADE_BY_ID, type UpgradeDef, type U
 import type { EventBus } from '../events/bus.ts';
 import type { CannonResult, GameEvents } from '../events/game-events.ts';
 import {
-  affordableCount,
-  bulkPrice,
   cannonStreakBonus,
   cannonZone,
   clickGain,
@@ -264,13 +262,45 @@ export class Simulation {
     return this.state.stage >= PRODUCERS[producer]!.unlockStage;
   }
 
-  price(producer: number, quantity = 1): number {
+  /**
+   * Running totals of the next machines' prices, per machine, from the number owned when they were
+   * made. The shop asks for ×10, ×100 and "as many as I can afford" ten times a second; these only
+   * change when a machine is bought, so they are added up once instead of on every refresh.
+   */
+  private readonly priceRuns: Array<{ owned: number; sums: number[] } | undefined> = [];
+
+  private runningPrices(producer: number, quantity: number): number[] {
     const owned = this.state.owned[producer]!;
-    return quantity === 1 ? producerPrice(producer, owned) : bulkPrice(producer, owned, quantity);
+    let run = this.priceRuns[producer];
+    if (!run || run.owned !== owned) {
+      run = { owned, sums: [0] };
+      this.priceRuns[producer] = run;
+    }
+    const sums = run.sums;
+    // The same additions in the same order as bulkPrice, so the totals match it exactly.
+    while (sums.length <= quantity) sums.push(sums[sums.length - 1]! + producerPrice(producer, owned + sums.length - 1));
+    return sums;
   }
 
-  maxAffordable(producer: number): number {
-    return affordableCount(producer, this.state.owned[producer]!, this.state.popcorn);
+  price(producer: number, quantity = 1): number {
+    const owned = this.state.owned[producer]!;
+    return quantity === 1 ? producerPrice(producer, owned) : this.runningPrices(producer, quantity)[quantity]!;
+  }
+
+  /** How many of a machine the popcorn covers, up to a thousand at once. */
+  maxAffordable(producer: number, limit = 1000): number {
+    const budget = this.state.popcorn;
+    let sums = this.runningPrices(producer, 1);
+    // Extend the totals only as far as the budget reaches.
+    while (sums.length <= limit && sums[sums.length - 1]! <= budget) sums = this.runningPrices(producer, Math.min(limit, sums.length * 2));
+    let low = 0;
+    let high = Math.min(limit, sums.length - 1);
+    while (low < high) {
+      const mid = (low + high + 1) >> 1;
+      if (sums[mid]! <= budget) low = mid;
+      else high = mid - 1;
+    }
+    return low;
   }
 
   buyProducer(producer: number, quantity = 1): boolean {

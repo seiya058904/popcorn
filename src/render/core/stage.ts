@@ -38,7 +38,13 @@ export class Stage {
   quality: QualitySettings;
   /** Horizontal principal-point shift as a fraction of width: keeps the action clear of the shop. */
   viewShiftX = 0;
-  private readonly canvas: HTMLCanvasElement;
+  /**
+   * The canvas's size in CSS pixels, kept up to date by a ResizeObserver. Reading clientWidth on
+   * every frame, right after the interface changed its text, forced a layout each time: about 8% of
+   * the main thread with a slowed-down CPU.
+   */
+  private cssWidth: number;
+  private cssHeight: number;
   private width = 0;
   private height = 0;
   private ratio = 0;
@@ -48,7 +54,13 @@ export class Stage {
   private readonly glass: GlassPiece[] = [];
 
   constructor(options: StageOptions) {
-    this.canvas = options.canvas;
+    this.cssWidth = Math.max(1, options.canvas.clientWidth);
+    this.cssHeight = Math.max(1, options.canvas.clientHeight);
+    new ResizeObserver(() => {
+      // clientWidth is read here, after layout has run anyway, so it costs nothing extra.
+      this.cssWidth = Math.max(1, options.canvas.clientWidth);
+      this.cssHeight = Math.max(1, options.canvas.clientHeight);
+    }).observe(options.canvas);
     this.quality = QUALITY[options.quality ?? 'ultra'];
     setKitDetail(this.quality.detail);
     this.renderer = new THREE.WebGLRenderer({
@@ -92,7 +104,16 @@ export class Stage {
 
   /** True when the window changed size since the last frame, which also clears the canvas. */
   needsResize(): boolean {
-    return Math.max(1, this.canvas.clientWidth) !== this.width || Math.max(1, this.canvas.clientHeight) !== this.height;
+    return this.cssWidth !== this.width || this.cssHeight !== this.height;
+  }
+
+  /** The canvas size in CSS pixels, without asking the page for a layout. */
+  get viewWidth(): number {
+    return this.cssWidth;
+  }
+
+  get viewHeight(): number {
+    return this.cssHeight;
   }
 
   /** Pixel size of the final output. */
@@ -110,8 +131,8 @@ export class Stage {
    * on every frame for seconds while the framing settles.
    */
   resize(): void {
-    const width = Math.max(1, this.canvas.clientWidth);
-    const height = Math.max(1, this.canvas.clientHeight);
+    const width = this.cssWidth;
+    const height = this.cssHeight;
     const ratio = Math.min(window.devicePixelRatio || 1, 2);
     const sized = width === this.width && height === this.height && ratio === this.ratio;
     if (sized && this.appliedShift === this.viewShiftX) return;

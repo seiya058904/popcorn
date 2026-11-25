@@ -499,7 +499,7 @@ function* buildKitchen(stage: Stage, root: THREE.Group): SceneBuild {
   radio.rotation.y = 0.55;
   pieces.part(radioGeometry(), radio);
   const needle = pieces.part(radioNeedle(), pieces.group(radio, 0.45, 0.9, 0.56));
-  pieces.build(stage);
+  yield* pieces.build(stage);
   yield;
 
   const bank = new LightBank(1, [

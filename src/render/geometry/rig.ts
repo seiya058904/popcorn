@@ -17,8 +17,22 @@ export const RIG_HIDDEN = new THREE.Matrix4().makeScale(0, 0, 0);
 
 const ATTRIBUTES = ['position', 'normal', 'color', 'aMat', 'aMat2', 'aMat3', 'aTint'] as const;
 
-/** Joins Kit geometries into one, recording in `aPart` which part, and which passes, each vertex is for. */
-function mergeParts(parts: Array<{ geometry: THREE.BufferGeometry; part: number; ink: boolean; shadow: boolean }>): THREE.BufferGeometry {
+type TaggedPart = { geometry: THREE.BufferGeometry; part: number; ink: boolean; shadow: boolean };
+
+/** Runs a step generator to the end at once, for callers that are not building in the background. */
+function drain<T>(steps: Generator<void, T, void>): T {
+  for (;;) {
+    const result = steps.next();
+    if (result.done) return result.value;
+  }
+}
+
+/**
+ * Joins Kit geometries into one, recording in `aPart` which part, and which passes, each vertex is
+ * for. It yields after each attribute: a scene's set pieces add up to a couple of hundred thousand
+ * vertices, which in one go took up to 18 ms of a frame while the next scene built in the background.
+ */
+function* mergeParts(parts: TaggedPart[]): Generator<void, THREE.BufferGeometry, void> {
   let vertices = 0;
   let indices = 0;
   for (const { geometry } of parts) {
@@ -36,6 +50,7 @@ function mergeParts(parts: Array<{ geometry: THREE.BufferGeometry; part: number;
       offset += source.count * size;
     }
     merged.setAttribute(name, new THREE.BufferAttribute(array, size));
+    yield;
   }
   const tags = new Float32Array(vertices * 3);
   const index = vertices > 65535 ? new Uint32Array(indices) : new Uint16Array(indices);
@@ -57,9 +72,28 @@ function mergeParts(parts: Array<{ geometry: THREE.BufferGeometry; part: number;
   }
   merged.setAttribute('aPart', new THREE.BufferAttribute(tags, 3));
   merged.setIndex(new THREE.BufferAttribute(index, 1));
+  yield;
   merged.computeBoundingSphere();
   return merged;
 }
+
+/** The joined geometries a rig is made of: its body, and its glass if any part has some. */
+interface MergedRig {
+  geometry: THREE.BufferGeometry;
+  glass: THREE.BufferGeometry | null;
+}
+
+function* mergeRig(parts: RigPart[]): Generator<void, MergedRig, void> {
+  const tagged = tagParts(parts);
+  const geometry = yield* mergeParts(tagged);
+  const glassParts = tagged
+    .filter((part) => part.geometry.userData.glass)
+    .map((part) => ({ ...part, geometry: part.geometry.userData.glass as THREE.BufferGeometry }));
+  const glass = glassParts.length > 0 ? yield* mergeParts(glassParts) : null;
+  return { geometry, glass };
+}
+
+const tagParts = (parts: RigPart[]): TaggedPart[] => parts.map((part, index) => ({ geometry: part.geometry, part: index, ink: part.ink !== false, shadow: part.shadow !== false }));
 
 /**
  * Many moving parts, and many copies of them, drawn in one call per pass. Every vertex knows its
@@ -77,7 +111,13 @@ export class PartRig {
   private readonly data: Float32Array;
   private readonly meshes: THREE.InstancedMesh[];
 
-  constructor(stage: Stage, parent: THREE.Object3D, parts: RigPart[], capacity: number) {
+  /** The same rig, joined a step at a time, for scenes built in the background. */
+  static *create(stage: Stage, parent: THREE.Object3D, parts: RigPart[], capacity: number): Generator<void, PartRig, void> {
+    const merged = yield* mergeRig(parts);
+    return new PartRig(stage, parent, parts, capacity, merged);
+  }
+
+  constructor(stage: Stage, parent: THREE.Object3D, parts: RigPart[], capacity: number, merged: MergedRig = drain(mergeRig(parts))) {
     this.partCount = parts.length;
     this.capacity = capacity;
     this.data = new Float32Array(capacity * parts.length * 16);
@@ -88,11 +128,8 @@ export class PartRig {
     this.texture.needsUpdate = true;
     this.materials = rigToyMaterials(this.texture);
 
-    const tagged = parts.map((part, index) => ({ geometry: part.geometry, part: index, ink: part.ink !== false, shadow: part.shadow !== false }));
-    const geometry = mergeParts(tagged);
-    const glassParts = tagged
-      .filter((part) => part.geometry.userData.glass)
-      .map((part) => ({ ...part, geometry: part.geometry.userData.glass as THREE.BufferGeometry }));
+    const tagged = tagParts(parts);
+    const { geometry, glass } = merged;
     const anyInk = tagged.some((part) => part.ink && part.geometry.userData.noInk !== true);
     const anyShadow = tagged.some((part) => part.shadow);
 
@@ -101,9 +138,8 @@ export class PartRig {
     if (anyShadow) stage.shadow.add(this.body, this.materials.depth);
     this.ink = anyInk ? this.instanced(geometry, this.materials.outline) : null;
     if (this.ink) parent.add(this.ink);
-    this.glass = glassParts.length > 0
-      ? addGlassPiece(stage, parent, (material) => this.instanced(mergeParts(glassParts), material), this.materials)
-      : [];
+    // The three forms of the glass share one joined geometry.
+    this.glass = glass ? addGlassPiece(stage, parent, (material) => this.instanced(glass, material), this.materials) : [];
     this.meshes = [this.body, ...(this.ink ? [this.ink] : []), ...this.glass];
     for (const { geometry: source } of tagged) {
       (source.userData.glass as THREE.BufferGeometry | undefined)?.dispose();
@@ -174,7 +210,12 @@ export class ToyRig {
 
   /** Creates the meshes under `space`, the object every piece's matrix is measured from. */
   build(stage: Stage, space: THREE.Object3D, clock: { value: number }): PartRig {
-    const rig = new PartRig(stage, space, this.parts, 1);
+    return drain(this.buildInSteps(stage, space, clock));
+  }
+
+  /** The same, joining the pieces a step at a time, for scenes built in the background. */
+  *buildInSteps(stage: Stage, space: THREE.Object3D, clock: { value: number }): Generator<void, PartRig, void> {
+    const rig = yield* PartRig.create(stage, space, this.parts, 1);
     rig.commit(1);
     const sync = (): void => {
       if (this.stamp === clock.value) return;

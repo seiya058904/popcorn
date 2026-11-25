@@ -116,6 +116,45 @@ test('a hidden tab saves, and coming back pays for the time away exactly once', 
   expect(result.again).toBeLessThan(result.paid / 100);
 });
 
+test('coming back to a busy late scene after ten minutes away is smooth: one welcome back, no long frames', async ({ page }, testInfo) => {
+  await open(page);
+  await qa(page, (api) => {
+    api.set({ stage: 3, totalEarned: 5e13, popcorn: 1e15 });
+    for (const unit of [0, 10, 1, 2, 11, 3, 4, 12, 5, 6, 13, 7]) api.buy(unit, 40);
+    api.set({ frenzy: 30 });
+    return api.game.saves.save();
+  });
+  // Let the scene settle in before leaving.
+  await page.waitForFunction(() => !(window as unknown as QaWindow).__pop.game.world.inTransition);
+  await page.waitForTimeout(1500);
+  const result = await page.evaluate(async () => {
+    const win = window as unknown as TestWindow;
+    const { game } = win.__pop;
+    const realNow = Date.now.bind(Date);
+    win.clockShift = 0;
+    win.pageVisibility = 'visible';
+    Date.now = () => realNow() + win.clockShift;
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => win.pageVisibility });
+    const change = (state: DocumentVisibilityState): void => {
+      win.pageVisibility = state;
+      document.dispatchEvent(new Event('visibilitychange'));
+    };
+    change('hidden');
+    win.clockShift = 10 * 60_000;
+    const before = game.sim.state.totalEarned;
+    change('visible');
+    const paid = game.sim.state.totalEarned - before;
+    const frames = await win.__pop.sampleFrames(3);
+    return { paid, long: frames.filter((ms) => ms > 50) };
+  });
+  expect(result.paid).toBeGreaterThan(0);
+  // Timing is judged on the GPU-backed run, as in feel.spec.ts: elsewhere this scene is slow throughout.
+  if (testInfo.project.name === 'chromium') expect(result.long).toEqual([]);
+  // The time away is paid in one sum and said in one dialog.
+  await expect(page.locator('.dialog h2', { hasText: '欢迎回来' })).toHaveCount(1);
+  await expect(page.locator('.dialog h2', { hasText: '欢迎回来' })).toBeVisible();
+});
+
 test('a long stall between frames does not fast-forward the simulation', async ({ page }) => {
   await open(page);
   const steps = await page.evaluate(async () => {

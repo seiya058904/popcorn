@@ -479,24 +479,23 @@ function unitStar(): THREE.BufferGeometry {
   return starShape;
 }
 
-function starsGeometry(group: number): THREE.BufferGeometry {
+/** One side's strings of one light group: small enough to build within a step. */
+function starsGeometry(group: number, side: number): THREE.BufferGeometry {
   const kit = new Kit();
   const shape = unitStar();
   const star = { color: '#fff3c8', emissive: 1, outline: 0, fixedColor: true, light: lightGroup(2, STAR_GROUPS[group]!) };
   const wire = { color: '#3a2a20', gloss: 0.4, outline: 0, fixedColor: true };
-  for (const side of [-1, 1]) {
-    for (let string = 0; string < 7; string += 1) {
-      const x = side * (27.5 + string * 2.3);
-      const top = 35.5;
-      const bottom = 9 + ((string * 7) % 5) * 2.2;
-      if (group === 0) kit.add(P.tube([new THREE.Vector3(x, top, -36.6), new THREE.Vector3(x, bottom, -36.6)], 0.05, 1, 4), wire);
-      const count = Math.round((top - bottom) / 2.6);
-      for (let i = 0; i < count; i += 1) {
-        if ((i + string) % 3 !== group) continue;
-        const y = top - 1.2 - i * ((top - bottom - 1.2) / (count - 1));
-        const size = 0.42 + ((i * 13 + string * 7) % 5) * 0.06;
-        kit.add(shape, { ...star, matrix: at(x, y, -36.4, [0, 0, (i + string) * 0.6], size) });
-      }
+  for (let string = 0; string < 7; string += 1) {
+    const x = side * (27.5 + string * 2.3);
+    const top = 35.5;
+    const bottom = 9 + ((string * 7) % 5) * 2.2;
+    if (group === 0) kit.add(P.tube([new THREE.Vector3(x, top, -36.6), new THREE.Vector3(x, bottom, -36.6)], 0.05, 1, 4), wire);
+    const count = Math.round((top - bottom) / 2.6);
+    for (let i = 0; i < count; i += 1) {
+      if ((i + string) % 3 !== group) continue;
+      const y = top - 1.2 - i * ((top - bottom - 1.2) / (count - 1));
+      const size = 0.42 + ((i * 13 + string * 7) % 5) * 0.06;
+      kit.add(shape, { ...star, matrix: at(x, y, -36.4, [0, 0, (i + string) * 0.6], size) });
     }
   }
   return kit.build();
@@ -593,13 +592,19 @@ function* buildCinema(stage: Stage, root: THREE.Group): SceneBuild {
   pieces.decoration('decor-carpet', carpet, 6);
   yield;
   const stars = pieces.group(root);
-  STAR_GROUPS.forEach((_, group) => pieces.part(starsGeometry(group), stars, { shadow: false }));
+  // One side of one string of lights a step: all of them in one went over 35 ms of a frame.
+  for (let group = 0; group < STAR_GROUPS.length; group += 1) {
+    for (const side of [-1, 1]) {
+      pieces.part(starsGeometry(group, side), stars, { shadow: false });
+      yield;
+    }
+  }
   pieces.decoration('decor-stars', stars, 0.01);
   // A hidden thing to find (src/content/props.ts): the curtain cord.
   const cord = pieces.group(root, CORD_AT.x, CORD_AT.y, CORD_AT.z);
   pieces.part(cordGeometry(), cord);
   yield;
-  pieces.build(stage);
+  yield* pieces.build(stage);
 
   const bank = new LightBank(2, [{ at: 0 }, { at: 0 }, { style: 'bulb' }, { style: 'bulb' }, { style: 'bulb' }]);
   const screenLight = new THREE.Color('#8d9dff');

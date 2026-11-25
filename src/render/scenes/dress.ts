@@ -124,8 +124,8 @@ export function dressCinema(kit: Kit, ground: number, stageR: number): void {
 
 // Town ----------------------------------------------------------------------------
 
-/** lampLight is the light group of the street lamps. */
-export function dressPlaza(kit: Kit, rng: Rng, ringRoad: number, lampLight = 0): void {
+/** lampLight is the light group of the street lamps. In steps, as the town is built in the background. */
+export function* dressPlaza(kit: Kit, rng: Rng, ringRoad: number, lampLight = 0): Generator<void, void, void> {
   // Paving in concentric courses.
   for (let ring = 0; ring < 6; ring += 1) {
     const r = 7 + ring * 1.7;
@@ -135,7 +135,9 @@ export function dressPlaza(kit: Kit, rng: Rng, ringRoad: number, lampLight = 0):
       const tone = ['#f3dcb4', '#ecd1a4', '#f7e4c2', '#e4c796'][rng.int(0, 4)]!;
       kit.add(P.box(1.62, 0.07, (Math.PI * 2 * r) / stones - 0.1, 0.02, 1), { color: tone, gloss: 0.18, pattern: Pattern.Plaster, outline: 0, fixedColor: true, detail: 1, matrix: at(Math.cos(a) * r, 0.1, Math.sin(a) * r, [0, -a, 0]) });
     }
+    if (ring === 2) yield;
   }
+  yield;
   // Kerbs on both sides of the ring road.
   for (const r of [ringRoad - 3.5, ringRoad + 3.5]) kit.add(P.torus(r, 0.32, 5, 96), { ...M.concrete, outline: 0.3, matrix: at(0, 0.14, 0, [Math.PI / 2, 0, 0]) });
   // Lamp posts, benches and flower beds around the square.

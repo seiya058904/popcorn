@@ -260,9 +260,8 @@ export class World {
           this.flareT = 0;
         }
         v.project(this.stage.camera);
-        const canvas = this.stage.renderer.domElement;
-        const sx = (v.x * 0.5 + 0.5) * canvas.clientWidth;
-        const sy = (0.5 - v.y * 0.5) * canvas.clientHeight;
+        const sx = (v.x * 0.5 + 0.5) * this.stage.viewWidth;
+        const sy = (0.5 - v.y * 0.5) * this.stage.viewHeight;
         this.hooks.onBurst(sx, sy, combo, gain, manual, golden);
         if (golden && manual) this.hooks.onIncome(sx, sy, 10);
       },
@@ -572,8 +571,7 @@ export class World {
 
   /** A ray from the camera through a point on the canvas. */
   private rayAt(clientX: number, clientY: number): THREE.Ray {
-    const canvas = this.stage.renderer.domElement;
-    ndc.set((clientX / canvas.clientWidth) * 2 - 1, 1 - (clientY / canvas.clientHeight) * 2);
+    ndc.set((clientX / this.stage.viewWidth) * 2 - 1, 1 - (clientY / this.stage.viewHeight) * 2);
     this.raycaster.setFromCamera(ndc, this.stage.camera);
     return this.raycaster.ray;
   }
@@ -662,9 +660,8 @@ export class World {
       v.copy(director.hopperPosition);
       runtime.root.localToWorld(v);
       v.project(this.stage.camera);
-      const canvas = this.stage.renderer.domElement;
-      const dx = (v.x * 0.5 + 0.5) * canvas.clientWidth - clientX;
-      const dy = (0.5 - v.y * 0.5) * canvas.clientHeight - clientY;
+      const dx = (v.x * 0.5 + 0.5) * this.stage.viewWidth - clientX;
+      const dy = (0.5 - v.y * 0.5) * this.stage.viewHeight - clientY;
       const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
       if (Math.hypot(dx, dy) < HOPPER_HIT_RADIUS_REM * rem) {
         this.sim.catchHopper();
@@ -1265,10 +1262,9 @@ export class World {
    */
   private livelyPose(pose: Pose, dt: number): Pose {
     if (this.reduceMotion) return pose;
-    const canvas = this.stage.renderer.domElement;
     const at = this.hoverAt;
-    const wantX = at ? (at.x / Math.max(1, canvas.clientWidth)) * 2 - 1 : 0;
-    const wantY = at ? (at.y / Math.max(1, canvas.clientHeight)) * 2 - 1 : 0;
+    const wantX = at ? (at.x / Math.max(1, this.stage.viewWidth)) * 2 - 1 : 0;
+    const wantY = at ? (at.y / Math.max(1, this.stage.viewHeight)) * 2 - 1 : 0;
     const ease = 1 - Math.exp(-dt * 2.2);
     this.lean.x += (wantX - this.lean.x) * ease;
     this.lean.y += (wantY - this.lean.y) * ease;
@@ -1368,8 +1364,7 @@ export class World {
   private screenOf(world: THREE.Vector3): { x: number; y: number } | null {
     const p = screenScratch.copy(world).project(this.stage.camera);
     if (p.z > 1) return null;
-    const canvas = this.stage.renderer.domElement;
-    return { x: (p.x * 0.5 + 0.5) * canvas.clientWidth, y: (0.5 - p.y * 0.5) * canvas.clientHeight };
+    return { x: (p.x * 0.5 + 0.5) * this.stage.viewWidth, y: (0.5 - p.y * 0.5) * this.stage.viewHeight };
   }
 
   /** A brief light at a point in the world, for a moment the whole set should feel. */

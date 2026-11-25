@@ -28,6 +28,12 @@ export interface PileShape {
 
 const STEP = 1 / 60;
 const ROW_INTERLACE = 4;
+/**
+ * How far the fill level moves before the heap is reshaped. The level eases on every frame by about
+ * a hundred-thousandth, which used to reshape a quarter of the grid each frame for no visible change;
+ * a thousandth of a scene's rise is still well under a pixel.
+ */
+const LEVEL_STEP = 1e-3;
 /** The heap mixes the first shapes, which include a round mushroom head among the butterflies. */
 const SURFACE_SHAPES = 6;
 /** Steepest slope the cliff map can store; the heap shaders read it back with the same factor. */
@@ -230,7 +236,7 @@ export class Pile {
   setLevel(level: number): void {
     if (Math.abs(level - this.level) < 1e-5) return;
     this.level = level;
-    this.dirty = true;
+    if (this.filledLevel < 0 || Math.abs(level - this.filledLevel) >= LEVEL_STEP) this.dirty = true;
   }
 
   get currentLevel(): number {
@@ -356,7 +362,9 @@ export class Pile {
     }
     this.rowPhase = (this.rowPhase + 1) % ROW_INTERLACE;
     if (this.rowPhase === 0) {
-      this.dirty = this.filledLevel !== level;
+      // Rows of this pass were filled up to a few frames apart: too little to see. Further change
+      // starts a new pass from setLevel once it adds up to a step.
+      this.dirty = false;
       this.filledLevel = level;
       return true;
     }

@@ -86,6 +86,19 @@ describe('saving as the page goes away', () => {
     expect(await session(current).saves.load(T0)).toMatchObject({ migrated: false, upgraded: false, converted: null });
   });
 
+  it('after a stall, pays only for the time the game was not running, not again for what it already played', async () => {
+    const { sim, saves } = session(memoryStore());
+    sim.state.owned[0] = 40;
+    sim.invalidate();
+    await saves.save(T0);
+    // The game played on for 25 seconds after that save, then the machine slept for ten minutes.
+    const report = saves.resume(T0 + 25_000 + 600_000, T0 + 25_000)!;
+    expect(report.seconds).toBeCloseTo(600);
+    // Without a later frame to go by, the last save is all there is.
+    await saves.save(T0);
+    expect(saves.resume(T0 + 600_000)!.seconds).toBeCloseTo(600);
+  });
+
   it('a wipe removes the copy too', async () => {
     const store = memoryStore();
     const { saves } = session(store);

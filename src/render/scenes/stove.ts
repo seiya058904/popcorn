@@ -522,7 +522,7 @@ function* buildStove(stage: Stage, root: THREE.Group): SceneBuild {
   const minuteHand = pieces.part(clockHandGeometry(0.25, 0.026), clockHands);
   const pepper = pieces.group(root, PEPPER_AT.x, PEPPER_AT.y, PEPPER_AT.z);
   pieces.part(pepperGeometry(), pepper);
-  pieces.build(stage);
+  yield* pieces.build(stage);
   yield;
 
   const flames = new Flames(root, BURNERS);

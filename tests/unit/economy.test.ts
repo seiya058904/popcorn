@@ -120,6 +120,24 @@ describe('prices', () => {
     expect(affordableCount(1, 4, budget - 1)).toBe(9);
   });
 
+  it('keeps the shop\'s running totals equal to the exact bulk price and affordability, as machines are bought', () => {
+    const { sim } = setup();
+    sim.state.stage = 4;
+    for (const [producer, popcorn] of [[0, 5e3], [1, 1e7], [10, 7.77e9], [4, 1e12], [9, 3e16]] as const) {
+      for (let round = 0; round < 3; round += 1) {
+        sim.state.popcorn = popcorn * (round + 1);
+        const owned = sim.state.owned[producer]!;
+        expect(sim.price(producer, 10)).toBe(bulkPrice(producer, owned, 10));
+        expect(sim.price(producer, 100)).toBe(bulkPrice(producer, owned, 100));
+        expect(sim.maxAffordable(producer)).toBe(affordableCount(producer, owned, sim.state.popcorn));
+        sim.buyProducer(producer, Math.max(1, sim.maxAffordable(producer) >> 1));
+      }
+    }
+    // Owned changed behind the shop's back, as a loaded save does: the totals start over.
+    sim.state.owned[0] = 3;
+    expect(sim.price(0, 10)).toBe(bulkPrice(0, 3, 10));
+  });
+
   it('prices flavors at 400 × 28^n', () => {
     expect(flavorPrice(0)).toBe(400);
     expect(flavorPrice(3)).toBe(400 * 28 ** 3);

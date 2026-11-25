@@ -4,10 +4,14 @@ import type { QaApi } from '../src/debug/index.ts';
 /**
  * Usage: node tools/perf.ts [--size=3840x2160] [--seconds=8] [--clicks=10] [--stage=1]
  *                           [--total=46000] [--units=8,6,4] [--query=quality=low] [--breakout]
- *                           [--gc] [--attribute] [--paints] [--trace] [--capped] [--cpu-throttle=4] [--from-title]
+ *                           [--gc] [--attribute] [--paints] [--trace] [--capped] [--cpu-throttle=4] [--from-title] [--settled] [--stress]
  *                           [--css='.glass { backdrop-filter: none }']
  *                           [--eval='api.game.stage.shadow.setSize(3072, false)']
  * --breakout pushes production over the next threshold, so the show itself is what gets measured.
+ * --stress is the late game at full tilt, on top of the clicks: the mouse held down for rapid pops, frenzy kept
+ * up and the cannon fired every two seconds. It also reports the most popcorn drawn in flight and sound voices at once.
+ * --settled waits until the next scene has been built in the background before measuring, so the frames are those of a
+ * player who has been in the scene a while; without it the first seconds include that build.
  * --gc traces garbage collection and reports every pause and the allocation rate.
  * --attribute times the expensive steps of the game and says which ones fell inside the longest frames.
  * --paints lists the page elements the browser repainted most, with their paint time: interface
@@ -40,6 +44,8 @@ const capped = hasFlag('capped');
 const traceTasks = hasFlag('trace');
 const cpuThrottle = Number(argValue('cpu-throttle') ?? 1);
 const fromTitle = hasFlag('from-title');
+const settled = hasFlag('settled');
+const stress = hasFlag('stress');
 
 interface TraceEvent {
   name: string;
@@ -100,27 +106,55 @@ try {
   if (snippet) await page.evaluate((source) => new Function('api', source)((window as unknown as { __pop: QaApi }).__pop), snippet);
   await page.evaluate(() => (window as unknown as { __pop: QaApi }).__pop.sampleFrames(3));
   // A player spends minutes in a scene, so the next one is always ready when it breaks open.
-  if (breakout) await page.waitForFunction(() => !(window as unknown as { __pop: QaApi }).__pop.game.world.preparing, undefined, { timeout: 120_000 });
+  if (breakout || settled || stress) {
+    await page.waitForFunction(() => {
+      const world = (window as unknown as { __pop: QaApi }).__pop.game.world as unknown as { preparing: boolean; bootProbe: unknown };
+      return !world.preparing && !world.bootProbe;
+    }, undefined, { timeout: 300_000 });
+  }
   const gpuCategories = traceTasks ? ['gpu', 'disabled-by-default-gpu.service', 'gpu.angle', 'gpu.decoder', 'skia', 'disabled-by-default-skia', 'disabled-by-default-skia.gpu', 'disabled-by-default-skia.shaders'] : [];
   if (traceGc || tracePaints || traceTasks) await harness.browser.startTracing(page, { categories: ['devtools.timeline', 'disabled-by-default-devtools.timeline', 'v8', 'disabled-by-default-v8.gc', ...gpuCategories] });
+  // Held down where the clicks land, so the hold keeps popping kernels between them.
+  if (stress) {
+    await page.mouse.move(width! * 0.4, height! * 0.5);
+    await page.mouse.down();
+  }
   const result = await page.evaluate(
-    async ({ duration, clicksPerSecond, earned, w, h, breakNow }) => {
+    async ({ duration, clicksPerSecond, earned, w, h, breakNow, full }) => {
       const qa = (window as unknown as { __pop: QaApi }).__pop;
       if (breakNow) qa.earn(earned * 0.1);
       const timer = clicksPerSecond > 0 ? setInterval(() => qa.click(w * 0.4, h * 0.5), 1000 / clicksPerSecond) : 0;
+      let second = 0;
+      const rush = (): void => {
+        qa.set({ frenzy: 30 });
+        if (second % 2 === 0) {
+          qa.setCharge(1);
+          // In the green zone (0.94-1.1 s at the start): a perfect shot, the biggest show the cannon has.
+          qa.fireCannon(1.05);
+        }
+        second += 1;
+      };
+      if (full) rush();
+      const rushTimer = full ? setInterval(rush, 1000) : 0;
       const cpu: number[] = [];
       const starts: number[] = [];
+      const peak = { flakes: 0, voices: 0 };
+      const game = qa.game as unknown as { world: { current?: { batches?: { count: number } | null } }; audio: { voices: unknown[] } };
       qa.game.onFrame(() => {
         cpu.push(qa.game.lastFrameCpuMs);
         starts.push(performance.now());
+        peak.flakes = Math.max(peak.flakes, game.world.current?.batches?.count ?? 0);
+        peak.voices = Math.max(peak.voices, game.audio.voices.length);
       });
       const intervals = await qa.sampleFrames(duration);
       clearInterval(timer);
+      clearInterval(rushTimer);
       const marks = (window as unknown as { __marks?: Array<[string, number, number]> }).__marks ?? [];
-      return { intervals, cpu, starts, marks, info: qa.info() };
+      return { intervals, cpu, starts, marks, info: qa.info(), peak: full ? peak : undefined };
     },
-    { duration: seconds, clicksPerSecond: clicks, earned: total, w: width!, h: height!, breakNow: breakout },
+    { duration: seconds, clicksPerSecond: clicks, earned: total, w: width!, h: height!, breakNow: breakout, full: stress },
   );
+  if (stress) await page.mouse.up();
   let gc: { pauses: number; totalMs: number; maxMs: number; over5ms: number; allocatedMbPerSecond: number } | undefined;
   const trace = traceGc || tracePaints || traceTasks ? (JSON.parse((await harness.browser.stopTracing()).toString()) as { traceEvents: TraceEvent[] }) : undefined;
   if (trace && traceGc) {
@@ -150,6 +184,16 @@ try {
     };
   };
   const frame = stats(result.intervals);
+  /** When into the sample each missed frame came, to line them up with what happened then. */
+  function missedAt(intervals: number[]): number[] {
+    const at: number[] = [];
+    let elapsed = 0;
+    for (const value of intervals) {
+      elapsed += value;
+      if (value > 25) at.push(Number((elapsed / 1000).toFixed(2)));
+    }
+    return at;
+  }
   console.log(
     JSON.stringify({
       size: `${width}x${height}`,
@@ -158,11 +202,12 @@ try {
       frameMs: frame,
       // Uncapped: frames over a 60 FPS budget. Capped: frames that missed a refresh and showed late.
       ...(capped
-        ? { missed: result.intervals.filter((value) => value > 25).length }
+        ? { missed: result.intervals.filter((value) => value > 25).length, missedAtSeconds: missedAt(result.intervals) }
         : { over16ms: result.intervals.filter((value) => value > 16.7).length, over33ms: result.intervals.filter((value) => value > 33.4).length }),
       cpuMs: stats(result.cpu),
       drawCalls: result.info.drawCalls,
       triangles: result.info.triangles,
+      ...(result.peak ? { peak: result.peak } : {}),
       ...(gc ? { gc } : {}),
     }),
   );

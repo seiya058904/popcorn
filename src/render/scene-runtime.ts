@@ -179,6 +179,8 @@ export class SceneRuntime {
     this.cracks = new Cracks(stage, this.root, rng, (spec.homeRadius / 0.72) * 1.13, spec.steamY, k);
     this.parcel = new Parcel(stage, this.root, k);
     tagNew('breakout');
+    // The cannon is a rig of its own: built with the breakout pieces, the step ran past 12 ms.
+    yield;
     if (spec.cannon) this.heroCannon = new HeroCannon(stage, this.root, spec.cannon, this.sprites, this.director, rng);
     tagNew('hero-cannon');
     yield;
