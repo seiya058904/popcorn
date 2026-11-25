@@ -375,7 +375,9 @@ export class Shop {
         if (owned[id]! > 0) kinds += 1;
         parts.name.set(quantity > 1 ? `${producer.name} ×${quantity}` : producer.name);
         const each = formatAmount(sim.derived.unitEach[id]!);
-        const share = sim.derived.baseRate > 0 ? Math.round((sim.derived.unitRates[id]! / sim.derived.baseRate) * 100) : 0;
+        const percent = sim.derived.baseRate > 0 ? (sim.derived.unitRates[id]! / sim.derived.baseRate) * 100 : 0;
+        // A working machine is never "0%": early machines fall that low once the scene moves on.
+        const share = percent > 0 && percent < 0.5 ? '<1' : String(Math.round(percent));
         const milestone = nextMilestone(owned[id]!);
         // The joke greets a new machine; once it is working, the numbers matter more, and the next
         // milestone says what more of them will bring.
