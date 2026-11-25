@@ -279,6 +279,29 @@ function addWindow(kit: Kit): void {
   }
 }
 
+/**
+ * A shaker door: a sunken middle panel inside a raised frame, so the cabinet fronts are no longer
+ * flat slabs. `z` is the door's front face; medium quality and up.
+ */
+function cabinetDoorDetail(kit: Kit, x: number, y: number, z: number, width: number, height: number, color: string): void {
+  const rail = Math.min(width, height) * 0.13;
+  const panel = tint(color, -0.07);
+  kit.add(P.box(width - rail * 2, height - rail * 2, 0.03, 0.02, 1), { color: panel, gloss: 0.35, ao: 0.82, outline: 0, detail: 1, matrix: at(x, y, z + 0.005) });
+  // A thin bead where the panel meets the frame catches the light.
+  for (const side of [-1, 1]) {
+    kit.add(P.box(width - rail * 2 + 0.1, 0.07, 0.06, 0.02, 1), { color, gloss: 0.55, outline: 0, detail: 1, matrix: at(x, y + side * (height / 2 - rail), z + 0.02) });
+    kit.add(P.box(0.07, height - rail * 2, 0.06, 0.02, 1), { color, gloss: 0.55, outline: 0, detail: 1, matrix: at(x + side * (width / 2 - rail), y, z + 0.02) });
+  }
+}
+
+/** The color a little darker (negative) or lighter (positive), for panels set into a frame. */
+function tint(color: string, amount: number): string {
+  const c = new THREE.Color(color);
+  const hsl = { h: 0, s: 0, l: 0 };
+  c.getHSL(hsl);
+  return `#${c.setHSL(hsl.h, hsl.s, Math.min(1, Math.max(0, hsl.l + amount))).getHexString()}`;
+}
+
 function addCounter(kit: Kit): void {
   const left = 2.6;
   const right = 34;
@@ -289,14 +312,23 @@ function addCounter(kit: Kit): void {
   kit.add(P.box(width, 0.42, 3.4, 0.05, 1), { color: C.navy, gloss: 0.1, outline: 0, matrix: at(cx, GROUND + 0.2, -15.5) });
   for (let i = 0; i < 9; i += 1) {
     const x = left + 1.75 + i * 3.45;
-    kit.add(P.box(3.15, 2.8, 0.12, 0.14, 2), { color: i % 2 ? '#ffe2ae' : '#ffe9c2', gloss: 0.45, matrix: at(x, GROUND + 2.05, -13.46) });
+    const color = i % 2 ? '#ffe2ae' : '#ffe9c2';
+    kit.add(P.box(3.15, 2.8, 0.12, 0.14, 2), { color, gloss: 0.45, matrix: at(x, GROUND + 2.05, -13.46) });
+    cabinetDoorDetail(kit, x, GROUND + 2.05, -13.4, 3.15, 2.8, color);
     kit.add(P.sphere(0.14, 10, 8), { color: C.red, gloss: 0.9, matrix: at(x + 1.1, GROUND + 3, -13.32) });
+    kit.add(P.puck(0.2, 0.2, 0.05, 14, 0.02), { color: C.chrome, gloss: 0.9, metal: 1, pattern: Pattern.Brushed, outline: 0, detail: 1, matrix: at(x + 1.1, GROUND + 3, -13.38, [Math.PI / 2, 0, 0]) });
   }
   // Upper cabinet on the far side of the window, with a shelf rail.
   kit.add(P.box(11, 5, 2.6, 0.12, 2), { color: C.cream, gloss: 0.35, matrix: at(23, 7.1, -16) });
+  // A stepped crown along the top and a light rail under the doors, as on a real fitted kitchen.
+  kit.add(P.box(11.7, 0.32, 3.05, 0.1, 2), { color: C.trim, gloss: 0.45, detail: 1, matrix: at(23, 9.72, -15.95) });
+  kit.add(P.box(11.3, 0.2, 2.85, 0.07, 1), { color: C.trim, gloss: 0.45, detail: 1, matrix: at(23, 9.48, -15.95) });
+  kit.add(P.box(11.2, 0.16, 2.8, 0.06, 1), { color: C.trim, gloss: 0.45, detail: 1, matrix: at(23, 4.56, -15.95) });
   for (let i = 0; i < 3; i += 1) {
     kit.add(P.box(3.3, 4.4, 0.1, 0.12, 2), { color: '#ffe9c2', gloss: 0.45, matrix: at(19.4 + i * 3.6, 7.1, -14.66) });
+    cabinetDoorDetail(kit, 19.4 + i * 3.6, 7.1, -14.61, 3.3, 4.4, '#ffe9c2');
     kit.add(P.sphere(0.12, 8, 7), { color: C.red, gloss: 0.9, matrix: at(20.6 + i * 3.6, 5.5, -14.55) });
+    kit.add(P.puck(0.18, 0.18, 0.05, 14, 0.02), { color: C.chrome, gloss: 0.9, metal: 1, pattern: Pattern.Brushed, outline: 0, detail: 1, matrix: at(20.6 + i * 3.6, 5.5, -14.6, [Math.PI / 2, 0, 0]) });
   }
   // Sink with a faucet and the rubber duck that lives there.
   kit.add(P.box(5, 0.08, 2.5, 0.04, 1), { color: '#a9b6c4', gloss: 0.85, metal: 1, pattern: Pattern.Brushed, outline: 0, matrix: at(10, COUNTER_TOP + 0.05, -15.2) });

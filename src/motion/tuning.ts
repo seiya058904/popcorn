@@ -38,3 +38,18 @@ export const tuningFields: readonly TuningField[] = [
   { key: 'cannonShakeMs', label: '大炮屏震 ms', min: 0, max: 800, step: 10 },
   { key: 'breakSilenceMs', label: '突破静默 ms', min: 0, max: 800, step: 10 },
 ];
+
+/**
+ * How a heap stays alive between pops, for show only. Rates are per second of production intensity;
+ * radii are shares of the heap's landing radius; strengths are in heap units (negative heaves up).
+ */
+export const HEAP_LIFE = {
+  churnRate: 0.35,
+  churnRateMax: 2.2,
+  churnStrength: 3,
+  churnRadius: 0.18,
+  /** Share of tumbles that take two or three flakes and leave a dent. */
+  slideChance: 0.3,
+  slideDent: 2.5,
+  slideRadius: 0.14,
+};

@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { applyLamps, globals, LIGHT_GROUPS, lightGroup, type Lamp } from '../../src/render/core/globals.ts';
 import { bindEnvironment, PROBE_LOOKS } from '../../src/render/core/probe.ts';
 import { QUALITY } from '../../src/render/core/quality.ts';
-import { Kit, P, smoothLatheSeam } from '../../src/render/geometry/kit.ts';
+import { at, Kit, P, smoothLatheSeam } from '../../src/render/geometry/kit.ts';
 import { ambientStrength, runAmbience, type AmbientEmitter } from '../../src/render/fx/ambience.ts';
 import { SpriteKind, Sprites } from '../../src/render/fx/sprites.ts';
 import { Rng } from '../../src/motion/rng.ts';
@@ -229,6 +229,23 @@ describe('surface channels', () => {
     expect([channel.getX(0), channel.getY(0), channel.getZ(0), channel.getW(0)].map((x) => Number(x.toFixed(3)))).toEqual([0.4, 0.8, 0.6, 0.3]);
     expect(channel.getY(count)).toBe(-1);
     expect([channel.getX(count * 2), channel.getY(count * 2), channel.getZ(count * 2), channel.getW(count * 2)]).toEqual([0, 0, 0, 0]);
+  });
+
+  it('let a part sway by vertex, still where it hangs and free at its end', () => {
+    const kit = new Kit();
+    // A flag hanging from y = 0 down to y = -1, moved into place by its matrix first.
+    kit.add(P.box(1, 1, 0.1), { color: '#ffffff', sway: (p) => Math.min(1, Math.max(0, -p.y)), matrix: at(0, -0.5, 0) });
+    const geometry = kit.build();
+    const position = geometry.getAttribute('position');
+    const channel = geometry.getAttribute('aMat3');
+    let top = 0;
+    let bottom = 0;
+    for (let i = 0; i < channel.count; i += 1) {
+      if (position.getY(i) > -0.01) top = Math.max(top, channel.getX(i));
+      if (position.getY(i) < -0.99) bottom = Math.max(bottom, channel.getX(i));
+    }
+    expect(top).toBeLessThan(0.01);
+    expect(bottom).toBeCloseTo(1, 3);
   });
 
   it('give every flake vertex its place along the kernel, crown to tip', () => {

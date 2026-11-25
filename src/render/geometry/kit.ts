@@ -73,8 +73,11 @@ export interface Paint {
   light?: number;
   /** With `light`: off, the part keeps its paint and only stops glowing, like a clock face. */
   lightKeepsPaint?: boolean;
-  /** How far the part sways in the wind, 0 to 1: leaves, flags, bunting. */
-  sway?: number;
+  /**
+   * How far the part sways in the wind, 0 to 1: leaves, flags, bunting. A function receives the
+   * transformed vertex, so a flag can stay still where it hangs and flutter at its free end.
+   */
+  sway?: number | ((p: THREE.Vector3, n: THREE.Vector3) => number);
   /** Velvet and plush: darker face-on, a soft bright sheen at grazing angles. 0 to 1. */
   sheen?: number;
   /** Soft vinyl, as on toy figures: light creeps round into the shade, warm at the edge. 0 to 1. */
@@ -162,7 +165,8 @@ export class Kit {
     const coat = paint.coat ?? 0;
     const pattern = paint.pattern ?? 0;
     const wear = paint.wear ?? 0;
-    const sway = paint.sway ?? 0;
+    const swayFn = typeof paint.sway === 'function' ? paint.sway : null;
+    const swayValue = typeof paint.sway === 'number' ? paint.sway : 0;
     // Velvet and neon share a channel: neon is marked by a negative value.
     const sheen = paint.neon ? -1 : (paint.sheen ?? 0);
     const soft = paint.soft ?? 0;
@@ -173,7 +177,7 @@ export class Kit {
     const aoFn = typeof paint.ao === 'function' ? paint.ao : null;
     const aoValue = typeof paint.ao === 'number' ? paint.ao : 1;
     const { colorFn, emissiveFn } = paint;
-    const perVertex = aoFn !== null || colorFn !== undefined || emissiveFn !== undefined;
+    const perVertex = aoFn !== null || swayFn !== null || colorFn !== undefined || emissiveFn !== undefined;
 
     // The matrix is applied by hand: this loop runs for every vertex of every scene.
     const e = paint.matrix?.elements;
@@ -260,6 +264,7 @@ export class Kit {
       let b = cb;
       let ao = aoValue;
       let glow = emissive;
+      let sway = swayValue;
       if (perVertex) {
         tempP.set(x, y, z);
         tempN.set(nx, ny, nz);
@@ -272,6 +277,7 @@ export class Kit {
         }
         if (aoFn) ao = aoFn(tempP, tempN);
         if (emissiveFn) glow = emissiveFn(tempP, tempN);
+        if (swayFn) sway = swayFn(tempP, tempN);
       }
       C[oc + j3] = r;
       C[oc + j3 + 1] = g;

@@ -97,19 +97,28 @@ function addStreetProps(kit: Kit): void {
   });
 }
 
+/** How far a pennant hangs below its string. */
+const PENNANT_DROP = 0.85;
+
 function buntingString(length: number, sag: number, seed: number): THREE.BufferGeometry {
   // A string of pennants along local X, its ends at ±length/2, sagging in the middle.
   const kit = new Kit();
   const at01 = (t: number): THREE.Vector3 => new THREE.Vector3((t - 0.5) * length, -sag * (1 - (2 * t - 1) ** 2), 0);
   kit.add(P.tube([at01(0), at01(0.25), at01(0.5), at01(0.75), at01(1)], 0.035, 16, 4), { color: '#f7f0df', gloss: 0.3, outline: 0, fixedColor: true });
-  const pennant = new THREE.Shape([new THREE.Vector2(-0.38, 0), new THREE.Vector2(0.38, 0), new THREE.Vector2(0, -0.85)]);
+  const pennant = new THREE.Shape([new THREE.Vector2(-0.38, 0), new THREE.Vector2(0.38, 0), new THREE.Vector2(0, -PENNANT_DROP)]);
   const flagColors = ['#d8473f', '#ffc53f', '#3f7fd8', '#58c79c', '#ff8fb0', '#fff0d4'];
   const flags = 9;
+  // Still along the string, fluttering more toward each pennant's tip, so they never pull away from it.
+  const flutter = (p: THREE.Vector3): number => {
+    const t = Math.min(1, Math.max(0, p.x / length + 0.5));
+    const below = -sag * (1 - (2 * t - 1) ** 2) + 0.02 - p.y;
+    return 0.9 * Math.min(1, Math.max(0, below / PENNANT_DROP)) ** 1.3;
+  };
   for (let i = 0; i < flags; i += 1) {
     const t = (i + 0.5) / flags;
     const p = at01(t);
     const flag = new THREE.ExtrudeGeometry(pennant, { depth: 0.04, bevelEnabled: false });
-    kit.add(flag, { color: flagColors[(i + seed) % flagColors.length]!, gloss: 0.2, pattern: Pattern.Fabric + 0.3, outline: 0.4, fixedColor: true, matrix: at(p.x, p.y + 0.02, -0.02, [0, 0, (t - 0.5) * 0.25]) });
+    kit.add(flag, { color: flagColors[(i + seed) % flagColors.length]!, gloss: 0.2, pattern: Pattern.Fabric + 0.3, outline: 0.4, fixedColor: true, sway: flutter, matrix: at(p.x, p.y + 0.02, -0.02, [0, 0, (t - 0.5) * 0.25]) });
   }
   return kit.build();
 }

@@ -293,12 +293,19 @@ void main() {
     float puff = sat(1.0 - cell.x * 1.1);
     float gap = smoothstep(0.0, 0.34, cell.y - cell.x);
     vec2 bestR2;
-    worleyGrad(flat_ * 84.0 + 3.0, bestR2);
+    vec2 cell2 = worleyGrad(flat_ * 84.0 + 3.0, bestR2);
+    // Neighbouring drifts meet in a crease where their slopes flip. Within about two pixels of it
+    // the slope eases off, so the crease reads as a soft valley instead of a stair-stepped line, and
+    // the small drifts fade out once they shrink to a couple of pixels and could only shimmer.
+    float px = length(fwidth(flat_));
+    float seam = smoothstep(0.0, max(px * 30.0 * 2.0, 0.02), cell.y - cell.x);
+    float seam2 = smoothstep(0.0, max(px * 84.0 * 2.0, 0.02), cell2.y - cell2.x);
+    float small = 1.0 - smoothstep(0.3, 0.7, px * 84.0);
     // Exact unit-length orthonormal tangent basis of flat_ = dir0.xz / (1 + |dir0.y|) on S^2 (zero dFdx/dFdy!).
     float sig = dir0.y >= 0.0 ? 1.0 : -1.0;
     vec3 dFlatU = vec3(1.0, -sig * flat_.x, 0.0) - flat_.x * dir0;
     vec3 dFlatV = vec3(0.0, -sig * flat_.y, 1.0) - flat_.y * dir0;
-    vec2 slopeXZ = -bestR / max(cell.x, 0.08) * 0.5 - bestR2 / max(length(bestR2), 0.08) * 0.14;
+    vec2 slopeXZ = -bestR / max(cell.x, 0.08) * (0.5 * seam) - bestR2 / max(length(bestR2), 0.08) * (0.14 * seam2 * small);
     vec3 Nd = normalize(Ng + (dFlatU * slopeXZ.x + dFlatV * slopeXZ.y) * 0.72);
     float crease = 0.55 + (1.0 - gap) * 0.25 + (1.0 - puff) * 0.25;
     vec3 drift = popcornShade(Nd, V, vWorld, sat(crease), 0.0, 1.0, 0.0, shadow, mix(0.08, 0.5, puff));

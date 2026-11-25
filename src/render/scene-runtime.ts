@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { CannonResult } from '../events/game-events.ts';
 import type { Rng } from '../motion/rng.ts';
+import { HEAP_LIFE } from '../motion/tuning.ts';
 import { applyLamps, applyLightRig, type Lamp } from './core/globals.ts';
 import { PROBE_LOOKS, SceneProbe } from './core/probe.ts';
 import type { Stage } from './core/stage.ts';
@@ -101,6 +102,8 @@ export class SceneRuntime {
   private readonly ambientDue: number[] = [];
   /** Seconds until the next flake tumbles down the heap. */
   private tumbleIn = 2;
+  /** Seconds until the busy heap next heaves somewhere. */
+  private churnIn = 1;
   private butterDue = 0;
   private fountainBudget = 0;
   private live: boolean;
@@ -599,15 +602,34 @@ export class SceneRuntime {
    */
   private tumble(dt: number, intensity: number, attract: boolean): void {
     if (attract || this.holdLaunches || !this.director || this.pile.currentLevel < 0.08) return;
+    const shape = this.pile.shape;
+    const reach = shape.landingRadius(this.pile.currentLevel);
+    // A heap fed fast churns: here and there its surface heaves a little and settles back.
+    if (!this.calmEntrances) {
+      this.churnIn -= dt * Math.min(HEAP_LIFE.churnRateMax, intensity * HEAP_LIFE.churnRate);
+      if (this.churnIn <= 0) {
+        this.churnIn = this.rng.range(0.7, 1.6);
+        const a = this.rng.range(0, Math.PI * 2);
+        const r = Math.sqrt(this.rng.next()) * 0.7 * reach;
+        this.pile.impact(shape.centerX + Math.cos(a) * r, shape.centerZ + Math.sin(a) * r, -HEAP_LIFE.churnStrength, HEAP_LIFE.churnRadius * reach);
+      }
+    }
     this.tumbleIn -= dt * Math.min(2.5, 0.4 + intensity * 0.3);
     if (this.tumbleIn > 0) return;
     this.tumbleIn = this.rng.range(1.2, 3);
-    const shape = this.pile.shape;
     const a = this.rng.range(0, Math.PI * 2);
-    const r = this.rng.range(0.1, 0.45) * shape.landingRadius(this.pile.currentLevel);
+    const r = this.rng.range(0.1, 0.45) * reach;
     const x = shape.centerX + Math.cos(a) * r;
     const z = shape.centerZ + Math.sin(a) * r;
-    this.director.launch(x, this.pile.heightAt(x, z) + 0.04 * shape.k, z, { flight: this.rng.range(0.35, 0.5), scale: this.rng.range(0.32, 0.42), reach: 1.05, silent: true });
+    // Now and then the slope gives way: two or three flakes go together and leave a dent behind.
+    const slide = !this.calmEntrances && this.rng.next() < HEAP_LIFE.slideChance;
+    const count = slide ? this.rng.int(2, 4) : 1;
+    for (let i = 0; i < count; i += 1) {
+      const fx = x + (i ? this.rng.range(-0.06, 0.06) * reach : 0);
+      const fz = z + (i ? this.rng.range(-0.06, 0.06) * reach : 0);
+      this.director.launch(fx, this.pile.heightAt(fx, fz) + 0.04 * shape.k, fz, { flight: this.rng.range(0.35, 0.55), scale: this.rng.range(0.32, 0.42), reach: 1.05, silent: true });
+    }
+    if (slide) this.pile.impact(x, z, HEAP_LIFE.slideDent, HEAP_LIFE.slideRadius * reach);
   }
 
   /** Flecks of butter drifting down over the heap during a frenzy, thicker as it builds. */
