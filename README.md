@@ -39,7 +39,7 @@
 </p>
 
 <p align="center">
-  <sub>15 MACHINES &nbsp;·&nbsp; 5 SCENES &nbsp;·&nbsp; 120 UPGRADES &nbsp;·&nbsp; 12 FLAVORS &nbsp;·&nbsp; 45 ACHIEVEMENTS &nbsp;·&nbsp; 15 HIDDEN THINGS &nbsp;·&nbsp; ABOUT 2.5 HOURS</sub>
+  <sub>15 MACHINES &nbsp;·&nbsp; 5 SCENES &nbsp;·&nbsp; 36 UPGRADES &nbsp;·&nbsp; 12 FLAVORS &nbsp;·&nbsp; 45 ACHIEVEMENTS &nbsp;·&nbsp; 15 HIDDEN THINGS &nbsp;·&nbsp; ABOUT 2.5 HOURS</sub>
 </p>
 
 <p align="center">
@@ -107,7 +107,7 @@
 <a id="how-it-plays"></a>
 ## 🎮 How It Plays
 
-**Pop, buy, watch it grow.** Clicking pops kernels; holding keeps popping. Machines pop on their own, each with its own working animation and sound, and every one of the fifteen gets a new look at 25, 50 and 100 owned. Clicking speeds things up but is never required: upgrades can stir the pot, fire the cannon and catch kernels for you, and a player who never clicks still reaches the end.
+**Pop, buy, watch it grow.** Clicking pops kernels; holding keeps popping. Machines pop on their own, each with its own working animation and sound, and every one of the fifteen gets a new look at 25, 50 and 100 owned. Upgrades come in four fixed rows (craft, production line, play, decor), each offering only its next rung, and every machine multiplies its output at set milestones (10, 25, 50, 75 and 100 owned, then every 50), applied automatically. Clicking speeds things up but is never required: upgrades can stir the pot, fire the cannon and catch kernels for you, and a player who never clicks still reaches the end.
 
 **The cannon.** Hold <kbd>Space</kbd> or the pressure gauge and let go in the green zone for a big shot. An upgrade rewards chains of green shots with a growing bonus.
 
