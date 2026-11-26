@@ -33,7 +33,8 @@ const C = {
   plaza: '#f3dcb4',
   stone: '#e8dcc8',
   stoneDeep: '#b7a892',
-  water: '#58b7e8',
+  water: '#5fc4e6',
+  waterDeep: '#2f7fc4',
   red: '#d8313a',
   gold: '#f0b73a',
   cream: '#ffeccb',
@@ -343,7 +344,20 @@ function fountainGeometry(): THREE.BufferGeometry {
     pattern: Pattern.Plaster,
     ao: (p) => 0.62 + 0.38 * Math.min(1, p.y / 1.4),
   });
-  kit.add(P.puck(i - 0.1, i - 0.1, 0.08, 72, 0.02), { color: C.water, gloss: 1, coat: 0.9, outline: 0, matrix: at(0, f + 0.02, 0) });
+  // Deeper blue under the statue, clear turquoise over the shallows by the wall.
+  const deep = new THREE.Color(C.waterDeep);
+  const shallow = new THREE.Color(C.water);
+  kit.add(P.puck(i - 0.1, i - 0.1, 0.08, 72, 0.02), {
+    color: C.water,
+    gloss: 1,
+    // Less lacquer than a polished floor: the water's own color and the light in it should show,
+    // with the sky only at a glancing angle.
+    coat: 0.4,
+    outline: 0,
+    pattern: Pattern.Water,
+    matrix: at(0, f + 0.02, 0),
+    colorFn: (p, _n, out) => out.copy(deep).lerp(shallow, Math.min(1, Math.max(0, (Math.hypot(p.x, p.z) - 1.5) / 3.2))),
+  });
   fountainStatue(kit, f);
   return kit.build();
 }
@@ -681,7 +695,7 @@ export const townSpec: SceneSpec = {
   // Afternoon, a long golden sunset, then a moonlit night lit by the town's own lights.
   story: {
     mid: {
-      light: { sunDir: [0.78, 0.42, 0.48], sunColor: '#ffc890', sunIntensity: 1.3, shadeTint: '#6a5aa0', sky: '#e0a8c8', skyIntensity: 0.28, ground: '#c89878', groundIntensity: 0.16, rim: '#ffb070', rimIntensity: 0.72, rimDir: [-0.62, 0.3, -0.7], fog: '#f0b8a8', fogRange: [190, 420], pool: [0, 0, 0, 105], poolFloor: 0.72 },
+      light: { sunDir: [0.78, 0.42, 0.48], sunColor: '#ffc890', sunIntensity: 1.3, shadeTint: '#5262ac', sky: '#c8a8d8', skyIntensity: 0.28, ground: '#a88a92', groundIntensity: 0.16, rim: '#ffb070', rimIntensity: 0.72, rimDir: [-0.62, 0.3, -0.7], fog: '#f0b8a8', fogRange: [190, 420], pool: [0, 0, 0, 105], poolFloor: 0.72 },
       grade: { exposure: 1, contrast: 1.05, saturation: 1.12, vignette: 0.3, bloom: 0.55, shadowTint: '#f4eaff', highlightTint: '#fff0e0', aoTint: '#2a1f48' },
     },
     late: {

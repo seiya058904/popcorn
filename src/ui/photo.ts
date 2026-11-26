@@ -88,6 +88,8 @@ export class PhotoMode {
     this.root = root;
     this.host = host;
     this.flash = el('div', 'photo-flash', root);
+    // Viewfinder marks in the corners and the middle: part of the interface, never of the picture.
+    el('div', 'photo-frame', root).setAttribute('aria-hidden', 'true');
     this.bar = el('div', 'photo-bar glass', root);
     this.bar.setAttribute('role', 'toolbar');
     this.bar.setAttribute('aria-label', '拍照模式');

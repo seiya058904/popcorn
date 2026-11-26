@@ -83,6 +83,10 @@ vec2 alongSurface(vec3 q, float level) {
   return level > 0.5 ? q.xz : vec2(q.x + q.z, q.y);
 }
 
+// Water is drawn round a model's origin, with a spill falling in this far from the middle: the
+// town fountain's upper bowl.
+#define WATER_SPILL 2.2
+
 // Surface relief painted per pixel. Returns height; tone scales the paint.
 float surfacePattern(float id, vec3 q, float level, inout float tone, inout float finest, inout float fleck) {
   float h = 0.0;
@@ -161,11 +165,31 @@ float surfacePattern(float id, vec3 q, float level, inout float tone, inout floa
     finest = 56.0;
     tone = 0.95 + noise3d(q * vec3(56.0, 9.0, 56.0)) * 0.06 + noise3d(q * 3.0) * 0.04;
     h = noise3d(q * 56.0) * 0.5;
-  } else { // speckled enamel: pale flecks of all sizes floating in the glaze
+  } else if (id < 14.5) { // speckled enamel: pale flecks of all sizes floating in the glaze
     finest = 30.0;
     fleck = smoothstep(0.72, 0.75, noise3d(q * 24.0)) * 0.85 + smoothstep(0.71, 0.75, noise3d(q * 60.0 + 7.0)) * 0.7;
     tone = 0.96 + noise3d(q * 3.0) * 0.08;
     h = noise3d(q * 30.0) * 0.2;
+  } else { // water, laid flat around the model's origin: rings, a slow swell and light dancing through it
+    vec2 p = q.xz;
+    float r = length(p);
+    float t = uTime;
+    // Rings run outward from where a bowl above spills into it, WATER_SPILL from the middle.
+    float out_ = max(r - WATER_SPILL, 0.0);
+    float ring = sin(out_ * 8.5 - t * 3.6) * exp(-out_ * 0.5) * smoothstep(WATER_SPILL - 0.7, WATER_SPILL + 0.1, r);
+    float swell = noise3d(vec3(p * 1.6 + vec2(t * 0.32, -t * 0.21), t * 0.22));
+    float chop = noise3d(vec3(p * 4.1 - vec2(t * 0.55, t * 0.38), t * 0.45 + 3.0));
+    h = ring * 0.4 + swell * 0.42 + chop * 0.18;
+    // Caustics: two drifting nets of light; where their bright seams cross, the light gathers.
+    vec2 c1 = worley(p * 1.1 + vec2(t * 0.15, t * 0.09));
+    vec2 c2 = worley(p * 1.55 - vec2(t * 0.11, -t * 0.17) + 4.0);
+    float k1 = 1.0 - smoothstep(0.0, 0.15, c1.y - c1.x);
+    float k2 = 1.0 - smoothstep(0.0, 0.17, c2.y - c2.x);
+    tone = 0.78 + (k1 * 0.5 + k2 * 0.4 + k1 * k2 * 0.9) * 0.75;
+    // A churn of white where the falling water lands.
+    float churn = smoothstep(0.55, 1.0, ring * 0.7 + chop * 0.6) * (1.0 - smoothstep(0.2, 1.1, out_)) * smoothstep(WATER_SPILL - 0.4, WATER_SPILL, r);
+    fleck = churn * 0.75;
+    finest = 5.0;
   }
   return h;
 }
@@ -218,6 +242,7 @@ void main() {
       : id > 3.5 && id < 4.5 ? 0.012
       : id > 9.5 && id < 10.5 ? 0.007
       : id > 10.5 && id < 11.5 ? 0.0008
+      : id > 14.5 ? 0.07
       : id > 12.5 ? 0.0008
       : 0.004;
     N = bumped(N, vLocal, h, relief * visible / scale);

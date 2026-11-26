@@ -14,7 +14,7 @@ import { el, setClass, Text } from './dom.ts';
 import './game.css';
 import { CannonGauge, type GaugeHooks } from './gauge.ts';
 import { ICONS, UNIT_ICONS } from './icons.ts';
-import { flip, MOTION, play } from './motion.ts';
+import { flip, MOTION, motionPrefs, play } from './motion.ts';
 import { Odometer } from './odometer.ts';
 import { pressable } from './press.ts';
 import { closeSheet, isSheetOpen, openSheet } from './sheet.ts';
@@ -22,6 +22,8 @@ import { Shop } from './shop.ts';
 
 /** What holds the kernels in each scene, for the first hint. */
 const HINT_VESSELS = ['锅', '碗', '桶', '喷泉', '火山口'];
+/** Stops of the journey, for the scene title card. */
+const STOP_NUMERALS = ['一', '二', '三', '四', '五'];
 /** The first hint retires after this long even if nothing has been clicked or bought. */
 const HINT_SECONDS = 120;
 /** How long a found thing's line stays up. */
@@ -313,20 +315,45 @@ export class Hud {
     if (!def) return;
     const letters = [...def.name];
     this.slate.getAnimations({ subtree: true }).forEach((animation) => animation.cancel());
-    this.slate.replaceChildren(...letters.map((letter) => el('span', 'slate-letter', undefined, letter)));
+    // A small line over the name counts the stops of the journey, as the shop's 下一站 does.
+    const kicker = el('span', 'slate-kicker', undefined, `第${STOP_NUMERALS[stage] ?? stage + 1}站`);
+    const name = el('span', 'slate-name');
+    name.replaceChildren(...letters.map((letter) => el('span', 'slate-letter', undefined, letter)));
+    this.slate.replaceChildren(kicker, name);
     const timing = { duration: 1900, easing: 'cubic-bezier(.2,.8,.3,1)' };
-    this.slate.animate(
+    // With reduced motion the card only fades in and out where it rests.
+    const calm = motionPrefs.reduced;
+    const rest = 'translate(-50%, -50%)';
+    const below = calm ? 'none' : 'translateY(1.2rem) scale(0.9)';
+    kicker.animate(
       [
-        { opacity: 0, transform: 'translate(-50%, -50%) scale(1.5)' },
-        { opacity: 1, transform: 'translate(-50%, -50%) scale(1)', offset: 0.14 },
-        { opacity: 1, transform: 'translate(-50%, -50%) scale(0.98)', offset: 0.78 },
-        { opacity: 0, transform: 'translate(-50%, -62%) scale(0.98)' },
+        { opacity: 0, transform: below },
+        { opacity: 0, transform: below, offset: 0.08 },
+        { opacity: 1, transform: 'none', offset: 0.22 },
+        { opacity: 1, transform: 'none' },
       ],
       timing,
     );
+    this.slate.animate(
+      calm
+        ? [
+            { opacity: 0, transform: rest },
+            { opacity: 1, transform: rest, offset: 0.14 },
+            { opacity: 1, transform: rest, offset: 0.78 },
+            { opacity: 0, transform: rest },
+          ]
+        : [
+            { opacity: 0, transform: `${rest} scale(1.5)` },
+            { opacity: 1, transform: `${rest} scale(1)`, offset: 0.14 },
+            { opacity: 1, transform: `${rest} scale(0.98)`, offset: 0.78 },
+            { opacity: 0, transform: 'translate(-50%, -62%) scale(0.98)' },
+          ],
+      timing,
+    );
+    if (calm) return;
     // Extra spacing over the resting 0.3em, as the old letter-spacing keyframes had it.
     const middle = (letters.length - 1) / 2;
-    [...this.slate.children].forEach((letter, index) => {
+    [...name.children].forEach((letter, index) => {
       const away = index - middle;
       (letter as HTMLElement).animate(
         [

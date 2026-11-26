@@ -395,6 +395,20 @@
   font-size: 19rem;
   color: var(--butter);
   text-shadow: 0 0.8rem 0 #a11d2a, 0 1.5rem 0 #5b1020, 0 0 5rem rgb(255 180 70 / 55%);
+  transform-origin: 50% 88%;
+  /* Once the letters have landed, the word goes off again now and then, like a kernel in the pot. */
+  animation: title-kernel 4.2s 1.6s cubic-bezier(0.3, 0, 0.3, 1) infinite;
+}
+
+@keyframes title-kernel {
+  0%, 84%, 100% { transform: none; }
+  87% { transform: scale(1.07, 0.9); }
+  91% { transform: scale(0.95, 1.09) translateY(-1.2rem); }
+  95% { transform: scale(1.02, 0.98); }
+}
+
+:root[data-motion='reduced'] .title-pop {
+  animation: none;
 }
 
 .title-rest {
@@ -481,6 +495,7 @@ kbd {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .title-pop,
   .title-start,
   .marquee::before,
   .marquee::after,

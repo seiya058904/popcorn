@@ -21,6 +21,20 @@ function arcPath(from: number, to: number): string {
   return `M ${point(from)} A ${ARC_RADIUS} ${ARC_RADIUS} 0 ${large} 1 ${point(to)}`;
 }
 
+/** Graduations inside the arc, as on a real pressure gauge: a long tick every tenth, short ones between. */
+function tickPath(): string {
+  let d = '';
+  for (let i = 0; i <= 20; i += 1) {
+    const angle = ((START_ANGLE + (SWEEP * i) / 20 - 90) * Math.PI) / 180;
+    const inner = i % 2 === 0 ? 53 : 58;
+    const outer = 64;
+    const c = Math.cos(angle);
+    const s = Math.sin(angle);
+    d += `M${(CENTER + inner * c).toFixed(2)} ${(CENTER + inner * s).toFixed(2)}L${(CENTER + outer * c).toFixed(2)} ${(CENTER + outer * s).toFixed(2)}`;
+  }
+  return d;
+}
+
 export interface GaugeHooks {
   onChargeChange(charge: number, charging: boolean): void;
 }
@@ -52,6 +66,13 @@ export class CannonGauge {
     this.root.dataset.gauge = 'cannon';
     this.root.innerHTML = `
       <svg viewBox="0 0 200 200" aria-hidden="true">
+        <defs>
+          <linearGradient id="gauge-glass" x1="0" y1="0" x2="0.6" y2="1">
+            <stop offset="0" stop-color="#fff6e4" stop-opacity="0.2"/>
+            <stop offset="0.55" stop-color="#fff6e4" stop-opacity="0"/>
+          </linearGradient>
+        </defs>
+        <path d="${tickPath()}" fill="none" stroke="#e8c893" stroke-opacity="0.55" stroke-width="2.4" stroke-linecap="round"/>
         <path d="${arcPath(0, 1)}" fill="none" stroke="#5a3342" stroke-width="16" stroke-linecap="round"/>
         <path data-part="cool" fill="none" stroke="#c9a67c" stroke-width="16" stroke-linecap="round"/>
         <path d="${arcPath(0.93, 1)}" fill="none" stroke="#e4343c" stroke-width="16"/>
@@ -60,6 +81,8 @@ export class CannonGauge {
           <path d="M96 104 L100 34 L104 104 Z" fill="#fff1d0" stroke="#3a1d28" stroke-width="2" stroke-linejoin="round"/>
         </g>
         <circle cx="100" cy="100" r="11" fill="#dc3038" stroke="#3a1d28" stroke-width="3"/>
+        <circle cx="96.5" cy="96.5" r="3.2" fill="#fff1d0" fill-opacity="0.7"/>
+        <path d="M 30 96 A 70 70 0 0 1 118 31 A 86 86 0 0 0 30 96 Z" fill="url(#gauge-glass)"/>
       </svg>`;
     this.needle = this.root.querySelector('[data-part="needle"]')!;
     this.green = this.root.querySelector('[data-part="green"]')!;

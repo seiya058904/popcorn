@@ -27,6 +27,11 @@ export const Pattern = {
   Paper: 13.5,
   /** Speckled enamel, as on graniteware pots: pale flecks of every size in the glaze. */
   Speckle: 14.5,
+  /**
+   * Moving water on a flat top face centered on the model's origin: rings from a spill above it,
+   * drifting caustics, white churn where the spill lands. Scale is fixed (always .5).
+   */
+  Water: 15.5,
 } as const;
 
 /** 0 keeps only the main shapes, 1 adds medium parts, 2 adds the finest. */
