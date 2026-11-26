@@ -368,17 +368,16 @@ export class Game {
 
   /** Loads settings and the save, if any, before the first frame. */
   async init(): Promise<LoadOutcome> {
-    this.store = this.capture ? memoryStore() : await openStore();
     // Signs on machines and buildings are painted with this font when the scenes are built.
-    await document.fonts.load('64px Kuaile', '爆米花').catch(() => undefined);
-    performance.mark('boot:fonts');
+    const fonts = document.fonts.load('64px Kuaile', '爆米花').catch(() => undefined).then(() => performance.mark('boot:fonts'));
+    this.store = this.capture ? memoryStore() : await openStore();
     Object.assign(this.settings, await loadSettings(this.store, this.settings));
     if (!this.fixedQuality && !this.capture) {
       this.stage.setQuality(this.settings.quality === 'auto' ? initialTier(this.stage.gpuName()) : this.settings.quality);
     }
     this.applySettings();
     this.saves = new SaveManager(this.sim, this.store);
-    const outcome = await this.saves.load();
+    const [outcome] = await Promise.all([this.saves.load(), fonts]);
     performance.mark('boot:save');
     this.world.syncToSave();
     performance.mark('boot:scene');

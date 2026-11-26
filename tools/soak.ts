@@ -1,21 +1,26 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { STAGES } from '../src/content/stages.ts';
+import { PRODUCERS } from '../src/content/producers.ts';
+import { UPGRADES } from '../src/content/upgrades.ts';
 import { argValue, hasFlag, startHarness } from './lib/harness.ts';
 import { qa, totalAt } from './shot-presets.ts';
 
 /**
  * Real-time stress run: a simulated player keeps playing while memory is sampled after forced GC.
- * Usage: node tools/soak.ts [--minutes=120] [--size=1920x1080] [--stage=4] [--hold]
+ * Usage: node tools/soak.ts [--minutes=120] [--size=1920x1080] [--stage=4] [--hold] [--max-load]
  * Scene changes legitimately load new assets, so growth is judged inside each scene.
  * --stage starts in a later scene; --hold keeps the run there, however long it lasts.
+ * --max-load holds a nearly full heap with every unlocked machine, all upgrades, and sustained play.
+ * Set --cache-dir=path when running several independent Vite servers against the same checkout.
  */
 const minutes = Number(argValue('minutes') ?? 120);
 const [width, height] = (argValue('size') ?? '1920x1080').split('x').map(Number);
 const startStage = Number(argValue('stage') ?? 0);
-const hold = hasFlag('hold');
+const maxLoad = hasFlag('max-load');
+const hold = hasFlag('hold') || maxLoad;
 const outDir = join('artifacts', 'soak');
-const reportName = argValue('stage') ? `stage-${startStage}.json` : 'report.json';
+const reportName = `${argValue('stage') ? `stage-${startStage}` : 'report'}${maxLoad ? '-max-load' : ''}.json`;
 mkdirSync(outDir, { recursive: true });
 
 interface Sample {
@@ -31,7 +36,10 @@ interface Sample {
   p99Ms: number;
 }
 
-const harness = await startHarness({ extraArgs: ['--js-flags=--expose-gc', '--enable-precise-memory-info'] });
+const harness = await startHarness({
+  cacheDir: argValue('cache-dir'),
+  extraArgs: ['--js-flags=--expose-gc', '--enable-precise-memory-info'],
+});
 const samples: Sample[] = [];
 const errors: string[] = [];
 let exitCode = 0;
@@ -61,7 +69,7 @@ const analyse = (): { stage: number; minutes: number; heapStart: number; heapEnd
 };
 
 const write = (): void => {
-  writeFileSync(join(outDir, reportName), JSON.stringify({ minutes, startStage, hold, size: `${width}x${height}`, perStage: analyse(), errors, samples }, null, 1));
+  writeFileSync(join(outDir, reportName), JSON.stringify({ minutes, startStage, hold, maxLoad, size: `${width}x${height}`, perStage: analyse(), errors, samples }, null, 1));
 };
 
 try {
@@ -70,7 +78,31 @@ try {
   page.on('console', (message) => {
     if (message.type() === 'error') errors.push(message.text());
   });
-  await qa(
+  if (maxLoad) {
+    await qa(page, (api, { stage, total, owned, upgrades, x, y }) => {
+      const sim = api.game.sim as unknown as { checkStage(): void };
+      sim.checkStage = () => { api.game.sim.state.totalEarned = total; };
+      const world = api.game.world as unknown as { targetLevel(): number };
+      world.targetLevel = () => 0.97;
+      api.set({ stage, totalEarned: total, popcorn: total, owned, upgrades, flavors: 12, frenzy: 30 });
+      if (stage === 0) {
+        api.game.world.current?.syncUnits(owned, false);
+        api.game.world.current?.syncUpgrades(upgrades);
+      }
+      setInterval(() => api.click(x, y), 100);
+      setInterval(() => {
+        api.set({ frenzy: 30 });
+        if (stage > 0) api.fireCannon(1.05);
+      }, 2000);
+    }, {
+      stage: startStage,
+      total: totalAt(startStage, 0.97),
+      owned: PRODUCERS.map((unit) => unit.unlockStage <= startStage ? 120 : 0),
+      upgrades: UPGRADES.map((upgrade) => upgrade.id),
+      x: width! * 0.4, y: height! * 0.5,
+    });
+    await page.mouse.click(width! * 0.4, height! * 0.5);
+  } else await qa(
     page,
     (api, value: { stage: number; total: number; ceiling: number; hold: boolean }) => {
       if (value.stage > 0) api.set({ stage: value.stage, totalEarned: value.total, popcorn: value.total });

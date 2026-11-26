@@ -62,6 +62,7 @@ class Track {
   /** -1 not laid, then 0..1 through the laying, starting at piece `start`. */
   lay = -1;
   private start = 0;
+  private uploaded = -1;
 
   /** Starts laying from the piece at this fraction of the way round the loop. */
   begin(fraction: number, animate: boolean): void {
@@ -83,9 +84,12 @@ class Track {
   update(dt: number, calm: boolean): void {
     if (this.lay < 0) {
       this.rig.commit(0);
+      this.uploaded = -1;
       return;
     }
     this.lay = calm ? 1 : Math.min(1, this.lay + dt / TRACK_SECONDS);
+    if (this.lay === this.uploaded) return;
+    this.uploaded = this.lay;
     const count = this.centers.length;
     this.centers.forEach((center, piece) => {
       // Pieces go down in order around the loop, each springing into place.

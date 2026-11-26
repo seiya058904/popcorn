@@ -11,8 +11,9 @@ export interface Harness {
   close(): Promise<void>;
 }
 
-export async function startHarness(options: { uncapped?: boolean; extraArgs?: string[] } = {}): Promise<Harness> {
+export async function startHarness(options: { uncapped?: boolean; extraArgs?: string[]; cacheDir?: string } = {}): Promise<Harness> {
   const server = await createServer({
+    cacheDir: options.cacheDir,
     // No file watching: tools must not be interrupted by edits made while they run.
     server: { host: '127.0.0.1', port: 0, hmr: false, watch: null },
     logLevel: 'warn',

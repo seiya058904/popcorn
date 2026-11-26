@@ -14,8 +14,8 @@ export interface PileShape {
   k: number;
   /** Height of whatever the popcorn rests on. */
   floor(x: number, z: number): number;
-  /** Height of the popcorn mound for a fill level of 0..1, before lumps. */
-  mound(x: number, z: number, level: number, wobble: number): number;
+  /** Prepares the mound height function for one fill level, before lumps. */
+  moundAtLevel(level: number): (radius: number, wobble: number) => number;
   /** Radius within which landing flakes should aim. */
   landingRadius(level: number): number;
   /** Relative flake density, 0..1. */
@@ -39,12 +39,24 @@ const SURFACE_SHAPES = 6;
 /** Steepest slope the cliff map can store; the heap shaders read it back with the same factor. */
 const CLIFF_RANGE = 6;
 
+interface SurfaceFlakes {
+  mesh: THREE.Mesh<THREE.InstancedBufferGeometry, THREE.ShaderMaterial>;
+  /** Original scattered order, including flakes waiting for the heap to rise under them. */
+  place: Float32Array;
+  quat: Float32Array;
+  kind: Float32Array;
+  /** Inclusive texel rectangle that can contribute to each flake's sampled height. */
+  bounds: Uint16Array;
+  /** Maps the packed draw slots back to the original order. */
+  drawn: Uint16Array;
+  count: number;
+}
+
 /** Height field with a spring layer on top: the visible mass of popcorn, at a fixed cost. */
 export class Pile {
   readonly shape: PileShape;
   readonly group = new THREE.Group();
   private readonly surface = new THREE.Group();
-  private readonly surfaceCounts: number[] = [];
   private readonly res: number;
   private readonly cell: number;
   private readonly minX: number;
@@ -52,6 +64,7 @@ export class Pile {
   private readonly texels: Float32Array;
   private readonly floors: Float32Array;
   private readonly wobble: Float32Array;
+  private readonly radii: Float64Array;
   private readonly lumps: Float32Array;
   private readonly clear: Float32Array;
   private readonly fills: Float32Array;
@@ -61,7 +74,8 @@ export class Pile {
   private readonly rest: Float32Array;
   private readonly cliffs: Uint8Array;
   private readonly cliffTexture: THREE.DataTexture;
-  private readonly surfaceMaterial: THREE.Material;
+  private readonly surfaceMaterial: THREE.ShaderMaterial;
+  private flakes: SurfaceFlakes | null = null;
   private readonly withSurface: boolean;
   private level = -1;
   private filledLevel = -1;
@@ -82,6 +96,7 @@ export class Pile {
     this.texels = new Float32Array(cells * 4);
     this.floors = new Float32Array(cells);
     this.wobble = new Float32Array(cells);
+    this.radii = new Float64Array(cells);
     this.lumps = new Float32Array(cells);
     this.clear = new Float32Array(cells);
     this.fills = new Float32Array(cells);
@@ -141,6 +156,7 @@ export class Pile {
         const c = i + j * res;
         this.floors[c] = shape.floor(x, z);
         this.clear[c] = shape.clearance(x, z);
+        this.radii[c] = Math.hypot(x - shape.centerX, z - shape.centerZ);
         const angle = Math.atan2(z - shape.centerZ, x - shape.centerX);
         this.wobble[c] =
           0.5 * Math.sin(angle * 3 + 1.2) + 0.3 * Math.sin(angle * 7 + 4.1) + 0.2 * Math.sin(angle * 11 + 2.6);
@@ -151,10 +167,10 @@ export class Pile {
       }
       if (j % 60 === 59) yield;
     }
-    if (this.withSurface) yield* this.buildSurface(stage, this.surfaceMaterial);
+    if (this.withSurface) yield* this.buildSurface(stage);
   }
 
-  private *buildSurface(stage: Stage, material: THREE.Material): Generator<void, void, void> {
+  private *buildSurface(stage: Stage): Generator<void, void, void> {
     const rng = new Rng(4242);
     const shape = this.shape;
     // Built at full density once; lower quality simply draws fewer of them.
@@ -209,28 +225,96 @@ export class Pile {
     const geometry = new THREE.InstancedBufferGeometry();
     geometry.index = atlas.index;
     geometry.setAttribute('position', atlas.position);
-    geometry.setAttribute('iPlace', new THREE.InstancedBufferAttribute(place, 4));
-    geometry.setAttribute('iQuat', new THREE.InstancedBufferAttribute(quat, 4));
-    geometry.setAttribute('iShape', new THREE.InstancedBufferAttribute(kind, 1));
-    geometry.instanceCount = total;
-    this.surfaceCounts.push(total);
-    const mesh = new THREE.Mesh(geometry, material);
+    geometry.setAttribute('iPlace', new THREE.InstancedBufferAttribute(new Float32Array(place.length), 4).setUsage(THREE.DynamicDrawUsage));
+    geometry.setAttribute('iQuat', new THREE.InstancedBufferAttribute(new Float32Array(quat.length), 4).setUsage(THREE.DynamicDrawUsage));
+    geometry.setAttribute('iShape', new THREE.InstancedBufferAttribute(new Float32Array(kind.length), 1).setUsage(THREE.DynamicDrawUsage));
+    geometry.instanceCount = 0;
+    const mesh = new THREE.Mesh(geometry, this.surfaceMaterial);
     mesh.frustumCulled = false;
     this.surface.add(mesh);
+
+    const bounds = new Uint16Array(total * 4);
+    const end = this.res - 1;
+    // Use the shader's texel-center mapping and include both neighborhoods near a boundary.
+    // Padding covers floating-point rounding in the UV math and hardware texture coordinates.
+    const padding = 0.01;
+    const clampCell = (value: number): number => Math.max(0, Math.min(end, Math.floor(value)));
+    for (let i = 0; i < place.length; i += 4) {
+      const x = (place[i]! - this.minX) / this.cell;
+      const z = (place[i + 1]! - this.minZ) / this.cell;
+      bounds[i] = clampCell(x - padding);
+      bounds[i + 1] = clampCell(x + padding + 1);
+      bounds[i + 2] = clampCell(z - padding) * this.res;
+      bounds[i + 3] = clampCell(z + padding + 1) * this.res;
+    }
+    this.flakes = { mesh, place, quat, kind, bounds, drawn: new Uint16Array(total), count: total };
     this.setDetail(stage.quality.pileInstances / QUALITY.ultra.pileInstances);
   }
 
   /** Fraction of the surface flakes to draw. The order is random, so any prefix looks even. */
   setDetail(fraction: number): void {
-    this.surface.children.forEach((child, index) => {
-      const geometry = (child as THREE.Mesh).geometry as THREE.InstancedBufferGeometry;
-      geometry.instanceCount = Math.floor(this.surfaceCounts[index]! * fraction);
-    });
+    if (!this.flakes) return;
+    this.flakes.count = Math.floor(this.flakes.kind.length * fraction);
+    this.compactSurface();
   }
 
   /** A distant heap needs only the height field; its pattern reads as popcorn from afar. */
-  setSurfaceVisible(visible: boolean): void {
-    this.surface.visible = visible;
+  retireSurface(): void {
+    const flakes = this.flakes;
+    if (!flakes) return;
+    // The instance geometry borrows the shared flake atlas index and positions.
+    // Detach those attributes before disposing so Three keeps their GPU buffers for other heaps.
+    flakes.mesh.geometry.setIndex(null);
+    flakes.mesh.geometry.deleteAttribute('position');
+    flakes.mesh.geometry.dispose();
+    this.surface.remove(flakes.mesh);
+    this.surfaceMaterial.dispose();
+    this.flakes = null;
+  }
+
+  private compactSurface(): void {
+    const flakes = this.flakes;
+    if (!flakes) return;
+    const { bounds, place, quat, kind, drawn, mesh, count } = flakes;
+    const { fills, floors, res } = this;
+    const geometry = mesh.geometry;
+    const positions = geometry.getAttribute('iPlace') as THREE.InstancedBufferAttribute;
+    const rotations = geometry.getAttribute('iQuat') as THREE.InstancedBufferAttribute;
+    const shapes = geometry.getAttribute('iShape') as THREE.InstancedBufferAttribute;
+    let cursor = 0;
+    let firstChanged = count;
+    const previous = geometry.instanceCount;
+    for (let flake = 0; flake < count; flake += 1) {
+      const offset = flake * 4;
+      const left = bounds[offset]!, right = bounds[offset + 1]!;
+      const top = bounds[offset + 2]!, bottom = bounds[offset + 3]!;
+      // With no filled texel in the footprint, height == floor even during a ripple.
+      // The vertex shader would reject this entire flake. Keep all borderline cases there.
+      let covered = false;
+      for (let row = top; row <= bottom && !covered; row += res) {
+        for (let c = row + left; c <= row + right; c += 1) {
+          if (fills[c]! > floors[c]!) {
+            covered = true;
+            break;
+          }
+        }
+      }
+      if (!covered) continue;
+      if (cursor >= previous || drawn[cursor] !== flake) {
+        firstChanged = Math.min(firstChanged, cursor);
+        drawn[cursor] = flake;
+        positions.setXYZW(cursor, place[offset]!, place[offset + 1]!, place[offset + 2]!, place[offset + 3]!);
+        rotations.setXYZW(cursor, quat[offset]!, quat[offset + 1]!, quat[offset + 2]!, quat[offset + 3]!);
+        shapes.setX(cursor, kind[flake]!);
+      }
+      cursor += 1;
+    }
+    geometry.instanceCount = cursor;
+    if (firstChanged >= cursor) return;
+    for (const attribute of [positions, rotations, shapes]) {
+      attribute.addUpdateRange(firstChanged * attribute.itemSize, (cursor - firstChanged) * attribute.itemSize);
+      attribute.needsUpdate = true;
+    }
   }
 
   setLevel(level: number): void {
@@ -294,6 +378,7 @@ export class Pile {
     const dirty = this.dirty;
     if (dirty) {
       if (this.refreshFills()) this.writeCliffs();
+      this.compactSurface();
     }
     if (moved || dirty) this.writeTexture();
   }
@@ -343,15 +428,15 @@ export class Pile {
    * avoiding redundant 180x180 cliff recomputations on intermediate rows.
    */
   private refreshFills(): boolean {
-    const { res: r, fills, lumps, wobble, shape } = this;
+    const { res: r, fills, lumps, wobble, radii, shape } = this;
     const level = Math.max(0, this.level);
     const full = Math.abs(level - this.filledLevel) > 0.02 || this.filledLevel < 0;
     const lumpGain = Math.min(1, level * 4);
+    const mound = shape.moundAtLevel(level);
     for (let j = full ? 0 : this.rowPhase; j < r; j += full ? 1 : ROW_INTERLACE) {
-      const z = this.minZ + j * this.cell;
-      for (let i = 0; i < r; i += 1) {
-        const c = i + j * r;
-        fills[c] = shape.mound(this.minX + i * this.cell, z, level, wobble[c]!) + lumps[c]! * lumpGain;
+      const end = (j + 1) * r;
+      for (let c = j * r; c < end; c += 1) {
+        fills[c] = mound(radii[c]!, wobble[c]!) + lumps[c]! * lumpGain;
       }
     }
     if (full) {

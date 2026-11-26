@@ -124,7 +124,6 @@ export class SceneProbe {
         camera.updateMatrixWorld(true);
         const previous = renderer.getRenderTarget();
         renderer.setRenderTarget(target, face);
-        renderer.clear(true, true, false);
         renderer.render(root, eye);
         renderer.setRenderTarget(previous);
         globals.uEnvOn.value = envOn;

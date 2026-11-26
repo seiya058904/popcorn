@@ -6,16 +6,22 @@ import { argValue, hasFlag, startHarness } from './lib/harness.ts';
 import { shotPresets, type ShotPreset } from './shot-presets.ts';
 
 /**
- * Usage: npm run shots -- [--only=a,b] [--out=dir] [--verify]
+ * Usage: npm run shots -- [--only=a,b] [--out=dir] [--verify] [--canvas-only]
  * --verify renders every preset twice in fresh pages and fails on any byte difference.
+ * --canvas-only captures the WebGL buffer directly, isolating it from HTML and CSS timing.
  */
 const outDir = argValue('out') ?? 'artifacts/shots';
 const only = argValue('only')?.split(',');
 const verify = hasFlag('verify');
+const canvasOnly = hasFlag('canvas-only');
 const presets = only ? shotPresets.filter((preset) => only.includes(preset.name)) : shotPresets;
 
 async function capture(page: Page, preset: ShotPreset): Promise<Buffer> {
   await preset.run(page);
+  if (canvasOnly) {
+    const data = await page.locator('#stage').evaluate((canvas: HTMLCanvasElement) => canvas.toDataURL('image/png'));
+    return Buffer.from(data.split(',')[1]!, 'base64');
+  }
   // CSS animations run on the wall clock, so a byte-exact comparison has to stop them.
   return page.screenshot({ type: 'png', animations: verify ? 'disabled' : 'allow' });
 }

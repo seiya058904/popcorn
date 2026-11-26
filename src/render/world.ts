@@ -149,10 +149,9 @@ interface Pose {
 
 interface Transition {
   from: SceneRuntime;
-  to: SceneRuntime;
+  to: SceneRuntime | null;
   stage: number;
   t: number;
-  blasted: boolean;
   startPose: Pose | null;
   silenced: boolean;
   arrived: boolean;
@@ -439,7 +438,11 @@ export class World {
       while (job.steps.next().done !== true);
       releaseSharedShapes();
     }
-    this.stage.preload(job.runtime.root);
+    if (job.phase === 'upload') {
+      for (const piece of job.pending) this.stage.preload(piece);
+    } else if (job.phase !== 'probe') {
+      this.stage.preload(job.runtime.root);
+    }
     const probe = job.probe ?? job.runtime.captureProbe(true);
     while (probe.next().done !== true);
     this.completeJob();
@@ -810,17 +813,16 @@ export class World {
     if (this.transition) this.finishTransition();
     if (this.currentIndex !== broken) return;
     const from = this.current;
+    this.prepareNext();
     this.transition = {
       from,
-      to: this.runtime(nextIndex, true),
+      to: null,
       stage: broken,
       t: 0,
-      blasted: false,
       startPose: null,
       silenced: false,
       arrived: false,
     };
-    this.transition.to.root.visible = false;
     this.hooks.onBreakBeat('strain', broken);
   }
 
@@ -862,7 +864,8 @@ export class World {
   }
 
   private startBlast(tr: Transition): void {
-    tr.blasted = true;
+    const to = this.runtime(tr.stage + 1, true);
+    tr.to = to;
     const from = tr.from;
     const ctx = from.context(this.time, 1, this.intensity);
     if (ctx) from.parts.blast?.(ctx);
@@ -874,25 +877,25 @@ export class World {
 
     // From here on the old scene lives inside the new one, so the camera can simply pull away.
     tr.startPose = this.poseInNextScene(from.spec);
-    this.root.add(tr.to.root);
-    tr.to.root.visible = true;
-    tr.to.root.position.set(0, 0, 0);
-    tr.to.root.scale.setScalar(1);
-    this.nest(from, tr.to);
+    this.root.add(to.root);
+    to.root.visible = true;
+    to.root.position.set(0, 0, 0);
+    to.root.scale.setScalar(1);
+    this.nest(from, to);
     // The burst lights up the room the old scene has just become a corner of.
     from.root.updateWorldMatrix(true, false);
-    this.flashLight(from.root.localToWorld(v.set(0, from.spec.steamY, 0)), '#ffd08a', 4.5, tr.to.spec.pile.k * 16, 0.8);
+    this.flashLight(from.root.localToWorld(v.set(0, from.spec.steamY, 0)), '#ffd08a', 4.5, to.spec.pile.k * 16, 0.8);
     from.beginShrinking(this.stage);
     // Whatever was nested inside the old scene is now too small to matter.
     this.runtimes[SCENES.indexOf(from.spec) - 1]?.root.removeFromParent();
-    this.currentIndex = SCENES.indexOf(tr.to.spec);
-    tr.to.syncUnits(this.sim.state.owned, false);
+    this.currentIndex = SCENES.indexOf(to.spec);
+    to.syncUnits(this.sim.state.owned, false);
     this.updateFraming();
     this.frameOpen = this.wantedOpen;
-    tr.to.syncUpgrades(this.sim.state.upgrades);
-    tr.to.flavor?.sync(this.sim.state.flavors);
-    tr.to.setFlockHidden(true);
-    tr.to.parts.enter?.(0);
+    to.syncUpgrades(this.sim.state.upgrades);
+    to.flavor?.sync(this.sim.state.flavors);
+    to.setFlockHidden(true);
+    to.parts.enter?.(0);
     this.level = 0;
     this.prepareNext();
   }
@@ -926,12 +929,12 @@ export class World {
   private finishTransition(): void {
     const tr = this.transition;
     if (!tr) return;
-    if (!tr.blasted) this.startBlast(tr);
+    if (!tr.to) this.startBlast(tr);
     tr.from.retire(this.stage);
     // The scene nested inside the old one has become far too small to see.
     this.runtimes[SCENES.indexOf(tr.from.spec) - 1]?.root.removeFromParent();
-    tr.to.parts.enter?.(1);
-    tr.to.setFlockHidden(false);
+    tr.to!.parts.enter?.(1);
+    tr.to!.setFlockHidden(false);
     this.transition = null;
     if (!tr.arrived) this.arrive(tr);
     this.stage.post.params.shock.w = 0;
@@ -939,7 +942,7 @@ export class World {
 
   private arrive(tr: Transition): void {
     tr.arrived = true;
-    tr.to.dropInMachines();
+    tr.to!.dropInMachines();
     this.hooks.onBreakBeat('arrive', tr.stage);
   }
 
@@ -951,9 +954,9 @@ export class World {
       tr.silenced = true;
       this.hooks.onBreakBeat('silence', tr.stage);
     }
-    if (!tr.blasted && t >= STRAIN_END + tuning.breakSilenceMs / 1000) this.startBlast(tr);
+    if (!tr.to && t >= STRAIN_END + tuning.breakSilenceMs / 1000) this.startBlast(tr);
     if (!tr.arrived && t >= ZOOM_END - 0.35) this.arrive(tr);
-    if (tr.blasted) tr.to.parts.enter?.(clamp01((t - ZOOM_START) / (ZOOM_END - ZOOM_START)));
+    tr.to?.parts.enter?.(clamp01((t - ZOOM_START) / (ZOOM_END - ZOOM_START)));
     if (t >= TRANSITION_END) this.finishTransition();
   }
 
@@ -970,17 +973,18 @@ export class World {
     const tr = this.transition;
     if (tr) this.updateTransition(dt);
     const active = this.transition;
-    // Shows get the whole frame; the next scene is built in the quiet in between.
+    // If a player breaks through early, keep preparing the destination during the strain.
+    // The camera gets the whole frame once it can see both scenes.
     if (this.bootProbe) this.stepBootProbe();
-    else if (!active && this.finaleTime < 0) this.advanceJob(BUILD_BUDGET_MS);
+    else if (!active?.to && this.finaleTime < 0) this.advanceJob(BUILD_BUDGET_MS);
     this.updateHover();
     this.updateWink(dt);
 
     // During the silent beat the old scene hangs in slow motion.
     let sceneDt = dt;
-    if (active && !active.blasted && active.t > STRAIN_END) sceneDt = dt * 0.12;
+    if (active && !active.to && active.t > STRAIN_END) sceneDt = dt * 0.12;
 
-    if (!active || active.blasted) {
+    if (!active || active.to) {
       this.level += (this.targetLevel() - this.level) * (1 - Math.exp(-dt * 7));
     }
     if (this.spotlight) {
@@ -999,7 +1003,7 @@ export class World {
     shared.level = this.level;
     shared.intensity = this.intensity;
     shared.attract = this.attract;
-    if (active && !active.blasted) {
+    if (active && !active.to) {
       const u = clamp01(active.t / STRAIN_END);
       // Carries straight on from the pressure that was already building.
       active.from.strain(PRESSURE_SHARE + (1 - PRESSURE_SHARE) * u, active.from.context(this.time, 1, this.intensity));
@@ -1095,8 +1099,8 @@ export class World {
     if (plan && this.finaleTime !== -1) {
       const shot = plan.camera(this.finaleTime === -2 ? plan.duration : this.finaleTime);
       pose = { ...rest, position: shot.position, target: shot.target, focusDistance: shot.position.distanceTo(shot.target), focusRange: 150, shadowCenter: new THREE.Vector3(0, -14, 0), shadowRadius: 62 };
-    } else if (tr && !(this.reduceMotion && tr.blasted)) {
-      if (!tr.blasted) {
+    } else if (tr && !(this.reduceMotion && tr.to)) {
+      if (!tr.to) {
         // The camera leans in while the pressure builds.
         const push = easeInOutCubic(clamp01(tr.t / (STRAIN_END + 0.3)));
         pose = { ...rest, position: rest.position.clone().lerp(rest.target, push * 0.08) };
@@ -1130,7 +1134,7 @@ export class World {
       if (back.t >= 1) this.returnFrom = null;
     }
     this.applyPose(pose);
-    this.applyRoomLight(tr && tr.blasted ? tr : null, roomBlend, dt);
+    this.applyRoomLight(tr?.to ? tr : null, roomBlend, dt);
 
     const post = this.stage.post.params;
     post.motion = motion;
@@ -1221,7 +1225,7 @@ export class World {
     p.aoTint.set(pose.grade.aoTint);
     p.tilt.set(pose.tilt, 0.5, 0.2);
     const tr = this.transition;
-    if (tr && tr.silenced && !tr.blasted) {
+    if (tr && tr.silenced && !tr.to) {
       p.saturation *= 0.72;
       p.vignette += 0.12;
     }

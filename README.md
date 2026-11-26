@@ -178,11 +178,11 @@ npm run preview      # then open the address it prints, normally http://localhos
 | `npm run balance` | Economy simulation, written to `docs/BALANCE.md` |
 | `npm run budget` | Worst-case draw calls and triangles in every scene |
 | `npm run audio` | Loudness, clipping and mix checks, including an offline render of the real mixer (needs `ffmpeg`) |
-| `npm run shots` | Review screenshots; add `--verify` to check they are reproducible |
+| `npm run shots` | Review screenshots; add `--verify --canvas-only` to check the WebGL output separately from UI animations |
 | `npm run turntable` | Close-ups of every machine from four sides |
 | `npm run playthrough` | Plays the real game with a simulated player |
-| `npm run soak` | Real-time stress run with memory tracking |
-| `node tools/perf.ts` | Frame times; `--capped` at the display rate, `--trace`, `--paints`, `--breakout --from-title`, `--cpu-throttle=4` |
+| `npm run soak` | Real-time stress run with memory tracking; `--max-load` holds a full scene under sustained play |
+| `node tools/perf.ts` | Frame times and GPU queries; `--max-load`, `--capped`, `--gpu`, `--cold-breakout`, `--cpu-throttle=4` |
 | `node tools/first-visit.ts` | A first visit to the production build on a throttled connection |
 
 The first end-to-end run needs browsers: `npx playwright install chromium firefox`.
@@ -195,7 +195,7 @@ The first end-to-end run needs browsers: `npx playwright install chromium firefo
 - **Draw calls:** each machine type is one "part rig": all its parts in one mesh, posed from a small float texture, so a scene with every slot filled stays within 120 draw calls and 13 million triangles in the worst case (`npm run budget`).
 - **Background building:** the next scene is built a few milliseconds per frame while you play, its shaders compile in parallel, and its buffers go to the GPU one piece per frame.
 - **Rules apart from rendering:** the economy runs at a fixed 10 steps a second in `src/sim` with no browser dependencies, so the balance simulator plays the real rules.
-- **Measured on one desktop** (Radeon RX 7900 XT, Chrome): every scene holds 60 FPS at 4K on the highest setting with ten clicks a second; with the CPU slowed down four times, 1080p on low still holds 60 FPS. A first visit on a simulated 10 Mbps connection shows the loading screen in about 0.4 s and the title in about 2.3 s.
+- **Performance:** the [performance audit](docs/PERFORMANCE_AUDIT.md) records all five scenes at four quality tiers on an RX 7900 XT, including 4K transitions, CPU throttling, software rendering, and first-visit timings.
 - **Measured again on a laptop** (GeForce RTX 3070 Laptop GPU, Chrome) after the visual overhaul: at 1440p every scene holds 60 FPS with ten clicks a second; at 4K on ultra with nothing capping the frame rate, frames take 10–22% longer than before it, the cinema and its crowd of 176 the most.
 
 ```text

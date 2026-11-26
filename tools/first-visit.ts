@@ -4,7 +4,7 @@ import { argValue } from './lib/harness.ts';
 import { GPU_ARGS } from './lib/gpu-args.ts';
 
 /**
- * Usage: node tools/first-visit.ts [--mbps=10] [--latency=40] [--size=1920x1080] [--url=https://…]
+ * Usage: node tools/first-visit.ts [--mbps=10] [--latency=40] [--size=1920x1080] [--cpu-throttle=4] [--url=https://…]
  *
  * A first visit to the production build, as a new player makes it: empty cache, a throttled
  * connection, then ten seconds of play right after the title. Reports when the loading screen
@@ -13,6 +13,7 @@ import { GPU_ARGS } from './lib/gpu-args.ts';
  */
 const mbps = Number(argValue('mbps') ?? 10);
 const latency = Number(argValue('latency') ?? 40);
+const cpuThrottle = Number(argValue('cpu-throttle') ?? 1);
 const [width, height] = (argValue('size') ?? '1920x1080').split('x').map(Number);
 const remote = argValue('url');
 
@@ -29,6 +30,7 @@ try {
   });
   page.on('requestfailed', (request) => problems.push(`failed: ${request.url()}`));
   const cdp = await context.newCDPSession(page);
+  if (cpuThrottle > 1) await cdp.send('Emulation.setCPUThrottlingRate', { rate: cpuThrottle });
   await cdp.send('Network.enable');
   await cdp.send('Network.setCacheDisabled', { cacheDisabled: true });
   await cdp.send('Network.emulateNetworkConditions', {
@@ -86,12 +88,14 @@ try {
   console.log(
     JSON.stringify({
       network: `${mbps} Mbps, ${latency} ms`,
+      cpuThrottle,
       requests,
       downloadedMb: Number((bytes / 1048576).toFixed(2)),
       ...timing,
       play: {
         frames: frames.length,
         meanMs: Number((frames.reduce((sum, value) => sum + value, 0) / frames.length).toFixed(2)),
+        p95Ms: Number(sorted[Math.floor((sorted.length - 1) * 0.95)]!.toFixed(1)),
         p99Ms: Number(sorted[Math.floor((sorted.length - 1) * 0.99)]!.toFixed(1)),
         maxMs: Number(sorted[sorted.length - 1]!.toFixed(1)),
         over50ms: frames.filter((value) => value > 50).length,

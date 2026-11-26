@@ -84,16 +84,18 @@ export const earthPile: PileShape = {
     if (r < CRATER.outerR + 0.15) return CRATER.rimY;
     return groundAt(r);
   },
-  mound(x, z, level, wobble) {
-    const r = Math.hypot(x, z);
-    if (r < CRATER.outerR + 0.15) return craterMound(r, level);
+  moundAtLevel(level) {
     const crest = craterMound(CRATER.innerR, level) - CRATER.rimY;
-    if (crest <= 0) return groundAt(r) - K;
-    // The popcorn settles over the planet as a thickening ice cap.
-    const reach = capRadius(level) * (1 + wobble * 0.12);
-    const u = r / reach;
-    if (u >= 1) return groundAt(r) - K;
-    return groundAt(r) + (0.5 * K + Math.min(crest, 3.2)) * (1 - u * u) ** 0.6 - 0.1;
+    const radius = capRadius(level);
+    const thickness = 0.5 * K + Math.min(crest, 3.2);
+    return (r, wobble) => {
+      if (r < CRATER.outerR + 0.15) return craterMound(r, level);
+      if (crest <= 0) return groundAt(r) - K;
+      // The popcorn settles over the planet as a thickening ice cap.
+      const u = r / (radius * (1 + wobble * 0.12));
+      if (u >= 1) return groundAt(r) - K;
+      return groundAt(r) + thickness * (1 - u * u) ** 0.6 - 0.1;
+    };
   },
   landingRadius(level) {
     const crest = craterMound(CRATER.innerR, level) - CRATER.rimY;

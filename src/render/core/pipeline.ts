@@ -370,7 +370,7 @@ void main() {
   c += texture2D(tSource, vUv + uPixel * vec2( 1.0, -1.0)).rgb * 2.0;
   c += texture2D(tSource, vUv + uPixel * vec2(-1.0,  1.0)).rgb * 2.0;
   c += texture2D(tSource, vUv + uPixel * vec2( 1.0,  1.0)).rgb * 2.0;
-  gl_FragColor = vec4(c / 12.0, 1.0);
+  gl_FragColor = vec4(c / 12.0 * 0.82, 0.0);
 }
 `;
 
@@ -541,11 +541,6 @@ void main() {
 }
 `;
 
-interface Mip {
-  down: THREE.WebGLRenderTarget;
-  up: THREE.WebGLRenderTarget;
-}
-
 const hdrOptions: THREE.RenderTargetOptions = {
   type: THREE.HalfFloatType,
   format: THREE.RGBAFormat,
@@ -565,7 +560,7 @@ export class PostPipeline {
   private blur!: THREE.WebGLRenderTarget;
   private mirror!: THREE.WebGLRenderTarget;
   private shaftTarget!: THREE.WebGLRenderTarget;
-  private mips: Mip[] = [];
+  private mips: THREE.WebGLRenderTarget[] = [];
   private width = 0;
   private height = 0;
 
@@ -592,7 +587,7 @@ export class PostPipeline {
   private readonly shaftsMat = this.pass(shaftsFragment, { tColor: { value: null }, uShafts: { value: new THREE.Vector3() }, uThreshold: { value: 0.9 }, uRadius: { value: 0 }, uAspect: { value: 1 } });
   private readonly prefilterMat = this.pass(prefilterFragment, { tSource: { value: null }, uPixel: { value: new THREE.Vector2() } });
   private readonly downMat = this.pass(downFragment, { tSource: { value: null }, uPixel: { value: new THREE.Vector2() } });
-  private readonly upMat = this.pass(upFragment, { tSource: { value: null }, uPixel: { value: new THREE.Vector2() } }, false, true);
+  private readonly upMat = this.pass(upFragment, { tSource: { value: null }, uPixel: { value: new THREE.Vector2() } });
   private readonly compositeMat = this.pass(
     compositeFragment,
     {
@@ -640,6 +635,11 @@ export class PostPipeline {
   constructor(renderer: THREE.WebGLRenderer, quality: QualitySettings) {
     this.renderer = renderer;
     this.quality = quality;
+    // Accumulate the same tent filter over the existing downsample, keeping its alpha of 1.
+    // The source is always a different mip, so no texture is sampled while it is written.
+    this.upMat.blending = THREE.CustomBlending;
+    this.upMat.blendSrc = THREE.OneFactor;
+    this.upMat.blendDst = THREE.OneFactor;
     this.quad = new THREE.Mesh(this.triangle(), this.compositeMat);
     this.quad.frustumCulled = false;
     this.quadScene.add(this.quad);
@@ -681,7 +681,8 @@ export class PostPipeline {
     });
     const hw = Math.max(1, w >> 1);
     const hh = Math.max(1, h >> 1);
-    const aoOptions: THREE.RenderTargetOptions = { ...hdrOptions, type: THREE.UnsignedByteType };
+    // Each AO stage reads one 8-bit channel. Keep the same quantization and filtering.
+    const aoOptions: THREE.RenderTargetOptions = { ...hdrOptions, format: THREE.RedFormat, type: THREE.UnsignedByteType };
     this.aoA = new THREE.WebGLRenderTarget(hw, hh, aoOptions);
     this.aoB = new THREE.WebGLRenderTarget(hw, hh, aoOptions);
     this.blur = new THREE.WebGLRenderTarget(hw, hh, hdrOptions);
@@ -691,10 +692,7 @@ export class PostPipeline {
     let mw = hw;
     let mh = hh;
     for (let level = 0; level < this.quality.bloomLevels; level += 1) {
-      this.mips.push({
-        down: new THREE.WebGLRenderTarget(mw, mh, hdrOptions),
-        up: new THREE.WebGLRenderTarget(mw, mh, hdrOptions),
-      });
+      this.mips.push(new THREE.WebGLRenderTarget(mw, mh, hdrOptions));
       mw = Math.max(1, mw >> 1);
       mh = Math.max(1, mh >> 1);
     }
@@ -761,7 +759,7 @@ export class PostPipeline {
 
     const c = this.compositeMat.uniforms;
     c.tColor!.value = color;
-    c.tBloom!.value = this.mips[0]!.up.texture;
+    c.tBloom!.value = this.mips[0]!.texture;
     c.tAo!.value = this.aoA.texture;
     c.tBlur!.value = this.blur.texture;
     c.tReflect!.value = this.mirror.texture;
@@ -807,53 +805,47 @@ export class PostPipeline {
     const mips = this.mips;
     this.prefilterMat.uniforms.tSource!.value = color;
     this.prefilterMat.uniforms.uPixel!.value.set(1 / this.width, 1 / this.height);
-    this.draw(this.prefilterMat, mips[0]!.down);
+    this.draw(this.prefilterMat, mips[0]!);
     for (let level = 1; level < mips.length; level += 1) {
-      const source = mips[level - 1]!.down;
+      const source = mips[level - 1]!;
       this.downMat.uniforms.tSource!.value = source.texture;
       this.downMat.uniforms.uPixel!.value.set(1 / source.width, 1 / source.height);
-      this.draw(this.downMat, mips[level]!.down);
+      this.draw(this.downMat, mips[level]!);
     }
-    let source = mips[mips.length - 1]!.down;
+    let source = mips[mips.length - 1]!;
     for (let level = mips.length - 2; level >= 0; level -= 1) {
       const target = mips[level]!;
       this.upMat.uniforms.tSource!.value = source.texture;
-      this.upMat.uniforms.tBase!.value = target.down.texture;
       this.upMat.uniforms.uPixel!.value.set(0.5 / source.width, 0.5 / source.height);
-      this.draw(this.upMat, target.up);
-      source = target.up;
-    }
-    if (mips.length === 1) {
-      this.upMat.uniforms.tSource!.value = mips[0]!.down.texture;
-      this.upMat.uniforms.tBase!.value = mips[0]!.down.texture;
-      this.draw(this.upMat, mips[0]!.up);
+      this.draw(this.upMat, target);
+      source = target;
     }
   }
 
   private draw(material: THREE.ShaderMaterial, target: THREE.WebGLRenderTarget | null): void {
     this.quad.material = material;
     this.renderer.setRenderTarget(target);
-    this.renderer.render(this.quadScene, this.quadCamera);
+    // The full-screen triangle covers every pixel, including when an effect returns early.
+    const autoClear = this.renderer.autoClear;
+    this.renderer.autoClear = false;
+    try {
+      this.renderer.render(this.quadScene, this.quadCamera);
+    } finally {
+      this.renderer.autoClear = autoClear;
+    }
   }
 
   private pass(
     fragment: string,
     uniforms: Record<string, THREE.IUniform>,
     useDepth = false,
-    addBase = false,
   ): THREE.ShaderMaterial {
-    const source = addBase
-      ? fragment
-          .replace('uniform sampler2D tSource;', 'uniform sampler2D tSource, tBase;')
-          .replace('gl_FragColor = vec4(c / 12.0, 1.0);', 'gl_FragColor = vec4(c / 12.0 * 0.82 + texture2D(tBase, vUv).rgb, 1.0);')
-      : fragment;
     return new THREE.ShaderMaterial({
       vertexShader: fullscreenVertex,
-      fragmentShader: source,
+      fragmentShader: fragment,
       uniforms: {
         ...uniforms,
         ...(useDepth ? this.depthUniforms : {}),
-        ...(addBase ? { tBase: { value: null } } : {}),
       },
       depthTest: false,
       depthWrite: false,
@@ -875,9 +867,6 @@ export class PostPipeline {
     this.blur.dispose();
     this.mirror.dispose();
     this.shaftTarget.dispose();
-    for (const mip of this.mips) {
-      mip.down.dispose();
-      mip.up.dispose();
-    }
+    for (const mip of this.mips) mip.dispose();
   }
 }

@@ -719,7 +719,7 @@ export class SceneRuntime {
     stage.setGlassDistant(this.root);
     stage.shadow.removeTree(this.root);
     this.dropOutlines();
-    this.pile.setSurfaceVisible(false);
+    this.pile.retireSurface();
     if (this.batches) this.batches.group.visible = false;
     this.sprites.mesh.visible = false;
     this.director?.hideHopper(false);

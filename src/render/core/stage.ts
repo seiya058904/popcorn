@@ -212,7 +212,6 @@ export class Stage {
     const { renderer, camera, scene } = this;
     const target = this.post.sceneTarget;
     renderer.setRenderTarget(target);
-    renderer.clear(true, true, false);
     const refract = this.quality.refraction && target.samples > 0 && this.glassInView();
     this.showGlass(!refract, refract);
     if (!refract) {
@@ -262,7 +261,7 @@ export class Stage {
 
   /**
    * Draws a tree once off-screen, so its shaders and buffers are on the GPU before they are
-   * needed. The shadow map it overwrites is redrawn at the start of every frame.
+   * needed. Both warmup targets are tiny and use the matching formats.
    */
   preload(root: THREE.Object3D): void {
     const culled: THREE.Object3D[] = [];
@@ -275,7 +274,7 @@ export class Stage {
     this.camera.updateMatrixWorld();
     // Every form of the glass gets compiled, whichever one this machine ends up using.
     this.showGlass(true, true);
-    this.shadow.render(this.renderer, root);
+    this.shadow.render(this.renderer, root, true);
     this.renderer.setRenderTarget(this.preloadTarget);
     this.renderer.render(root, this.camera);
     this.renderer.setRenderTarget(null);

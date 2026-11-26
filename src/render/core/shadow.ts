@@ -17,10 +17,27 @@ const MAX_SOFTNESS = 13;
 const white = new THREE.Color(1, 1, 1);
 const savedClear = new THREE.Color();
 
+function shadowTarget(size: number): THREE.WebGLRenderTarget {
+  const depth = new THREE.DepthTexture(size, size, THREE.UnsignedIntType);
+  depth.compareFunction = THREE.LessEqualCompare;
+  depth.minFilter = THREE.LinearFilter;
+  depth.magFilter = THREE.LinearFilter;
+  // The color copy gives the distance to a blocker for soft shadows.
+  return new THREE.WebGLRenderTarget(size, size, {
+    depthTexture: depth,
+    format: THREE.RedFormat,
+    type: THREE.HalfFloatType,
+    minFilter: THREE.NearestFilter,
+    magFilter: THREE.NearestFilter,
+    generateMipmaps: false,
+  });
+}
+
 /** One directional shadow map. Casters are registered with an explicit depth material. */
 export class ShadowPass {
   readonly camera = new THREE.OrthographicCamera(-8, 8, 8, -8, 0.5, 40);
   private target: THREE.WebGLRenderTarget | null = null;
+  private readonly warmupTarget = shadowTarget(4);
   private readonly casters = new Map<THREE.Mesh, THREE.Material>();
   private readonly savedMeshes: THREE.Mesh[] = [];
   private readonly savedMats: Array<THREE.Material | THREE.Material[]> = [];
@@ -37,21 +54,8 @@ export class ShadowPass {
     globals.uShadowPenumbra.value.x = soft ? 1 : 0;
     if (this.target?.width === size) return;
     this.target?.dispose();
-    const depth = new THREE.DepthTexture(size, size, THREE.UnsignedIntType);
-    depth.compareFunction = THREE.LessEqualCompare;
-    depth.minFilter = THREE.LinearFilter;
-    depth.magFilter = THREE.LinearFilter;
-    // Casters also write their depth as a color: a comparing depth texture can only answer
-    // "lit or not", and a soft shadow needs to know how far away the blocker is.
-    this.target = new THREE.WebGLRenderTarget(size, size, {
-      depthTexture: depth,
-      format: THREE.RedFormat,
-      type: THREE.HalfFloatType,
-      minFilter: THREE.NearestFilter,
-      magFilter: THREE.NearestFilter,
-      generateMipmaps: false,
-    });
-    globals.uShadowMap.value = depth;
+    this.target = shadowTarget(size);
+    globals.uShadowMap.value = this.target.depthTexture;
     globals.uShadowDepth.value = this.target.texture;
     globals.uShadowTexel.value = 1 / size;
   }
@@ -83,12 +87,12 @@ export class ShadowPass {
       originals.push([node as THREE.Mesh, (node as THREE.Mesh).material]);
       (node as THREE.Mesh).material = depth;
     });
-    renderer.setRenderTarget(this.target);
+    renderer.setRenderTarget(this.warmupTarget);
     renderer.compile(root, this.camera, scene);
     for (const [mesh, material] of originals) mesh.material = material;
   }
 
-  render(renderer: THREE.WebGLRenderer, scene: THREE.Object3D): void {
+  render(renderer: THREE.WebGLRenderer, scene: THREE.Object3D, warmup = false): void {
     if (!this.target) return;
     const r = this.radius;
     const cam = this.camera;
@@ -126,7 +130,8 @@ export class ShadowPass {
       mesh.material = depth;
       count += 1;
     }
-    renderer.setRenderTarget(this.target);
+    // Warmup only needs shader and buffer setup. Real frames and probes use the tier's full map.
+    renderer.setRenderTarget(warmup ? this.warmupTarget : this.target);
     // The automatic clear fills the color copy with the far plane, where nothing blocks the light.
     renderer.getClearColor(savedClear);
     const alpha = renderer.getClearAlpha();

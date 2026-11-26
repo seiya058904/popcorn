@@ -56,6 +56,8 @@ interface Lobe {
   size: number;
   /** Angular radius of the puff, in radians. */
   width: number;
+  /** Dot products below this bound fall outside the spherical cap. */
+  minDot: number;
 }
 
 /**
@@ -86,14 +88,17 @@ export function createFlakeGeometry(shape: number, detail: number): THREE.Buffer
       if (center.dot(other.center) > (mushroom ? 0.86 : 0.8)) center = center.sub(other.center.clone().multiplyScalar(0.55)).normalize();
     }
     const big = i < 3;
+    const size = mushroom ? rng.range(0.86, 0.98) : big ? rng.range(0.92, 1.14) : rng.range(0.62, 0.88);
+    const width = mushroom ? rng.range(0.62, 0.78) : big ? rng.range(0.95, 1.2) : rng.range(0.5, 0.75);
     lobes.push({
       center,
-      size: mushroom ? rng.range(0.86, 0.98) : big ? rng.range(0.92, 1.14) : rng.range(0.62, 0.88),
-      width: mushroom ? rng.range(0.62, 0.78) : big ? rng.range(0.95, 1.2) : rng.range(0.5, 0.75),
+      size,
+      width,
+      minDot: Math.cos(width) - Number.EPSILON,
     });
   }
   // Close-up flakes get a second, finer layer of crinkles.
-  const fine = detail >= FLAKE_DETAIL_HIGH ? 1 : 0;
+  const fine = detail >= FLAKE_DETAIL_HIGH;
 
   const pos = geometry.getAttribute('position') as THREE.BufferAttribute;
   const count = pos.count;
@@ -116,7 +121,9 @@ export function createFlakeGeometry(shape: number, detail: number): THREE.Buffer
     let sum = 0;
     for (const lobe of lobes) {
       // Each puff is a round bubble: a spherical cap, so neighbours meet in creases, not in ridges.
-      const t = Math.acos(Math.max(-1, Math.min(1, dot(warped, lobe.center)))) / lobe.width;
+      const facing = dot(warped, lobe.center);
+      if (facing < lobe.minDot) continue;
+      const t = Math.acos(Math.min(1, facing)) / lobe.width;
       const value = t < 1 ? lobe.size * Math.sqrt(1 - t * t) : 0;
       sum += Math.pow(value, 9);
       if (value > best) {
@@ -128,11 +135,11 @@ export function createFlakeGeometry(shape: number, detail: number): THREE.Buffer
     }
     const field = Math.pow(sum, 1 / 9);
     const blister = valueNoise3(dir.x * 5.2 + seed, dir.y * 5.2, dir.z * 5.2);
-    const crinkle = (valueNoise3(dir.x * 23 + seed, dir.y * 23, dir.z * 23 - seed) - 0.5) * 0.035 * fine;
+    const crinkle = fine ? (valueNoise3(dir.x * 23 + seed, dir.y * 23, dir.z * 23 - seed) - 0.5) * 0.035 : 0;
     const wrinkle =
       Math.pow(blister, 2) * (mushroom ? 0.22 : 0.17) - 0.05 + (valueNoise3(dir.x * 11 + seed, dir.y * 11, dir.z * 11) - 0.5) * (mushroom ? 0.09 : 0.06) + crinkle;
     const hullDot = dot(dir, hull);
-    const core = smooth(0.87, 0.97, hullDot) * (0.65 + 0.35 * valueNoise3(dir.x * 16, dir.y * 16 + seed, dir.z * 16));
+    const core = hullDot <= 0.87 ? 0 : smooth(0.87, 0.97, hullDot) * (0.65 + 0.35 * valueNoise3(dir.x * 16, dir.y * 16 + seed, dir.z * 16));
     // A mushroom is a round head: its lobes are pulled in toward one even ball.
     const body = mushroom ? 0.42 + 0.58 * field : 0.27 + 0.8 * field;
     let radius = body + wrinkle * smooth(0.25, 0.6, field);

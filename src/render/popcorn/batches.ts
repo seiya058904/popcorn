@@ -127,7 +127,13 @@ export class PieceBatches {
   end(): void {
     this.mesh.count = this.count;
     this.shadowMesh.count = this.count;
-    this.mesh.instanceMatrix.needsUpdate = true;
+    if (this.count === 0) return;
+    const { instanceMatrix } = this.mesh;
+    instanceMatrix.clearUpdateRanges();
+    instanceMatrix.addUpdateRange(0, this.count * instanceMatrix.itemSize);
+    instanceMatrix.needsUpdate = true;
+    this.state.clearUpdateRanges();
+    this.state.addUpdateRange(0, this.count * this.state.itemSize);
     this.state.needsUpdate = true;
   }
 }

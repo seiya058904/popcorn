@@ -21,6 +21,7 @@ const names = readdirSync(dirA)
   .filter((file) => file.endsWith('.png'))
   .map((file) => file.slice(0, -4))
   .filter((name) => !only || only.includes(name));
+if (names.length === 0) throw new Error(`No reference PNGs selected in ${dirA}`);
 
 const browser = await chromium.launch();
 const page = await browser.newPage();
@@ -32,6 +33,7 @@ try {
       b = readFileSync(join(dirB, `${name}.png`));
     } catch {
       console.log(`${name.padEnd(28)} missing in ${dirB}`);
+      failed = true;
       continue;
     }
     const a = readFileSync(join(dirA, `${name}.png`));
