@@ -1,10 +1,13 @@
 import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { describe, expect, it } from 'vitest';
+import { Rng } from '../../src/motion/rng.ts';
 import type { Stage } from '../../src/render/core/stage.ts';
 import { at, Kit, P } from '../../src/render/geometry/kit.ts';
 import { FLAKE_DETAIL_LOW, FLAKE_SHAPES } from '../../src/render/geometry/popcorn.ts';
 import { PartRig, RIG_HIDDEN, ToyRig } from '../../src/render/geometry/rig.ts';
 import { ATLAS_ROWS, flakeAtlas, lowFlake } from '../../src/render/popcorn/batches.ts';
+import { UnitRig, type UnitHost } from '../../src/render/units.ts';
 
 /** Just enough of a stage for building rigs: nothing is drawn in these tests. */
 function fakeStage(): Stage {
@@ -26,6 +29,22 @@ function readPart(rig: PartRig, copy: number, part: number): THREE.Matrix4 {
   const base = (copy * width + part * 4) * 4;
   return new THREE.Matrix4().fromArray(data, base);
 }
+
+describe('kit geometry', () => {
+  it('preserves rounded box triangle corners and normals on an indexed grid', () => {
+    for (const [w, h, d, radius, segments] of [[2.4, 0.27, 1.8, 0.2, 1], [0.8, 1.9, 1.2, 0.075, 2], [1, 0.4, 0.8, 0, 3]] as const) {
+      const packed = P.box(w, h, d, radius, segments);
+      const expanded = packed.toNonIndexed();
+      const reference = new RoundedBoxGeometry(w, h, d, segments, Math.min(radius, w * 0.49, h * 0.49, d * 0.49));
+      expect(packed.getAttribute('position').count).toBeLessThan(reference.getAttribute('position').count);
+      for (const name of ['position', 'normal']) {
+        const actual = expanded.getAttribute(name).array;
+        const original = reference.getAttribute(name).array;
+        expect(Buffer.from(actual.buffer).equals(Buffer.from(original.buffer))).toBe(true);
+      }
+    }
+  });
+});
 
 describe('part rigs', () => {
   it('merge every part into one mesh and tag each vertex with its part and passes', () => {
@@ -109,6 +128,46 @@ describe('toy rigs', () => {
     // The hand is hidden with its parent, so nothing at all is drawn.
     expect(readPart(rig, 0, 1).elements).toEqual(RIG_HIDDEN.elements);
     expect(rig.body.count).toBe(0);
+  });
+});
+
+describe('machine copies', () => {
+  it('packs buried copies without reassigning the remaining machine’s paint or hit target', () => {
+    let buried = false;
+    const quiet = (): void => {};
+    const host: UnitHost = {
+      calm: false, rng: new Rng(7),
+      heightAt: (x) => buried && x < 0 ? 10 : 0,
+      launch: quiet, flash: quiet, smoke: quiet, caramel: quiet, ember: quiet,
+      dust: quiet, sparkle: quiet, thump: quiet, onCannonFired: quiet, sound: quiet,
+    };
+    const space = new THREE.Group();
+    const unit = new UnitRig(fakeStage(), space, 'pan', [{ x: -10, y: 0, z: 0 }, { x: 10, y: 0, z: 0 }], host, [boxPart(1), boxPart(0.5)]);
+    const body = space.children[0] as THREE.InstancedMesh;
+    const paint = new THREE.Color();
+    unit.sync(2, false);
+    unit.update(0, 0, 0);
+    body.getColorAt(1, paint);
+    const secondPaint = paint.clone();
+    body.getColorAt(0, paint);
+    const firstPaint = paint.clone();
+    expect(body.count).toBe(2);
+
+    buried = true;
+    unit.update(0.5, 0, 0);
+    expect(body.count).toBe(1);
+    body.getColorAt(0, paint);
+    expect(paint).toEqual(secondPaint);
+    const fromRight = new THREE.Ray(new THREE.Vector3(10, 0.5, 4), new THREE.Vector3(0, 0, -1));
+    expect(unit.pick(fromRight)?.copy).toBe(1);
+
+    buried = false;
+    unit.update(0.5, 0, 0);
+    expect(body.count).toBe(2);
+    body.getColorAt(0, paint);
+    expect(paint).toEqual(firstPaint);
+    body.getColorAt(1, paint);
+    expect(paint).toEqual(secondPaint);
   });
 });
 

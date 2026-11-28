@@ -7,7 +7,6 @@ import type { Stage } from '../core/stage.ts';
 import { addLightBeam } from '../fx/beam.ts';
 import { SpriteKind } from '../fx/sprites.ts';
 import { addToy, addToyInstances, at, Kit, P, Pattern, type ToyInstances } from '../geometry/kit.ts';
-import { PartRig, RIG_HIDDEN, type RigPart } from '../geometry/rig.ts';
 import { M } from '../machines/common.ts';
 import { addSign } from '../materials/sign.ts';
 import type { SceneContext, SceneBuild, SceneSpec, UnitSlot } from './types.ts';
@@ -144,7 +143,11 @@ void main() {
   vec2 p = (vUv - 0.5) * vec2(2.05, 1.0);
   float flicker = 0.92 + 0.08 * sin(uTime * 37.0) * sin(uTime * 13.0);
   vec3 col;
-  if (uShow < 1.0) col = mix(intermission(p), leader(p), uShow);
+  // A reel runs alone unless it is actually dissolving into the next one.
+  if (uShow == 0.0) col = intermission(p);
+  else if (uShow == 1.0) col = leader(p);
+  else if (uShow == 2.0) col = feature(p);
+  else if (uShow < 1.0) col = mix(intermission(p), leader(p), uShow);
   else col = mix(leader(p), feature(p), uShow - 1.0);
   // The change of reel flashes white for a moment.
   col += vec3(0.8) * (1.0 - abs(fract(uShow) - 0.5) * 2.0) * step(0.001, fract(uShow));
@@ -272,21 +275,36 @@ function seatGeometry(): THREE.BufferGeometry {
   return kit.build();
 }
 
-/** What each audience member can be made of; every copy shows a few of these. */
-const CROWD = { body: 0, skin: [1, 2, 3], hair: [4, 5, 6, 7], bucket: 8 } as const;
-const CROWD_SKINS = ['#f6c9a4', '#c98d62', '#8a5a3c'];
+const AUDIENCE_ROWS = 8;
+const AUDIENCE_COLUMNS = 22;
+const AUDIENCE_SIZE = AUDIENCE_ROWS * AUDIENCE_COLUMNS;
+const SKIN_TONES = ['#f6c9a4', '#c98d62', '#8a5a3c'];
+const SHIRTS = ['#3f6fd8', '#d64545', '#3ea36b', '#e0a23a', '#8b5cc7', '#2a8f9c', '#f0e6d6', '#555a6e'];
+
+interface AudienceMember {
+  x: number;
+  y: number;
+  z: number;
+  ry: number;
+  row: number;
+  phase: number;
+  hair: number;
+  hairCopy: number;
+  bucketCopy: number;
+  vx: number;
+  vy: number;
+}
 
 /**
  * A seated toy filmgoer seen from behind its seat: shoulders and arms in a shirt that takes the
  * copy's color, a head in one of three skin tones, and hair, a bun or a cap. Some hold a bucket up.
  * Every part is in the same seat-relative space as the old head-and-body piece.
  */
-function crowdParts(): RigPart[] {
-  // Seated, their shadows would only fall on the seat in front: not worth a pass.
-  const part = (build: (kit: Kit) => void, shadow = false): RigPart => {
+function crowdParts(): { body: THREE.BufferGeometry; head: THREE.BufferGeometry; hair: THREE.BufferGeometry[]; bucket: THREE.BufferGeometry } {
+  const part = (build: (kit: Kit) => void): THREE.BufferGeometry => {
     const kit = new Kit();
     build(kit);
-    return { geometry: kit.build(), shadow };
+    return kit.build();
   };
   const shirt = { color: '#ffffff', gloss: 0.45, coat: 0.2, soft: 0.4 };
   const body = part((kit) => {
@@ -299,53 +317,49 @@ function crowdParts(): RigPart[] {
       kit.add(P.capsule(0.27, 0.9, 2, 6), { ...shirt, matrix: at(side * 1.34, 3.45, 0.35, [1.2, 0, 0]) });
     }
   });
-  const head = (skin: string): RigPart =>
-    part((kit) => {
-      const paint = { color: skin, gloss: 0.32, soft: 0.9, fixedColor: true };
-      kit.add(P.capsule(0.3, 0.3, 2, 6), { ...paint, matrix: at(0, 5.3, 0.78) });
-      kit.add(P.sphere(0.92, 12, 9), { ...paint, matrix: at(0, 6.1, 0.75) });
-      for (const side of [-1, 1]) kit.add(P.sphere(0.2, 6, 4), { ...paint, matrix: at(side * 0.9, 6.05, 0.8, [0, 0, 0], [0.5, 1, 0.8]) });
-    });
-  const hair = (build: (kit: Kit) => void): RigPart => part(build);
+  const head = part((kit) => {
+    const paint = { color: '#ffffff', gloss: 0.32, soft: 0.9 };
+    kit.add(P.capsule(0.3, 0.3, 2, 6), { ...paint, matrix: at(0, 5.3, 0.78) });
+    kit.add(P.sphere(0.92, 12, 9), { ...paint, matrix: at(0, 6.1, 0.75) });
+    for (const side of [-1, 1]) kit.add(P.sphere(0.2, 6, 4), { ...paint, matrix: at(side * 0.9, 6.05, 0.8, [0, 0, 0], [0.5, 1, 0.8]) });
+  });
   const hairPaint = (color: string) => ({ color, gloss: 0.42, soft: 0.3, fixedColor: true });
-  return [
-    body,
-    ...CROWD_SKINS.map(head),
+  const hair = [
     // Short and dark: a cap of hair over the back and crown.
-    hair((kit) => kit.add(P.sphere(0.97, 12, 7), { ...hairPaint('#2e2220'), matrix: at(0, 6.22, 0.82, [0.25, 0, 0], [1, 0.92, 1]) })),
+    part((kit) => kit.add(P.sphere(0.97, 12, 7), { ...hairPaint('#2e2220'), matrix: at(0, 6.22, 0.82, [0.25, 0, 0], [1, 0.92, 1]) })),
     // A brown bob down to the collar.
-    hair((kit) => {
+    part((kit) => {
       kit.add(P.sphere(1.0, 12, 7), { ...hairPaint('#6b4128'), matrix: at(0, 6.15, 0.85, [0, 0, 0], [1.04, 1, 1]) });
       kit.add(P.capsule(0.9, 0.5, 2, 10), { ...hairPaint('#6b4128'), matrix: at(0, 5.6, 0.98, [0, 0, 0], [1.05, 1, 0.8]) });
     }),
     // Blonde, gathered in a bun.
-    hair((kit) => {
+    part((kit) => {
       kit.add(P.sphere(0.97, 12, 7), { ...hairPaint('#e0b25e'), matrix: at(0, 6.18, 0.82, [0.1, 0, 0], [1, 0.95, 1]) });
       kit.add(P.sphere(0.42, 8, 6), { ...hairPaint('#e0b25e'), matrix: at(0, 6.75, 1.45) });
     }),
     // A red cap, worn forwards.
-    hair((kit) => {
+    part((kit) => {
       kit.add(P.sphere(0.97, 12, 6), { color: '#d62f38', gloss: 0.3, pattern: Pattern.Fabric, fixedColor: true, matrix: at(0, 6.3, 0.75, [0, 0, 0], [1, 0.85, 1]) });
       kit.add(P.box(1.0, 0.08, 0.8, 0.04, 1), { color: '#b0222c', gloss: 0.3, fixedColor: true, matrix: at(0, 6.35, -0.25, [-0.15, 0, 0]) });
       kit.add(P.sphere(0.09, 6, 4), { color: '#b0222c', gloss: 0.3, fixedColor: true, matrix: at(0, 7.12, 0.75) });
     }),
-    // A striped bucket held up beside the head, heaped with popcorn.
-    part((kit) => {
-      // One lathe, striped by angle: eight separate boards cost many times the triangles.
-      kit.add(P.lathe([[0, 0], [0.34, 0], [0.46, 1.0], [0.43, 1.0], [0, 0.12]], 16, 0.02, 1), {
-        color: '#fff3df',
-        gloss: 0.4,
-        fixedColor: true,
-        matrix: at(1.4, 4.9, 0.2),
-        colorFn: (p, _n, out) => {
-          if (Math.cos(Math.atan2(p.z - 0.2, p.x - 1.4) * 4) > 0) out.set('#d62f38');
-        },
-      });
-      for (const [x, y, z, r] of [[1.32, 5.98, 0.16, 0.2], [1.52, 5.96, 0.28, 0.18], [1.4, 6.12, 0.3, 0.16], [1.48, 5.95, 0.04, 0.17]] as const) {
-        kit.add(P.sphere(r, 7, 5), { ...M.popcorn, matrix: at(x, y, z, [x * 3, y, z * 5], [1, 0.85, 1]) });
-      }
-    }),
   ];
+  const bucket = part((kit) => {
+    // One lathe, striped by angle: eight separate boards cost many times the triangles.
+    kit.add(P.lathe([[0, 0], [0.34, 0], [0.46, 1.0], [0.43, 1.0], [0, 0.12]], 16, 0.02, 1), {
+      color: '#fff3df',
+      gloss: 0.4,
+      fixedColor: true,
+      matrix: at(1.4, 4.9, 0.2),
+      colorFn: (p, _n, out) => {
+        if (Math.cos(Math.atan2(p.z - 0.2, p.x - 1.4) * 4) > 0) out.set('#d62f38');
+      },
+    });
+    for (const [x, y, z, r] of [[1.32, 5.98, 0.16, 0.2], [1.52, 5.96, 0.28, 0.18], [1.4, 6.12, 0.3, 0.16], [1.48, 5.95, 0.04, 0.17]] as const) {
+      kit.add(P.sphere(r, 7, 5), { ...M.popcorn, matrix: at(x, y, z, [x * 3, y, z * 5], [1, 0.85, 1]) });
+    }
+  });
+  return { body, head, hair, bucket };
 }
 
 function bucketGeometry(): THREE.BufferGeometry {
@@ -541,36 +555,61 @@ function* buildCinema(stage: Stage, root: THREE.Group): SceneBuild {
   );
   screen.position.set(0, 16, -44.6);
   root.add(screen);
-  const screenRest = (screenGeometry.getAttribute('position') as THREE.BufferAttribute).array.slice();
+  const screenPositions = screenGeometry.getAttribute('position') as THREE.BufferAttribute;
+  screenPositions.setUsage(THREE.DynamicDrawUsage);
+  const screenBow = Float64Array.from({ length: screenPositions.count }, (_, i) => {
+    const d = 1 - Math.min(1, Math.hypot(screenPositions.getX(i) / 41, screenPositions.getY(i) / 20));
+    return d * d;
+  });
 
   // Rows of seats, each with an audience member who only came for the snacks.
-  const seats: ToyInstances = addToyInstances(stage, root, seatGeometry(), 176);
-  // The audience: one part rig, every member built from a body, a head and maybe hair and a bucket.
-  const crowd = new PartRig(stage, root, crowdParts(), 176);
-  const looks: number[][] = [];
-  const shirts = ['#3f6fd8', '#d64545', '#3ea36b', '#e0a23a', '#8b5cc7', '#2a8f9c', '#f0e6d6', '#555a6e'];
-  const shirtColor = new THREE.Color();
+  const seats: ToyInstances = addToyInstances(stage, root, seatGeometry(), AUDIENCE_SIZE);
+  // Only draw the parts each person has. Bodies and heads share one pose buffer and have their
+  // own instance colors; the hairstyle and bucket batches are sized to their actual wearers.
+  yield;
+  const crowdRoot = new THREE.Group();
+  crowdRoot.userData.budget = 'set';
+  root.add(crowdRoot);
+  const geometry = crowdParts();
+  const body = addToyInstances(stage, crowdRoot, geometry.body, AUDIENCE_SIZE, false);
+  const head = addToyInstances(stage, crowdRoot, geometry.head, AUDIENCE_SIZE, false);
+  head.body.instanceMatrix = head.ink.instanceMatrix = body.body.instanceMatrix;
+  const hairCounts = geometry.hair.map(() => 0);
+  let bucketCount = 0;
+  const tint = new THREE.Color();
   const seatColor = new THREE.Color(C.seat);
-  const audience: Array<{ x: number; z: number; ry: number; phase: number; flung: number; vx: number; vy: number }> = [];
-  for (let row = 0; row < 8; row += 1) {
+  const audience: AudienceMember[] = [];
+  for (let row = 0; row < AUDIENCE_ROWS; row += 1) {
     const z = 24 + row * 5.6;
     const y = GROUND + row * 0.5;
-    for (let col = -11; col <= 10; col += 1) {
+    for (let col = -AUDIENCE_COLUMNS / 2; col < AUDIENCE_COLUMNS / 2; col += 1) {
       const x = (col + 0.5) * 4.4 + (col >= 0 ? 4 : -4);
       const curve = (x * x) / 900;
       const index = audience.length;
-      const m = at(x, y, z - curve, [0, -x * 0.008, 0]);
-      seats.setMatrixAt(index, m);
+      const ry = -x * 0.008;
+      seats.setMatrixAt(index, at(x, y, z - curve, [0, ry, 0]));
       seats.body.setColorAt(index, seatColor);
-      const hair = (index * 5 + row * 3) % 5;
-      looks.push([CROWD.body, CROWD.skin[(index * 7 + row) % 3]!, ...(hair < 4 ? [CROWD.hair[hair]!] : []), ...((index * 13 + row) % 10 < 3 ? [CROWD.bucket] : [])]);
-      crowd.setColor(index, shirtColor.set(shirts[(index * 3 + row) % shirts.length]!));
-      for (let part = 0; part < crowd.partCount; part += 1) crowd.setMatrix(index, part, RIG_HIDDEN);
-      audience.push({ x, z: z - curve, ry: -x * 0.008, phase: index * 1.37, flung: 0, vx: 0, vy: 0 });
+      body.body.setColorAt(index, tint.set(SHIRTS[(index * 3 + row) % SHIRTS.length]!));
+      head.body.setColorAt(index, tint.set(SKIN_TONES[(index * 7 + row) % SKIN_TONES.length]!));
+      const hair = (row * 3) % 5;
+      const hairCopy = hair < hairCounts.length ? hairCounts[hair]! : -1;
+      if (hairCopy >= 0) hairCounts[hair] = hairCopy + 1;
+      const bucketCopy = (index * 13 + row) % 10 < 3 ? bucketCount++ : -1;
+      audience.push({ x, y, z: z - curve, ry, row, phase: index * 1.37, hair, hairCopy, bucketCopy, vx: 0, vy: 0 });
     }
   }
   seats.ink.instanceColor = seats.body.instanceColor;
   seats.commit(audience.length);
+  body.ink.instanceColor = body.body.instanceColor;
+  head.ink.instanceColor = head.body.instanceColor;
+  const hair = geometry.hair.map((shape, style) => addToyInstances(stage, crowdRoot, shape, hairCounts[style]!, false));
+  const buckets = addToyInstances(stage, crowdRoot, geometry.bucket, bucketCount, false);
+  const crowd = [body, head, ...hair, buckets];
+  for (const batch of crowd) {
+    batch.body.userData.budget = 'audience';
+    batch.ink.userData.budget = 'audience';
+  }
+  const riseByRow = Array<number>(AUDIENCE_ROWS).fill(0);
   const fanSeat = audience[FAN]!;
 
   // The cart-to-cinema supply line, built by the "影院专线" upgrade.
@@ -623,6 +662,11 @@ function* buildCinema(stage: Stage, root: THREE.Group): SceneBuild {
   let story = 0;
 
   const tell = (u: number, dt: number, instant: boolean, calm: boolean): void => {
+    if (story !== u) {
+      for (let row = 0; row < AUDIENCE_ROWS; row += 1) {
+        riseByRow[row] = smooth(0.74 + row * 0.018, 0.8 + row * 0.018, u);
+      }
+    }
     story = u;
     // The house lights go down as the programme gets going.
     const [toMid, toLate] = storyWeights(u);
@@ -649,6 +693,7 @@ function* buildCinema(stage: Stage, root: THREE.Group): SceneBuild {
   let dustTimer = 0;
   let strain = 0;
   let blasted = false;
+  let flungTime = 0;
 
   // Hidden things to find: the projector's beam, a fan in the front row, the curtain cord.
   const cues = new Cues();
@@ -721,23 +766,18 @@ function* buildCinema(stage: Stage, root: THREE.Group): SceneBuild {
       for (const group of STAR_GROUPS) bank.want(group, pieces.owns('decor-stars'));
     },
     strain(u) {
+      if (u === strain) return;
       strain = u;
       // The screen bows outward, pushed from behind.
-      const pos = screenGeometry.getAttribute('position') as THREE.BufferAttribute;
-      for (let i = 0; i < pos.count; i += 1) {
-        const x = screenRest[i * 3]!;
-        const y = screenRest[i * 3 + 1]!;
-        const d = 1 - Math.min(1, Math.hypot(x / 41, y / 20));
-        pos.setZ(i, d * d * u * u * 9);
-      }
-      pos.needsUpdate = true;
+      for (let i = 0; i < screenBow.length; i += 1) screenPositions.setZ(i, screenBow[i]! * u * u * 9);
+      screenPositions.needsUpdate = true;
       screenUniforms.uTear.value = u * u * 0.4;
     },
     blast(ctx) {
       blasted = true;
+      flungTime = 0.001;
       screenUniforms.uTear.value = 2;
       for (const person of audience) {
-        person.flung = 0.001;
         person.vx = ctx.rng.range(-3, 3);
         person.vy = ctx.rng.range(14, 30);
       }
@@ -746,14 +786,14 @@ function* buildCinema(stage: Stage, root: THREE.Group): SceneBuild {
       }
     },
     afterBlast(dt) {
-      for (const person of audience) if (person.flung > 0) person.flung += dt;
+      if (flungTime > 0) flungTime += dt;
     },
     settleAsMiniature() {
       blasted = true;
       tell(1, 0, true, true);
       screenUniforms.uTear.value = 2;
       usher.root.visible = false;
-      crowd.commit(0);
+      disposeAudience();
       belt.visible = false;
       beltOn = false;
       beltLoads.commit(0);
@@ -783,34 +823,8 @@ function* buildCinema(stage: Stage, root: THREE.Group): SceneBuild {
       beamFlicker = flicker > 0 ? 0.25 + 1.6 * Math.abs(Math.sin(time * 61)) * flicker : 1;
       cord.position.y = CORD_AT.y + cordTug.update(dt);
       cord.rotation.z = Math.sin(time * 0.8) * 0.01 + cordTug.velocity * 0.004;
-      audience.forEach((person, index) => {
-        const chew = Math.max(0, Math.sin(time * 2.4 + person.phase)) * 0.14;
-        // Everyone leans toward the snacks, not the film, until the feature has them on their
-        // feet, front rows first, cheering and bouncing.
-        const row = Math.floor(index / 22);
-        const up = blasted ? 0 : smooth(0.74 + row * 0.018, 0.8 + row * 0.018, story);
-        const cheer = up * Math.max(0, Math.sin(time * 5.2 + person.phase)) * 0.45;
-        p.set(person.x + Math.sin(time * 1.7 + person.phase) * up * 0.25, GROUND + row * 0.5 + chew * 0.5 * (1 - up) + up * 1.7 + cheer, person.z);
-        let spin = 0;
-        if (person.flung > 0) {
-          const t = person.flung;
-          p.x += person.vx * t;
-          p.z += 16 * t;
-          p.y += person.vy * t - 18 * t * t;
-          spin = t * 6;
-        }
-        let clap = 0;
-        if (index === FAN && stand > 0) {
-          // Standing up for the film: hops on the spot and sways, clapping.
-          p.y += stand * 2.4 + Math.abs(Math.sin(time * 12)) * 0.5 * stand;
-          clap = Math.sin(time * 18) * 0.12 * stand;
-        }
-        e.set(-0.12 + chew * 0.5 + spin, person.ry + clap, spin * 0.6 + clap);
-        q.setFromEuler(e);
-        m.compose(p, q, s);
-        for (const part of looks[index]!) crowd.setMatrix(index, part, m);
-      });
-      crowd.commit(blasted && audience[0]!.flung > 4 ? 0 : audience.length);
+      if (flungTime > 4) disposeAudience();
+      else if (audience.length > 0) updateAudience(stand);
       updateUsher(ctx);
       pieces.update(dt, ctx);
       // The screen lights the room in the colors of whatever is showing.
@@ -837,6 +851,55 @@ function* buildCinema(stage: Stage, root: THREE.Group): SceneBuild {
       }
     },
   };
+
+  function updateAudience(stand: number): void {
+    const chewTime = time * 2.4;
+    const cheerTime = time * 5.2;
+    const swayTime = time * 1.7;
+    const t = flungTime;
+    const spin = t * 6;
+    for (let index = 0; index < audience.length; index += 1) {
+      const person = audience[index]!;
+      const chew = Math.max(0, Math.sin(chewTime + person.phase)) * 0.14;
+      // The show brings people to their feet from the front row back.
+      const up = blasted ? 0 : riseByRow[person.row]!;
+      const cheer = up > 0 ? up * Math.max(0, Math.sin(cheerTime + person.phase)) * 0.45 : 0;
+      const sway = up > 0 ? Math.sin(swayTime + person.phase) * up * 0.25 : 0;
+      p.set(person.x + sway, person.y + chew * 0.5 * (1 - up) + up * 1.7 + cheer, person.z);
+      if (t > 0) {
+        p.x += person.vx * t;
+        p.z += 16 * t;
+        p.y += person.vy * t - 18 * t * t;
+      }
+      let clap = 0;
+      if (index === FAN && stand > 0) {
+        // Standing up for the film: hops on the spot and sways, clapping.
+        p.y += stand * 2.4 + Math.abs(Math.sin(time * 12)) * 0.5 * stand;
+        clap = Math.sin(time * 18) * 0.12 * stand;
+      }
+      e.set(-0.12 + chew * 0.5 + spin, person.ry + clap, spin * 0.6 + clap);
+      q.setFromEuler(e);
+      m.compose(p, q, s);
+      body.setMatrixAt(index, m);
+      if (person.hairCopy >= 0) hair[person.hair]!.setMatrixAt(person.hairCopy, m);
+      if (person.bucketCopy >= 0) buckets.setMatrixAt(person.bucketCopy, m);
+    }
+    body.commit(audience.length);
+    if (head.body.count === 0) head.commit(audience.length);
+    hair.forEach((batch, style) => batch.commit(hairCounts[style]!));
+    buckets.commit(bucketCount);
+  }
+
+  function disposeAudience(): void {
+    if (audience.length === 0) return;
+    crowdRoot.removeFromParent();
+    for (const batch of crowd) {
+      batch.body.geometry.dispose();
+      batch.body.dispose();
+      batch.ink.dispose();
+    }
+    audience.length = 0;
+  }
 
   function updateUsher(ctx: SceneContext): void {
     // Up and down the aisle with a torch, turning at each end; once the feature starts the

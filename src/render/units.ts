@@ -113,6 +113,8 @@ export class UnitRig {
   private readonly host: UnitHost;
   private readonly rig: PartRig;
   private readonly signs: THREE.InstancedMesh[];
+  private readonly tints: THREE.Color[] | undefined;
+  private readonly tintedCopies: Int32Array | undefined;
   private readonly states: UnitState[] = [];
   private readonly base = new THREE.Matrix4();
   private readonly height: number;
@@ -197,10 +199,12 @@ export class UnitRig {
       parent.add(mesh);
       return mesh;
     });
-    const tints = this.def.tints;
-    if (tints) {
-      const color = new THREE.Color();
-      this.slots.forEach((_slot, index) => this.rig.setColor(index, color.set(tints[index % tints.length]!)));
+    this.tints = this.def.tints?.map((tint) => new THREE.Color(tint));
+    if (this.tints) {
+      this.tintedCopies = Int32Array.from(this.slots, (_slot, index) => index);
+      for (let index = 0; index < this.slots.length; index += 1) {
+        this.rig.setColor(index, this.tints[index % this.tints.length]!);
+      }
     }
     if (path) this.followPath(0);
   }
@@ -370,37 +374,30 @@ export class UnitRig {
     const def = this.def;
     const rig = this.rig;
     if (this.path) this.followPath(dt);
-    let copy = 0;
-    const put = (part: number, matrix: THREE.Matrix4): void => rig.setMatrix(copy, part, matrix);
-    const hideCopy = (): void => {
-      for (let part = 0; part < rig.partCount; part += 1) rig.setMatrix(copy, part, HIDDEN);
-    };
     const speed = 1 + this.tier * 0.35;
     const calm = this.host.calm;
     const entrance = calm ? CALM_ENTRANCE : this.entrance;
+    const followHover = 1 - Math.exp(-dt * 14);
     let shown = 0;
+    const put = (part: number, matrix: THREE.Matrix4): void => rig.setMatrix(shown, part, matrix);
+    const tints = this.tints;
+    const tintedCopies = this.tintedCopies;
+    let colorsChanged = false;
     bounds.makeEmpty();
     let glow = 0;
     let glowCopy = -1;
     this.states.forEach((st, index) => {
-      copy = index;
       st.age += dt;
       const slot = this.slots[index]!;
       const s = slot.scale ?? 1;
-      if (st.age < 0) {
-        hideCopy();
-        return;
-      }
+      if (st.age < 0) return;
       // Half-buried machines leave odd scraps poking out, so the heap swallows them whole.
       const height = this.height * s;
       const line = slot.y + height * BURY_AT;
       const surface = this.host.heightAt(slot.x, slot.z);
       const under = surface > line || (st.sunk > 0.5 && surface > line - height * 0.08);
       st.sunk = st.sunk < 0 ? (under ? 1 : 0) : THREE.MathUtils.clamp(st.sunk + (under ? dt : -dt) * 2.4, 0, 1);
-      if (st.sunk >= 1) {
-        hideCopy();
-        return;
-      }
+      if (st.sunk >= 1) return;
       st.timer -= dt * tempo * speed;
       st.spin += dt * (2.2 + tempo) * speed;
       if (this.path) st.travel = (this.travel - index * this.path.spacing) / s;
@@ -463,10 +460,10 @@ export class UnitRig {
       // A poke: squashed down first, stretched up past its height, then a few settling wobbles.
       // The pointer resting on a machine lifts it a touch, ready to be poked.
       const poke = st.poke.update(dt) * (calm ? 0.5 : 1);
-      st.hover += ((index === this.hovered ? 1 : 0) - st.hover) * (1 - Math.exp(-dt * 14));
+      st.hover += ((index === this.hovered ? 1 : 0) - st.hover) * followHover;
       if (st.hover > glow) {
         glow = st.hover;
-        glowCopy = index;
+        glowCopy = shown;
       }
       frame.y += st.hover * 0.06;
       frame.sy *= 1 + poke * 0.16 + st.hover * 0.035;
@@ -489,17 +486,23 @@ export class UnitRig {
       this.base.compose(pos, quat, scale);
       def.pose(st, time, index, this.tier, this.base, put);
       if (this.badgePart >= 0) this.poseBadge(st, put);
+      // Only the draw index is compacted. Motion, wear, picking and machine colors follow the slot.
+      if (tints && tintedCopies && tintedCopies[shown] !== index) {
+        rig.setColor(shown, tints[index % tints.length]!);
+        tintedCopies[shown] = index;
+        colorsChanged = true;
+      }
       // Generous on purpose: lids fly and doors swing a little outside the model's own box.
       const r = this.radius * s * Math.max(1, frame.sx, frame.sy, frame.sz) * 1.35;
       bounds.expandByPoint(corner.copy(pos).addScalar(r)).expandByPoint(corner.copy(pos).addScalar(-r));
       shown += 1;
     });
-    const count = shown > 0 ? this.states.length : 0;
-    rig.commit(count);
+    if (colorsChanged) rig.body.instanceColor!.needsUpdate = true;
+    rig.commit(shown);
     rig.setHover(glowCopy, glow > 0.01 ? glow : 0);
     rig.setBounds(shown > 0 ? bounds.getBoundingSphere(sphere) : null);
     for (const sign of this.signs) {
-      sign.count = count;
+      sign.count = shown;
       sign.frustumCulled = shown > 0;
       if (shown > 0) (sign.boundingSphere ??= new THREE.Sphere()).copy(sphere);
     }

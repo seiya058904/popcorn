@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { toyMaterials, type ToyMaterials } from '../materials/toy.ts';
 import { LIGHT_GROUPS } from '../core/globals.ts';
 import type { Stage } from '../core/stage.ts';
@@ -346,14 +345,15 @@ export class Kit {
     }
     if (this.glass) geometry.userData.glass = this.glass.build();
     geometry.userData.noInk = !this.inked;
-    if (options.frozen) {
-      // The data can leave main memory once it is on the GPU. A lost graphics context reloads
-      // the page, so nothing ever needs to upload it again.
-      for (const attribute of Object.values(geometry.attributes)) (attribute as THREE.BufferAttribute).onUpload(releaseArray);
-      geometry.getIndex()?.onUpload(releaseArray);
-    }
+    if (options.frozen) releaseGeometryArraysOnUpload(geometry);
     return geometry;
   }
+}
+
+/** The graphics context reloads the page on restore. Only use on geometry never read by the CPU again. */
+export function releaseGeometryArraysOnUpload(geometry: THREE.BufferGeometry): void {
+  for (const attribute of Object.values(geometry.attributes)) (attribute as THREE.BufferAttribute).onUpload(releaseArray);
+  geometry.getIndex()?.onUpload(releaseArray);
 }
 
 function releaseArray(this: { array: unknown }): void {
@@ -437,10 +437,42 @@ export function releaseSharedShapes(): void {
   shapes.clear();
 }
 
+/**
+ * The rounded box's corner positions and normals depend only on each unit grid vertex.
+ * Keeping the indexed grid gives Kit the same triangle corners without expanding each face
+ * into independent triangles or computing texture coordinates that painted geometry discards.
+ */
+function roundedBox(w: number, h: number, d: number, radius: number, segments: number): THREE.BufferGeometry {
+  const divisions = segments * 2 + 1;
+  const geometry = new THREE.BoxGeometry(1, 1, 1, divisions, divisions, divisions);
+  geometry.deleteAttribute('uv');
+  if (divisions === 1) return geometry;
+
+  const position = geometry.getAttribute('position');
+  const normal = geometry.getAttribute('normal');
+  const halfSegment = 0.5 / divisions;
+  const innerX = w * 0.5 - radius;
+  const innerY = h * 0.5 - radius;
+  const innerZ = d * 0.5 - radius;
+  const n = new THREE.Vector3();
+  for (let i = 0; i < position.count; i += 1) {
+    const x = position.getX(i);
+    const y = position.getY(i);
+    const z = position.getZ(i);
+    const signX = Math.sign(x);
+    const signY = Math.sign(y);
+    const signZ = Math.sign(z);
+    n.set(x - signX * halfSegment, y - signY * halfSegment, z - signZ * halfSegment).normalize();
+    position.setXYZ(i, innerX * signX + n.x * radius, innerY * signY + n.y * radius, innerZ * signZ + n.z * radius);
+    normal.setXYZ(i, n.x, n.y, n.z);
+  }
+  return geometry;
+}
+
 /** Primitive library. Lathe profiles run counter-clockwise: outward along the base, then up. */
 export const P = {
   box: (w: number, h: number, d: number, r = 0.05, seg = 2): THREE.BufferGeometry =>
-    shared(`b${w},${h},${d},${r},${seg}`, () => new RoundedBoxGeometry(w, h, d, seg, Math.min(r, Math.min(w, h, d) * 0.49))),
+    shared(`b${w},${h},${d},${r},${seg}`, () => roundedBox(w, h, d, Math.min(r, Math.min(w, h, d) * 0.49), seg)),
   lathe: (profile: Point[], segments = 48, round = 0.03, steps = 4): THREE.BufferGeometry =>
     new THREE.LatheGeometry(roundProfile(profile, round, steps), segments),
   /** Solid rounded cylinder. */

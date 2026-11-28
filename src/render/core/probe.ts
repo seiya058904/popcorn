@@ -109,7 +109,9 @@ export class SceneProbe {
       for (let face = 0; face < 6; face += 1) {
         const hidden = hideOthers(root, keep);
         look.apply(index);
-        look.shadow();
+        // When all faces are drawn consecutively the shadow map stays intact between them.
+        // The incremental path shares it with the live scene, which redraws it between faces.
+        if (!immediate || face === 0) look.shadow();
         // The capture is lit the painted way, so a probe never sees an older probe.
         const envOn = globals.uEnvOn.value;
         const bounce = globals.uBounce.value.w;

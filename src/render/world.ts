@@ -98,6 +98,8 @@ const FOCUS_DEPTH = 1.8;
 const REFLECTION_REACH = 14;
 /** Milliseconds per frame spent building the next scene in the background. */
 const BUILD_BUDGET_MS = 4;
+/** Use the strain beat to submit an unready destination before it first appears. */
+const BREAK_BUILD_BUDGET_MS = 8;
 /** The miniature focus band, for scenes that do not set their own strength. */
 const TILT_SHIFT = 0.4;
 /** Short-lived lights for big moments: a cannon shot, a golden kernel, a breakout. */
@@ -391,7 +393,7 @@ export class World {
   }
 
   /** Works on the background build for about `budgetMs` milliseconds. */
-  private advanceJob(budgetMs: number): void {
+  private advanceJob(budgetMs: number, uploadLimit = 1): void {
     const job = this.job;
     if (!job) return;
     const start = performance.now();
@@ -418,8 +420,10 @@ export class World {
           job.probe = job.runtime.captureProbe(false);
           job.phase = 'probe';
         }
-        // Uploads are big and few: one per frame keeps each frame short.
-        return;
+        // Normally one per frame. While the source is straining, use the remaining time
+        // to upload a few pieces so the cut is less likely to upload the whole scene at once.
+        uploadLimit -= 1;
+        if (uploadLimit === 0 || job.phase === 'probe') return;
       } else {
         // One face of the reflection capture per frame: each is a full draw of the set.
         const before = performance.now();
@@ -970,13 +974,14 @@ export class World {
     const wanted = this.sceneIndexForStage(this.sim.state.stage);
     if (!this.transition && wanted !== this.currentIndex) this.showScene(wanted);
 
-    const tr = this.transition;
-    if (tr) this.updateTransition(dt);
-    const active = this.transition;
     // If a player breaks through early, keep preparing the destination during the strain.
     // The camera gets the whole frame once it can see both scenes.
+    const tr = this.transition;
     if (this.bootProbe) this.stepBootProbe();
-    else if (!active?.to && this.finaleTime < 0) this.advanceJob(BUILD_BUDGET_MS);
+    else if (tr && !tr.to) this.advanceJob(BREAK_BUILD_BUDGET_MS, 3);
+    else if (!tr && this.finaleTime < 0) this.advanceJob(BUILD_BUDGET_MS);
+    if (tr) this.updateTransition(dt);
+    const active = this.transition;
     this.updateHover();
     this.updateWink(dt);
 

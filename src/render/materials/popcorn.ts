@@ -313,11 +313,7 @@ float pileCliff(vec2 uv) { return textureLod(uPileCliff, uv, 0.0).r * 6.0; }
 bool pileBridge(vec2 uv) {
   ivec2 size = textureSize(uPileTex, 0);
   ivec2 c = clamp(ivec2(floor(uv * vec2(size) - 0.5)), ivec2(0), size - 2);
-  float cliff = 0.0;
-  for (int y = 0; y < 2; y++) for (int x = 0; x < 2; x++) {
-    cliff = max(cliff, texelFetch(uPileCliff, c + ivec2(x, y), 0).r * 6.0);
-  }
-  if (cliff <= 2.2) return false;
+  if (texelFetch(uPileCliff, c, 0).g == 0.0) return false;
   float low = 1e9, high = -1e9;
   for (int y = 0; y < 2; y++) for (int x = 0; x < 2; x++) {
     float h = texelFetch(uPileTex, c + ivec2(x, y), 0).r;

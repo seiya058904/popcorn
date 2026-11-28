@@ -60,17 +60,30 @@ interface Lobe {
   minDot: number;
 }
 
+const flakeBases = new Map<number, THREE.BufferGeometry>();
+
+/** Every shape at a given detail deforms the same indexed icosphere. */
+function flakeBase(detail: number): THREE.BufferGeometry {
+  let base = flakeBases.get(detail);
+  if (!base) {
+    const sphere = new THREE.IcosahedronGeometry(1, detail);
+    sphere.deleteAttribute('uv');
+    sphere.deleteAttribute('normal');
+    base = mergeVertices(sphere, 1e-4);
+    sphere.dispose();
+    flakeBases.set(detail, base);
+  }
+  return base;
+}
+
 /**
  * One popcorn piece as a radial function over the sphere. The kernel is a second radial
  * function over the same directions, so the mesh can morph from kernel to flake.
  */
 export function createFlakeGeometry(shape: number, detail: number): THREE.BufferGeometry {
   const rng = new Rng(9001 + shape * 137);
-  const sphere = new THREE.IcosahedronGeometry(1, detail);
-  sphere.deleteAttribute('uv');
-  sphere.deleteAttribute('normal');
-  const geometry = mergeVertices(sphere, 1e-4);
-  sphere.dispose();
+  const geometry = flakeBase(detail).clone();
+  geometry.userData = {};
 
   const hull = randomUnit(rng);
   // The kernel's flat sides face along `face`; it is widest along `side`.

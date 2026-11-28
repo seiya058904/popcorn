@@ -38,6 +38,8 @@ const LEVEL_STEP = 1e-3;
 const SURFACE_SHAPES = 6;
 /** Steepest slope the cliff map can store; the heap shaders read it back with the same factor. */
 const CLIFF_RANGE = 6;
+/** A cell can only bridge a drop when one of its four corners has a slope above 2.2. */
+const CLIFF_THRESHOLD = 2.2 / CLIFF_RANGE * 255;
 
 interface SurfaceFlakes {
   mesh: THREE.Mesh<THREE.InstancedBufferGeometry, THREE.ShaderMaterial>;
@@ -68,6 +70,8 @@ export class Pile {
   private readonly lumps: Float32Array;
   private readonly clear: Float32Array;
   private readonly fills: Float32Array;
+  private readonly coveredCells: Uint16Array;
+  private readonly coveredRowCounts: Uint16Array;
   private readonly bump: Float32Array;
   private readonly velocity: Float32Array;
   private readonly texture: THREE.DataTexture;
@@ -100,10 +104,12 @@ export class Pile {
     this.lumps = new Float32Array(cells);
     this.clear = new Float32Array(cells);
     this.fills = new Float32Array(cells);
+    this.coveredCells = new Uint16Array(cells);
+    this.coveredRowCounts = new Uint16Array(res);
     this.bump = new Float32Array(cells);
     this.velocity = new Float32Array(cells);
     this.rest = new Float32Array(cells);
-    this.cliffs = new Uint8Array(cells);
+    this.cliffs = new Uint8Array(cells * 2);
 
     const k = shape.k;
 
@@ -115,7 +121,7 @@ export class Pile {
     this.texture.wrapT = THREE.ClampToEdgeWrapping;
     this.texture.generateMipmaps = false;
 
-    this.cliffTexture = new THREE.DataTexture(this.cliffs, res, res, THREE.RedFormat, THREE.UnsignedByteType);
+    this.cliffTexture = new THREE.DataTexture(this.cliffs, res, res, THREE.RGFormat, THREE.UnsignedByteType);
     this.cliffTexture.minFilter = THREE.LinearFilter;
     this.cliffTexture.magFilter = THREE.LinearFilter;
     this.cliffTexture.generateMipmaps = false;
@@ -155,6 +161,7 @@ export class Pile {
         const z = this.minZ + j * this.cell;
         const c = i + j * res;
         this.floors[c] = shape.floor(x, z);
+        this.texels[c * 4 + 2] = this.floors[c]!;
         this.clear[c] = shape.clearance(x, z);
         this.radii[c] = Math.hypot(x - shape.centerX, z - shape.centerZ);
         const angle = Math.atan2(z - shape.centerZ, x - shape.centerX);
@@ -196,7 +203,7 @@ export class Pile {
         place[placed * 4 + 3] = shape.flakeScale * rng.range(0.78, 1.18);
         e.set(rng.range(0, 6.28), rng.range(0, 6.28), rng.range(0, 6.28));
         q.setFromEuler(e);
-        quat.set([q.x, q.y, q.z, q.w], placed * 4);
+        q.toArray(quat, placed * 4);
         placed += 1;
       }
       places.push(place);
@@ -380,7 +387,7 @@ export class Pile {
       if (this.refreshFills()) this.writeCliffs();
       this.compactSurface();
     }
-    if (moved || dirty) this.writeTexture();
+    if (dirty || moved) this.writeRipples();
   }
 
   /**
@@ -388,15 +395,23 @@ export class Pile {
    * shovel dents never open holes in the heap.
    */
   private writeCliffs(): void {
-    const { rest, cliffs, fills, floors, res: r, cell } = this;
-    for (let c = 0; c < rest.length; c += 1) rest[c] = Math.max(fills[c]!, floors[c]!);
+    const { rest, cliffs, res: r, cell } = this;
     const scale = 255 / (CLIFF_RANGE * cell);
     for (let j = 1; j < r - 1; j += 1) {
       for (let i = 1; i < r - 1; i += 1) {
         const c = i + j * r;
         const h = rest[c]!;
         const jump = Math.max(Math.abs(rest[c - 1]! - h), Math.abs(rest[c + 1]! - h), Math.abs(rest[c - r]! - h), Math.abs(rest[c + r]! - h));
-        cliffs[c] = Math.min(255, jump * scale);
+        cliffs[c * 2] = Math.min(255, jump * scale);
+      }
+    }
+    // Red is the interpolated corner slope for surface flakes. Green gives the mesh and
+    // its shadow the same four-corner test in one fetch, leaving the live height check on GPU.
+    for (let j = 0; j < r - 1; j += 1) {
+      const end = (j + 1) * r - 1;
+      for (let c = j * r; c < end; c += 1) {
+        const o = c * 2;
+        cliffs[o + 1] = Math.max(cliffs[o]!, cliffs[o + 2]!, cliffs[o + r * 2]!, cliffs[o + r * 2 + 2]!) > CLIFF_THRESHOLD ? 255 : 0;
       }
     }
     this.cliffTexture.needsUpdate = true;
@@ -408,17 +423,23 @@ export class Pile {
     const coupling = 150;
     const damping = 13;
     let energy = 0;
+    // Delay applying displacement by one row. Its last reader is the row below,
+    // so we can finish it while both rows are still hot without changing the stencil.
     for (let j = 1; j < r - 1; j += 1) {
-      for (let i = 1; i < r - 1; i += 1) {
-        const c = i + j * r;
+      const start = j * r + 1;
+      const end = start + r - 2;
+      for (let c = start; c < end; c += 1) {
         const b = bump[c]!;
         const around = (bump[c - 1]! + bump[c + 1]! + bump[c - r]! + bump[c + r]!) * 0.25;
         const v = velocity[c]! + ((around - b) * coupling - b * stiffness - velocity[c]! * damping) * STEP;
         velocity[c] = v;
         energy = Math.max(energy, Math.abs(v));
       }
+      if (j > 1) {
+        for (let c = start - r; c < end - r; c += 1) bump[c]! += velocity[c]! * STEP;
+      }
     }
-    for (let c = 0; c < bump.length; c += 1) bump[c]! += velocity[c]! * STEP;
+    for (let c = (r - 2) * r + 1; c < (r - 1) * r - 1; c += 1) bump[c]! += velocity[c]! * STEP;
     this.energy = energy / this.shape.k;
   }
 
@@ -428,16 +449,34 @@ export class Pile {
    * avoiding redundant 180x180 cliff recomputations on intermediate rows.
    */
   private refreshFills(): boolean {
-    const { res: r, fills, lumps, wobble, radii, shape } = this;
+    const { res: r, fills, floors, rest, lumps, wobble, radii, shape, coveredCells, coveredRowCounts, texels, clear } = this;
     const level = Math.max(0, this.level);
     const full = Math.abs(level - this.filledLevel) > 0.02 || this.filledLevel < 0;
     const lumpGain = Math.min(1, level * 4);
     const mound = shape.moundAtLevel(level);
+    const wall = shape.wallHeight;
+    const wallGap = 0.04 * shape.k;
+    const wallFade = 0.14 * shape.k;
     for (let j = full ? 0 : this.rowPhase; j < r; j += full ? 1 : ROW_INTERLACE) {
-      const end = (j + 1) * r;
-      for (let c = j * r; c < end; c += 1) {
+      const start = j * r;
+      const end = start + r;
+      let cursor = start;
+      for (let c = start; c < end; c += 1) {
         fills[c] = mound(radii[c]!, wobble[c]!) + lumps[c]! * lumpGain;
+        const floor = floors[c]!;
+        const fill = fills[c]!;
+        rest[c] = Math.max(fill, floor);
+        if (fill > floor) {
+          coveredCells[cursor++] = c;
+        } else {
+          const o = c * 4;
+          texels[o] = floor;
+          texels[o + 1] = 0;
+          const above = Math.min(1, Math.max(0, (floor - wall - wallGap) / wallFade));
+          texels[o + 3] = Math.max(clear[c]!, above);
+        }
       }
+      coveredRowCounts[j] = cursor - start;
     }
     if (full) {
       this.filledLevel = level;
@@ -456,21 +495,25 @@ export class Pile {
     return false;
   }
 
-  private writeTexture(): void {
-    const { texels, floors, fills, bump, velocity, clear } = this;
+  /** Only covered cells can show a ripple. Keep solving the full grid so waves still travel. */
+  private writeRipples(): void {
+    const { texels, fills, bump, velocity, clear, coveredCells, coveredRowCounts, res } = this;
     const k = this.shape.k;
     const wall = this.shape.wallHeight;
-    for (let c = 0; c < fills.length; c += 1) {
-      const floor = floors[c]!;
-      const fill = fills[c]!;
-      const covered = fill > floor;
-      const height = covered ? fill + bump[c]! : floor;
-      const o = c * 4;
-      texels[o] = height;
-      texels[o + 1] = covered ? Math.min(0.5, (Math.abs(velocity[c]!) / k) * 0.5) : 0;
-      texels[o + 2] = floor;
-      const above = Math.min(1, Math.max(0, (height - wall - 0.04 * k) / (0.14 * k)));
-      texels[o + 3] = Math.max(clear[c]!, above);
+    const wallGap = 0.04 * k;
+    const wallFade = 0.14 * k;
+    for (let j = 0; j < res; j += 1) {
+      const start = j * res;
+      const end = start + coveredRowCounts[j]!;
+      for (let i = start; i < end; i += 1) {
+        const c = coveredCells[i]!;
+        const o = c * 4;
+        const height = fills[c]! + bump[c]!;
+        texels[o] = height;
+        texels[o + 1] = Math.min(0.5, (Math.abs(velocity[c]!) / k) * 0.5);
+        const above = Math.min(1, Math.max(0, (height - wall - wallGap) / wallFade));
+        texels[o + 3] = Math.max(clear[c]!, above);
+      }
     }
     this.texture.needsUpdate = true;
   }

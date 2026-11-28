@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { Stage } from '../core/stage.ts';
 import { rigToyMaterials, type ToyMaterials } from '../materials/toy.ts';
-import { addGlassPiece } from './kit.ts';
+import { addGlassPiece, releaseGeometryArraysOnUpload } from './kit.ts';
 
 export interface RigPart {
   /** Built by a Kit; its glass, if any, travels in `userData.glass`. */
@@ -35,9 +35,12 @@ function drain<T>(steps: Generator<void, T, void>): T {
 function* mergeParts(parts: TaggedPart[]): Generator<void, THREE.BufferGeometry, void> {
   let vertices = 0;
   let indices = 0;
+  const bounds = new THREE.Box3();
   for (const { geometry } of parts) {
     vertices += geometry.getAttribute('position').count;
     indices += geometry.getIndex()!.count;
+    if (!geometry.boundingBox) geometry.computeBoundingBox();
+    bounds.union(geometry.boundingBox!);
   }
   const merged = new THREE.BufferGeometry();
   for (const name of ATTRIBUTES) {
@@ -72,8 +75,9 @@ function* mergeParts(parts: TaggedPart[]): Generator<void, THREE.BufferGeometry,
   }
   merged.setAttribute('aPart', new THREE.BufferAttribute(tags, 3));
   merged.setIndex(new THREE.BufferAttribute(index, 1));
-  yield;
-  merged.computeBoundingSphere();
+  merged.boundingBox = bounds;
+  merged.boundingSphere = bounds.getBoundingSphere(new THREE.Sphere());
+  releaseGeometryArraysOnUpload(merged);
   return merged;
 }
 
@@ -216,21 +220,24 @@ export class ToyRig {
   /** The same, joining the pieces a step at a time, for scenes built in the background. */
   *buildInSteps(stage: Stage, space: THREE.Object3D, clock: { value: number }): Generator<void, PartRig, void> {
     const rig = yield* PartRig.create(stage, space, this.parts, 1);
+    const holders = this.parts.map(({ holder }) => holder);
+    // The merged rig owns the buffers. Only the animated holders are needed from here on.
+    this.parts.length = 0;
     rig.commit(1);
     const sync = (): void => {
       if (this.stamp === clock.value) return;
       this.stamp = clock.value;
-      this.sync(space, rig);
+      this.sync(space, rig, holders);
     };
     for (const mesh of rig.all) mesh.onBeforeRender = sync;
     this.rig = rig;
     return rig;
   }
 
-  private sync(space: THREE.Object3D, rig: PartRig): void {
+  private sync(space: THREE.Object3D, rig: PartRig, holders: readonly THREE.Object3D[]): void {
     this.inverse.copy(space.matrixWorld).invert();
     let shown = false;
-    this.parts.forEach(({ holder }, part) => {
+    holders.forEach((holder, part) => {
       if (!visibleUnder(holder, space)) {
         rig.setMatrix(0, part, RIG_HIDDEN);
         return;
